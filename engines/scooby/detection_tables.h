@@ -22,21 +22,13 @@
 namespace Scooby {
 
 const PlainGameDescriptor scoobyGames[] = {
-	{ "scooby", "Scooby" },
-	{ 0, 0 }
+	{ "showdown", "Scooby-Doo! Showdown in Ghost Town" },
+	{ nullptr, nullptr }
 };
 
+// No entries yet: each release gets one once its signature files' sizes and
+// MD5s are recorded, together with its engine generation (1, 2 or 3).
 const ADGameDescription gameDescriptions[] = {
-	{
-		"scooby",
-		nullptr,
-		AD_ENTRY1s("file1.bin", "00000000000000000000000000000000", 11111),
-		Common::EN_ANY,
-		Common::kPlatformDOS,
-		ADGF_UNSTABLE,
-		GUIO1(GUIO_NONE)
-	},
-
 	AD_TABLE_END_MARKER
 };
 

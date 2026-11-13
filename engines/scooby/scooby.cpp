@@ -20,16 +20,12 @@
  */
 
 #include "scooby/scooby.h"
-#include "graphics/framelimiter.h"
-#include "scooby/detection.h"
 #include "scooby/console.h"
-#include "common/scummsys.h"
-#include "common/config-manager.h"
-#include "common/debug-channels.h"
 #include "common/events.h"
 #include "common/system.h"
 #include "engines/util.h"
-#include "graphics/paletteman.h"
+#include "graphics/framelimiter.h"
+#include "graphics/pixelformat.h"
 
 namespace Scooby {
 
@@ -41,7 +37,6 @@ ScoobyEngine::ScoobyEngine(OSystem *syst, const ADGameDescription *gameDesc) : E
 }
 
 ScoobyEngine::~ScoobyEngine() {
-	delete _screen;
 }
 
 uint32 ScoobyEngine::getFeatures() const {
@@ -53,55 +48,26 @@ Common::String ScoobyEngine::getGameId() const {
 }
 
 Common::Error ScoobyEngine::run() {
-	// Initialize 320x200 paletted graphics mode
-	initGraphics(320, 200);
-	_screen = new Graphics::Screen();
+	// The original games draw 640x480 16-bit RGB565 art.
+	const Graphics::PixelFormat format(2, 5, 6, 5, 0, 11, 5, 0, 0);
+	initGraphics(640, 480, &format);
+	if (_system->getScreenFormat() != format)
+		return Common::kUnsupportedColorMode;
 
-	// Set the engine's debugger console
 	setDebugger(new Console());
+	syncSoundSettings();
 
-	// If a savegame was selected from the launcher, load it
-	int saveSlot = ConfMan.getInt("save_slot");
-	if (saveSlot != -1)
-		(void)loadGameState(saveSlot);
-
-	// Draw a series of boxes on screen as a sample
-	for (int i = 0; i < 100; ++i)
-		_screen->frameRect(Common::Rect(i, i, 320 - i, 200 - i), i);
-	_screen->update();
-
-	// Simple event handling loop
-	byte pal[256 * 3] = { 0 };
+	// Nothing to show yet: pump events until the user quits.
 	Common::Event e;
-	int offset = 0;
-
 	Graphics::FrameLimiter limiter(g_system, 60);
 	while (!shouldQuit()) {
 		while (g_system->getEventManager()->pollEvent(e)) {
 		}
 
-		// Cycle through a simple palette
-		++offset;
-		for (int i = 0; i < 256; ++i)
-			pal[i * 3 + 1] = (i + offset) % 256;
-		g_system->getPaletteManager()->setPalette(pal, 0, 256);
-		// Delay for a bit. All events loops should have a delay
-		// to prevent the system being unduly loaded
 		limiter.delayBeforeSwap();
-		_screen->update();
+		g_system->updateScreen();
 		limiter.startFrame();
 	}
-
-	return Common::kNoError;
-}
-
-Common::Error ScoobyEngine::syncGame(Common::Serializer &s) {
-	// The Serializer has methods isLoading() and isSaving()
-	// if you need to specific steps; for example setting
-	// an array size after reading it's length, whereas
-	// for saving it would write the existing array's length
-	int dummy = 0;
-	s.syncAsUint32LE(dummy);
 
 	return Common::kNoError;
 }

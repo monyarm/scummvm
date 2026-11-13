@@ -1,3 +1,3 @@
 begin_section("Scooby");
-	add_person("Name 1", "Handle 1", "");
+	add_person("BarefootBetters", "barefootbetters", "");
 end_section();

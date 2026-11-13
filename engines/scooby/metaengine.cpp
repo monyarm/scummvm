@@ -19,37 +19,12 @@
  *
  */
 
-#include "common/translation.h"
-
 #include "scooby/metaengine.h"
 #include "scooby/detection.h"
 #include "scooby/scooby.h"
 
-namespace Scooby {
-
-static const ADExtraGuiOptionsMap optionsList[] = {
-	{
-		GAMEOPTION_ORIGINAL_SAVELOAD,
-		{
-			_s("Use original save/load screens"),
-			_s("Use the original save/load screens instead of the ScummVM ones"),
-			"original_menus",
-			false,
-			0,
-			0
-		}
-	},
-	AD_EXTRA_GUI_OPTIONS_TERMINATOR
-};
-
-} // End of namespace Scooby
-
 const char *ScoobyMetaEngine::getName() const {
 	return "scooby";
-}
-
-const ADExtraGuiOptionsMap *ScoobyMetaEngine::getAdvancedExtraGuiOptions() const {
-	return Scooby::optionsList;
 }
 
 Common::Error ScoobyMetaEngine::createInstance(OSystem *syst, Engine **engine, const ADGameDescription *desc) const {
@@ -58,8 +33,8 @@ Common::Error ScoobyMetaEngine::createInstance(OSystem *syst, Engine **engine, c
 }
 
 bool ScoobyMetaEngine::hasFeature(MetaEngineFeature f) const {
-	return checkExtendedSaves(f) ||
-		(f == kSupportsLoadingDuringStartup);
+	// No saves or launcher features yet.
+	return false;
 }
 
 #if PLUGIN_ENABLED_DYNAMIC(SCOOBY)

@@ -26,19 +26,20 @@
 
 namespace Scooby {
 
+// Debug channels. The names are fixed by the project's integration contract
+// (docs/02-SCUMMVM-INTEGRATION.md, section 9) so that analysis notes and
+// debugC() calls use the same vocabulary.
 enum ScoobyDebugChannels {
-	kDebugGraphics = 1,
-	kDebugPath,
-	kDebugScan,
-	kDebugFilePath,
-	kDebugScript,
+	kDebugResource = 1, // archive and file loading (TGIFILE.ART, MMFW)
+	kDebugGraphics,     // cel decoding and rendering
+	kDebugAudio,        // mixer routing and sound archives
+	kDebugScript,       // object.ini / room logic interpretation
+	kDebugInput,        // event handling
 };
 
 extern const PlainGameDescriptor scoobyGames[];
 
 extern const ADGameDescription gameDescriptions[];
-
-#define GAMEOPTION_ORIGINAL_SAVELOAD GUIO_GAMEOPTIONS1
 
 } // End of namespace Scooby
 
@@ -54,11 +55,11 @@ public:
 	}
 
 	const char *getEngineName() const override {
-		return "Scooby";
+		return "Scooby-Doo (TerraGlyph)";
 	}
 
 	const char *getOriginalCopyright() const override {
-		return "Scooby (C)";
+		return "Scooby-Doo! (C) Warner Bros. Entertainment Inc.";
 	}
 
 	const DebugChannelDef *getDebugChannels() const override {

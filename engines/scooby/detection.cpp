@@ -20,21 +20,16 @@
  */
 
 #include "base/plugins.h"
-#include "common/config-manager.h"
-#include "common/file.h"
-#include "common/md5.h"
-#include "common/str-array.h"
-#include "common/translation.h"
-#include "common/util.h"
+#include "common/debug-channels.h"
 #include "scooby/detection.h"
 #include "scooby/detection_tables.h"
 
 const DebugChannelDef ScoobyMetaEngineDetection::debugFlagList[] = {
-	{ Scooby::kDebugGraphics, "Graphics", "Graphics debug level" },
-	{ Scooby::kDebugPath, "Path", "Pathfinding debug level" },
-	{ Scooby::kDebugFilePath, "FilePath", "File path debug level" },
-	{ Scooby::kDebugScan, "Scan", "Scan for unrecognised games" },
-	{ Scooby::kDebugScript, "Script", "Enable debug script dump" },
+	{ Scooby::kDebugResource, "resource", "Archive and file loading" },
+	{ Scooby::kDebugGraphics, "graphics", "Cel decoding and rendering" },
+	{ Scooby::kDebugAudio, "audio", "Audio mixer routing" },
+	{ Scooby::kDebugScript, "script", "Room and object script interpretation" },
+	{ Scooby::kDebugInput, "input", "Event handling" },
 	DEBUG_CHANNEL_END
 };
 
