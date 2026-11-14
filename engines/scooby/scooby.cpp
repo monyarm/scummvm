@@ -352,6 +352,12 @@ void ScoobyEngine::checkAllClickables() {
 			script.resetClickableStates();
 			script.enter();
 			for (int n = 1; n <= 2; n++) {
+				// A sprite that selects no frame can't be hit, so it can't be
+				// clicked.
+				if (!room.hasFrame(sprites[k])) {
+					debugC(3, kDebugScript, "click %s %s %d gone", name.c_str(), room.getObjectName(sprites[k]).c_str(), n);
+					break;
+				}
 				script.clickClickable(sprites[k]);
 				room.tick();
 				script.tick();

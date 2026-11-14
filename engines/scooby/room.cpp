@@ -465,8 +465,16 @@ bool Room::hasAnim(const Common::String &anim) const {
 bool Room::startAnim(uint sprite, const Common::String &anim, int mode, int startStep) {
 	Sprite &s = _sprites[sprite];
 	uint32 id;
-	if (!_art.findName(anim, id) || (ArtNameType)(id >> 28) != kArtAnim)
-		id = 0;
+	if (!_art.findName(anim, id) || (ArtNameType)(id >> 28) != kArtAnim) {
+		// 0x430A00 stores id 0 (+0x50) and starts nothing. SelectFrame
+		// (0x4309C0) then picks no frame and the hit test (0x430D10) fails:
+		// the sprite is neither drawn nor hit until another ANIM starts.
+		debugC(1, kDebugScript, "Room %s: %s has no ANIM %s; it shows nothing", _name.c_str(), s.object.c_str(), anim.c_str());
+		s.animated = false;
+		s.frame = 0;
+		s.anim = anim;
+		return false;
+	}
 	if (!s.block || !startSequence(s, id & 0x3FFFF, mode, kPlacementTicksPerStep, startStep)) {
 		warning("Room %s: cannot start %s on %s", _name.c_str(), anim.c_str(), s.object.c_str());
 		return false;
@@ -581,6 +589,8 @@ const Cel *Room::getCel(Block &block, uint32 offset) {
 void Room::paint(const Sprite &s, Graphics::Surface &out) {
 	Block &block = *s.block;
 	const uint32 frame = getFrame(s);
+	if (!frame)
+		return; // no frame selected (an unknown ANIM)
 	const uint n = READ_LE_UINT16(&block.data[frame + 4]);
 	for (uint k = 0; k < n; k++) {
 		const byte *entry = &block.data[frame + kFrameHeaderSize + kFrameEntrySize * k];
@@ -641,6 +651,8 @@ bool Room::hitCels(const Sprite &s, int px, int py) {
 		return false;
 	Block &block = *s.block;
 	const uint32 frame = getFrame(s);
+	if (!frame)
+		return false;
 	const uint n = READ_LE_UINT16(&block.data[frame + 4]);
 	for (uint k = 0; k < n; k++) {
 		const byte *entry = &block.data[frame + kFrameHeaderSize + kFrameEntrySize * k];

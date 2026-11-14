@@ -117,10 +117,13 @@ public:
 	bool hasAnim(const Common::String &anim) const;
 	/**
 	 * Start @p anim on the sprite's object (vtable +0x24, 0x430A00) at 3
-	 * ticks per step. An unknown name has id 0, so the object's sequence 0
-	 * plays, as in the original.
+	 * ticks per step. An unknown name has id 0: no sequence starts, and the
+	 * sprite selects no frame, so it is neither drawn nor hit. Returns false
+	 * then.
 	 */
 	bool startAnim(uint sprite, const Common::String &anim, int mode, int startStep);
+	/** Whether the sprite selects a frame (0x4309C0); false after an unknown ANIM. */
+	bool hasFrame(uint sprite) const { return _sprites[sprite].block && getFrame(_sprites[sprite]) != 0; }
 	/** Show or hide a sprite (+0x14, 0x4313F0). */
 	void setHidden(uint sprite, bool hidden) { _sprites[sprite].hidden = hidden; }
 
