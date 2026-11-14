@@ -23,6 +23,7 @@
 #define SCOOBY_SOUND_H
 
 #include "audio/mixer.h"
+#include "common/array.h"
 #include "common/str.h"
 
 #include "scooby/sound_archive.h"
@@ -56,15 +57,28 @@ public:
 
 	/**
 	 * Play a clip on the mixer channel for its file (SFX, speech or music),
-	 * at its own volume, looping if its loop flag is set. Stops whatever
-	 * this object played before. Returns false if the clip isn't found.
+	 * at its own volume, looping if its loop flag is set. Each file has one
+	 * handle, so a clip stops the one its file played before, and a voice
+	 * line doesn't stop the music. Returns false if the clip isn't found.
 	 */
 	bool play(const Common::String &name);
+	/** Stop every file's clip. */
 	void stop();
+
+	// The clip played last, from any file.
 	bool isPlaying() const;
-	const Common::String &getPlayingName() const { return _playing; }
-	/** Milliseconds the mixer has played of the current clip. */
+	const Common::String &getPlayingName() const { return _channels[_last].name; }
+	/** Milliseconds the mixer has played of the clip played last. */
 	uint32 getElapsedMillis() const;
+
+	/** Whether @p name is playing (case-insensitive). */
+	bool isClipPlaying(const Common::String &name) const;
+	/**
+	 * The mouth shape of @p name now (0x442DD0): the low nibble of its
+	 * lip-sync byte at trunc(fps x seconds played). False if the clip isn't
+	 * playing, has no lip sync, or has played past its last byte.
+	 */
+	bool getLipShape(const Common::String &name, uint &shape, uint32 *index = nullptr) const;
 
 	/** Read every clip's PCM and log its MD5 on the audio channel. */
 	void checkAllClips() const;
@@ -72,8 +86,17 @@ public:
 private:
 	Audio::Mixer *_mixer;
 	SoundArchive _archives[kFileCount];
-	Audio::SoundHandle _handle;
-	Common::String _playing;
+	struct Channel {
+		Audio::SoundHandle handle;
+		Common::String name;
+		byte lipSyncFps;
+		Common::Array<byte> lipSync;
+	};
+
+	const Channel *findChannel(const Common::String &name) const;
+
+	Channel _channels[kFileCount];
+	File _last;
 };
 
 } // End of namespace Scooby

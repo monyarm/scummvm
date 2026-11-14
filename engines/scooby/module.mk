@@ -3,7 +3,9 @@ MODULE := engines/scooby
 MODULE_OBJS = \
 	art_archive.o \
 	cel.o \
+	character.o \
 	room.o \
+	room_script.o \
 	scooby.o \
 	sound.o \
 	sound_archive.o \

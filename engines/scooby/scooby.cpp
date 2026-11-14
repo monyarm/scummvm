@@ -24,6 +24,7 @@
 #include "scooby/cel.h"
 #include "scooby/console.h"
 #include "scooby/room.h"
+#include "scooby/room_script.h"
 #include "scooby/sound.h"
 #include "common/config-manager.h"
 #include "common/debug-channels.h"
@@ -42,7 +43,7 @@ namespace Scooby {
 ScoobyEngine *g_engine;
 
 ScoobyEngine::ScoobyEngine(OSystem *syst, const ScoobyGameDescription *gameDesc) : Engine(syst),
-	_gameDescription(gameDesc), _randomSource("Scooby"), _art(nullptr), _currentRoom(nullptr), _tickBase(0), _ticksDone(0), _hover(-1), _lastHover(-1), _sound(nullptr) {
+	_gameDescription(gameDesc), _randomSource("Scooby"), _art(nullptr), _currentRoom(nullptr), _tickBase(0), _ticksDone(0), _hover(-1), _lastHover(-1), _sound(nullptr), _script(nullptr) {
 	g_engine = this;
 
 	// Gen 1 discs keep the game files in a "scooby" directory, and detection
@@ -52,6 +53,7 @@ ScoobyEngine::ScoobyEngine(OSystem *syst, const ScoobyGameDescription *gameDesc)
 }
 
 ScoobyEngine::~ScoobyEngine() {
+	delete _script;
 	delete _sound;
 	_room.free();
 	delete _currentRoom;
@@ -97,6 +99,7 @@ Common::Error ScoobyEngine::run() {
 	_sound = new Sound(_mixer);
 	if (!_sound->open())
 		return Common::Error(Common::kNoGameDataFoundError, "Sfx.dat, Voice.dat or Music.dat");
+	_script = new RoomScript(*_currentRoom, *_sound, _objectIni);
 
 	if (debugChannelSet(3, kDebugGraphics)) {
 		checkAllCels(*_art);
@@ -104,6 +107,8 @@ Common::Error ScoobyEngine::run() {
 	}
 	if (debugChannelSet(3, kDebugAudio))
 		_sound->checkAllClips();
+	if (debugChannelSet(3, kDebugScript))
+		checkAllExits();
 
 	// No game logic yet: show a room as it is set up on entry and let its
 	// sprites play. The console's "room" command switches rooms. A
@@ -141,32 +146,52 @@ Common::Error ScoobyEngine::run() {
 
 		bool changed = false;
 		while (g_system->getEventManager()->pollEvent(e)) {
+			// While a scene or an exit runs, the cursor is hidden and clicks
+			// are ignored (game +0x24).
 			if (e.type == Common::EVENT_MOUSEMOVE) {
-				updateHover(e.mouse.x, e.mouse.y);
-				changed = true;
-			} else if (e.type == Common::EVENT_LBUTTONDOWN) {
-				updateHover(e.mouse.x, e.mouse.y);
-				changed = true;
-				// 0x402130 logs to the "Exits" channel and starts the walk
-				// and movie to destinationroom=; until those exist, go there
-				// directly.
-				if (_hover >= 0 && !_currentRoom->getDestination(_hover).empty()) {
-					const Common::String from = _currentRoom->getLabel(_hover);
-					const Common::String to = _currentRoom->getDestination(_hover);
-					debugC(1, kDebugInput, "exit %s clicked: going to %s", from.c_str(), to.c_str());
-					if (showRoom(to))
-						updateHover(e.mouse.x, e.mouse.y);
+				_mousePos = e.mouse;
+				if (_script->isBusy()) {
+					_currentRoom->setCursorPosition(e.mouse.x, e.mouse.y);
+				} else {
+					updateHover(e.mouse.x, e.mouse.y);
+					changed = true;
 				}
+			} else if (e.type == Common::EVENT_LBUTTONDOWN && !_script->isBusy()) {
+				_mousePos = e.mouse;
+				updateHover(e.mouse.x, e.mouse.y);
+				changed = true;
+				if (_hover >= 0 && !_currentRoom->getDestination(_hover).empty())
+					clickExit(_hover);
 			}
 		}
 
 		// 0x435BC0: the game owes elapsed_ms * 36 / 1000 ticks since the
-		// room started; run them all, then draw once.
+		// room started; run them all, then draw once. A room change ends the
+		// run, as it does in the original.
 		const uint32 elapsed = _system->getMillis() - _tickBase;
 		const uint32 owed = (uint32)((uint64)elapsed * Room::kTicksPerSecond / 1000) - _ticksDone;
-		for (uint32 i = 0; i < owed; i++)
+		Common::String nextRoom;
+		int movie = -1;
+		for (uint32 i = 0; i < owed; i++) {
 			changed = _currentRoom->tick() || changed;
+			_script->tick();
+			changed = changed || _script->isBusy();
+			if (_script->getNextRoom(nextRoom, movie))
+				break;
+		}
 		_ticksDone += owed;
+		if (!nextRoom.empty()) {
+			// Movies (Bink) are not played yet.
+			if (movie >= 0)
+				debugC(1, kDebugScript, "movie %d not played", movie);
+			const Common::String from = _currentRoom->getName();
+			if (!showRoom(nextRoom)) {
+				warning("Cannot go to %s; staying in %s", nextRoom.c_str(), from.c_str());
+				showRoom(from);
+			}
+			updateHover(_mousePos.x, _mousePos.y);
+			changed = false;
+		}
 		if (changed)
 			drawRoom();
 
@@ -217,9 +242,24 @@ void ScoobyEngine::updateHover(int x, int y) {
 	_currentRoom->setCursor(cursor);
 }
 
+void ScoobyEngine::clickExit(int sprite) {
+	// 0x402130: the exit's keys go to the room's handler (vtable +0x24,
+	// 0x40C1E0 by default). The scene plays only the first time.
+	RoomScript::Exit exit = _script->readExit(_currentRoom->getObjectName(sprite));
+	if (_takenExits.contains(exit.object))
+		exit.scene.clear();
+	_takenExits[exit.object] = true;
+	debugC(1, kDebugInput, "exit %s clicked: going to %s", _currentRoom->getLabel(sprite).c_str(), exit.destination.c_str());
+
+	_currentRoom->setCursor("");
+	_script->startExit(exit);
+}
+
 bool ScoobyEngine::showRoom(const Common::String &name) {
 	if (!_currentRoom || !_currentRoom->load(name))
 		return false;
+	if (_script)
+		_script->enter();
 	_hover = _lastHover = -1;
 	_currentRoom->setCursor("ANIM_CURSORARROW");
 
@@ -231,6 +271,53 @@ bool ScoobyEngine::showRoom(const Common::String &name) {
 	if (debugChannelSet(1, kDebugGraphics))
 		debugC(1, kDebugGraphics, "room %s drawn, %dx%d md5 %s", name.c_str(), _room.w, _room.h, hashSurface(_room).c_str());
 	return true;
+}
+
+void ScoobyEngine::checkAllExits() {
+	// Every exit of every room: its scene's lines as they resolve now, then
+	// the walk-off with the scene skipped, tick by tick until the room
+	// changes.
+	const uint kMaxTicks = 10000;
+	uint exits = 0, stuck = 0;
+	Room room(*_art, _objectIni);
+	RoomScript script(room, *_sound, _objectIni);
+	for (uint i = 0; i < _art->getRoomCount(); i++) {
+		const Common::String name = _art->getRoomName(i);
+		if (!room.load(name))
+			continue;
+		script.enter();
+		debugC(3, kDebugScript, "exit check %s characters %s", name.c_str(), script.describeCharacters().c_str());
+		Common::Array<Common::String> objects;
+		for (uint s = 0; s < room.getSpriteCount(); s++) {
+			if (!room.getDestination(s).empty())
+				objects.push_back(room.getObjectName(s));
+		}
+		for (uint k = 0; k < objects.size(); k++) {
+			RoomScript::Exit exit = script.readExit(objects[k]);
+			const Common::String lines = script.describeScene(exit.scene);
+			room.load(name);
+			script.enter();
+			exit.scene.clear();
+			script.startExit(exit);
+			Common::String to;
+			int movie = -1;
+			uint t = 0;
+			while (t < kMaxTicks && !script.getNextRoom(to, movie)) {
+				room.tick();
+				script.tick();
+				t++;
+			}
+			exits++;
+			if (!script.getNextRoom(to, movie)) {
+				stuck++;
+				debugC(3, kDebugScript, "exit check %s %s STUCK", name.c_str(), objects[k].c_str());
+				continue;
+			}
+			debugC(3, kDebugScript, "exit check %s %s lines [%s] walks [%s] to %s at tick %u movie %d", name.c_str(),
+			       objects[k].c_str(), lines.c_str(), script.getWalkLog().c_str(), to.c_str(), script.getTick() - 1, movie);
+		}
+	}
+	debugC(3, kDebugScript, "exit check: %u exits, %u stuck", exits, stuck);
 }
 
 void ScoobyEngine::checkAllRooms() {

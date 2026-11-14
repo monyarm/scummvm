@@ -73,11 +73,39 @@ public:
 	 * whose test passes at (x, y). Returns a sprite index, or -1.
 	 */
 	int hitTest(int x, int y);
+	uint getSpriteCount() const { return _sprites.size(); }
 	const Common::String &getLabel(int sprite) const { return _sprites[sprite].label; }
 	/** The sprite's rollover cursor ANIM name, or empty for the default. */
 	const Common::String &getRollover(int sprite) const { return _sprites[sprite].rollover; }
 	/** An exit's destinationroom=, or empty. */
 	const Common::String &getDestination(int sprite) const { return _sprites[sprite].destination; }
+
+	/** The OBJ name a sprite shows now; empty for layers. */
+	const Common::String &getObjectName(int sprite) const { return _sprites[sprite].object; }
+	/** Character placements' sprites, in placement order. */
+	const Common::Array<uint> &getCharacters() const { return _characters; }
+
+	/**
+	 * Switch a sprite to @p obj (if it differs and exists) and start @p anim
+	 * on it (the state change at 0x405190, then vtable +0x24 and +0x10).
+	 * If @p anim is missing, the sprite stops on step 0 and this returns
+	 * false, as the original does after "Setting %s to %s failed".
+	 */
+	bool setSequence(uint sprite, const Common::String &obj, const Common::String &anim, int mode, int startStep);
+	/**
+	 * The step count of @p anim on @p obj, or -1 if either is missing (the
+	 * walk length, 0x404EA0).
+	 */
+	int getSequenceSteps(const Common::String &obj, const Common::String &anim);
+	int getDepth(uint sprite) const { return _sprites[sprite].depth; }
+	/** Move a sprite to a new depth among its siblings (0x430EE0). */
+	void setDepth(uint sprite, int depth);
+	uint32 getStep(uint sprite) const { return _sprites[sprite].player.step; }
+	uint32 getStepCount(uint sprite) const { return _sprites[sprite].player.steps; }
+	/** A sequence in mode 0: stopped, or played to its end. */
+	bool isStopped(uint sprite) const { return !_sprites[sprite].animated || _sprites[sprite].player.mode == 0; }
+	/** Show @p step of the sprite's sequence, clamped to its last step. */
+	void setStep(uint sprite, uint32 step);
 
 	/** Show the OBJ_CURSOR sprite playing @p anim at (x, y); an empty name hides it. */
 	bool setCursor(const Common::String &anim);
@@ -121,6 +149,8 @@ private:
 		int x, y;
 		bool hidden;                  // +0x14: neither drawn nor hit
 		int hitType;                  // +4: 1 = cel pixels and masks, 2 = step polygon
+		uint parent;                  // index into _sprites; the root is its own parent
+		Common::String object;        // the OBJ name the block belongs to
 		Common::String label;
 		Common::String rollover;
 		Common::String destination;
@@ -129,6 +159,8 @@ private:
 
 	uint addSprite(uint parent, const Sprite &sprite);
 	void frontToBack(uint index, Common::Array<uint> &out) const;
+	void insertChild(uint parent, uint index);
+	void buildDrawList();
 	uint32 getFrame(const Sprite &sprite) const;
 	uint32 getPolygon(const Sprite &sprite) const;
 	void paint(const Sprite &sprite, Graphics::Surface &out);
@@ -152,6 +184,7 @@ private:
 	uint16 _width, _height;
 	Common::Array<Sprite> _sprites;
 	Common::Array<uint> _drawList; // front to back
+	Common::Array<uint> _characters;
 	Common::String _order;
 	Common::HashMap<Common::String, BlockPtr, Common::IgnoreCase_Hash, Common::IgnoreCase_EqualTo> _objects;
 };

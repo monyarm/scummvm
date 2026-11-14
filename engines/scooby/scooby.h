@@ -27,6 +27,9 @@
 #include "common/random.h"
 #include "common/str.h"
 #include "common/formats/ini-file.h"
+#include "common/hash-str.h"
+#include "common/hashmap.h"
+#include "common/rect.h"
 #include "engines/engine.h"
 #include "graphics/surface.h"
 
@@ -36,6 +39,7 @@ namespace Scooby {
 
 class ArtArchive;
 class Room;
+class RoomScript;
 class Sound;
 
 class ScoobyEngine : public Engine {
@@ -50,11 +54,18 @@ private:
 	Graphics::Surface _room; // the current room, at its own size
 
 	void checkAllRooms();
+	void checkAllExits();
 	void drawRoom();
 	void updateHover(int x, int y);
+	void clickExit(int sprite);
 	int _hover;     // sprite under the mouse, or -1
 	int _lastHover;
 	Sound *_sound;
+	RoomScript *_script;
+	Common::Point _mousePos;
+	// Exits taken this session; the original keeps them in its save's
+	// Exits section, so each exit's scene plays once.
+	Common::HashMap<Common::String, bool, Common::IgnoreCase_Hash, Common::IgnoreCase_EqualTo> _takenExits;
 
 protected:
 	// Engine APIs

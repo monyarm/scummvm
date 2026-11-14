@@ -154,6 +154,23 @@ Common::SeekableReadStream *SoundArchive::createDataStream(const Clip &clip) con
 	return new Common::SeekableSubReadStream(file, clip.dataOffset, clip.dataOffset + clip.dataSize, DisposeAfterUse::YES);
 }
 
+bool SoundArchive::readLipSync(const Clip &clip, Common::Array<byte> &bytes) const {
+	// The open (0x446010) keeps (count, fps, bytes) from just after the
+	// header (0x442FB0). open() checked that they fit before the PCM.
+	bytes.clear();
+	if (!clip.lipSyncSize)
+		return true;
+	Common::File file;
+	if (!file.open(_filename) || !file.seek(clip.offset + kClipHeaderSize))
+		return false;
+	bytes.resize(clip.lipSyncSize);
+	if (file.read(bytes.data(), bytes.size()) != bytes.size()) {
+		bytes.clear();
+		return false;
+	}
+	return true;
+}
+
 Audio::SeekableAudioStream *SoundArchive::createAudioStream(const Clip &clip) const {
 	Common::SeekableReadStream *data = createDataStream(clip);
 	if (!data)

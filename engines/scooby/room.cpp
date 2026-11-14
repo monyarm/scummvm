@@ -123,16 +123,34 @@ Room::~Room() {
 }
 
 uint Room::addSprite(uint parent, const Sprite &sprite) {
-	// 0x430F40: children stay sorted by descending depth, and a new child
-	// goes after every child whose depth is at least its own.
 	const uint index = _sprites.size();
 	_sprites.push_back(sprite);
+	insertChild(parent, index);
+	return index;
+}
+
+void Room::insertChild(uint parent, uint index) {
+	// 0x430F40: children stay sorted by descending depth, and a new child
+	// goes after every child whose depth is at least its own.
+	_sprites[index].parent = parent;
 	Common::Array<uint> &children = _sprites[parent].children;
 	uint k = 0;
-	while (k < children.size() && sprite.depth <= _sprites[children[k]].depth)
+	while (k < children.size() && _sprites[index].depth <= _sprites[children[k]].depth)
 		k++;
 	children.insert_at(k, index);
-	return index;
+}
+
+void Room::buildDrawList() {
+	_drawList.clear();
+	_order.clear();
+	frontToBack(0, _drawList);
+	for (uint i = 0; i < _drawList.size(); i++) {
+		if (_drawList[i] == 0)
+			continue;
+		if (!_order.empty())
+			_order += ", ";
+		_order += _sprites[_drawList[i]].label;
+	}
 }
 
 void Room::frontToBack(uint index, Common::Array<uint> &out) const {
@@ -292,6 +310,7 @@ bool Room::load(const Common::String &name) {
 	_drawList.clear();
 	_order.clear();
 	_objects.clear();
+	_characters.clear();
 
 	BlockPtr room(new Block());
 	if (!_art.readBlock(name, room->data) || !inBlock(room->data, 0, kRoomHeaderSize)) {
@@ -309,6 +328,7 @@ bool Room::load(const Common::String &name) {
 	root.x = root.y = 0;
 	root.hidden = false;
 	root.hitType = 1;
+	root.parent = 0;
 	root.label = "root";
 	_sprites.push_back(root);
 
@@ -354,6 +374,7 @@ bool Room::load(const Common::String &name) {
 		s.x = (int16)READ_LE_UINT16(p + kPlacementX);
 		s.y = (int16)READ_LE_UINT16(p + kPlacementY);
 		s.label = Common::String::format("%u %s", k, obj.c_str());
+		s.object = obj;
 		int slot;
 		const Kind kind = getPlacementKind(obj, s.y, slot, s.depth);
 
@@ -382,17 +403,12 @@ bool Room::load(const Common::String &name) {
 
 		// A sprite whose layer slot is empty attaches to the root.
 		const uint parent = (slot >= 0 && slot < (int)kRoomLayerCount && layers[slot] >= 0) ? layers[slot] : 0;
-		addSprite(parent, s);
+		const uint index = addSprite(parent, s);
+		if (kind == kKindCharacter)
+			_characters.push_back(index);
 	}
 
-	frontToBack(0, _drawList);
-	for (uint i = 0; i < _drawList.size(); i++) {
-		if (_drawList[i] == 0)
-			continue;
-		if (!_order.empty())
-			_order += ", ";
-		_order += _sprites[_drawList[i]].label;
-	}
+	buildDrawList();
 	debugC(2, kDebugGraphics, "room %s draw order, front to back: %s", name.c_str(), _order.c_str());
 
 	// Restart the cursor's sequence with the room's fresh block cache.
@@ -402,6 +418,64 @@ bool Room::load(const Common::String &name) {
 		setCursor(anim);
 	}
 	return true;
+}
+
+bool Room::setSequence(uint sprite, const Common::String &obj, const Common::String &anim, int mode, int startStep) {
+	Sprite &s = _sprites[sprite];
+	uint32 id;
+	if (!obj.empty() && !obj.equalsIgnoreCase(s.object) && _art.findName(obj, id) && (ArtNameType)(id >> 28) == kArtObject) {
+		BlockPtr block = getObjectBlock(obj);
+		if (block) {
+			debugC(2, kDebugScript, "Switching to object %s from object %s", obj.c_str(), s.object.c_str());
+			s.block = block;
+			s.object = obj;
+			s.animated = false;
+		}
+	}
+	if (s.block && _art.findName(anim, id) && (ArtNameType)(id >> 28) == kArtAnim &&
+	    startSequence(s, id & 0x3FFFF, mode, kPlacementTicksPerStep, startStep)) {
+		debugC(2, kDebugScript, "Switching to ANIM %s", anim.c_str());
+		return true;
+	}
+
+	// 0x430AA0 with mode 0 and start step -1: stopped on step 0.
+	debugC(1, kDebugScript, "Setting %s to %s failed", s.object.c_str(), anim.c_str());
+	s.player.mode = 0;
+	s.player.countdown = kPlacementTicksPerStep;
+	s.player.step = 0;
+	return false;
+}
+
+int Room::getSequenceSteps(const Common::String &obj, const Common::String &anim) {
+	uint32 objId, animId;
+	Sprite s;
+	s.animated = false;
+	if (!_art.findName(obj, objId) || (ArtNameType)(objId >> 28) != kArtObject ||
+	    !_art.findName(anim, animId) || (ArtNameType)(animId >> 28) != kArtAnim ||
+	    !(s.block = getObjectBlock(obj)) || !startSequence(s, animId & 0x3FFFF, 0, kPlacementTicksPerStep, 0))
+		return -1;
+	return s.player.steps;
+}
+
+void Room::setDepth(uint sprite, int depth) {
+	// 0x430EE0: unlink from the parent's children, then insert again.
+	Sprite &s = _sprites[sprite];
+	Common::Array<uint> &siblings = _sprites[s.parent].children;
+	for (uint k = 0; k < siblings.size(); k++) {
+		if (siblings[k] == sprite) {
+			siblings.remove_at(k);
+			break;
+		}
+	}
+	s.depth = depth;
+	insertChild(s.parent, sprite);
+	buildDrawList();
+}
+
+void Room::setStep(uint sprite, uint32 step) {
+	Player &p = _sprites[sprite].player;
+	if (_sprites[sprite].animated)
+		p.step = MIN<uint32>(step, p.steps - 1);
 }
 
 bool Room::tickPlayer(Sprite &s) {

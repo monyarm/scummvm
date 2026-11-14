@@ -77,6 +77,12 @@ public:
 	/** The clip's PCM bytes as a stream of their own, or nullptr. */
 	Common::SeekableReadStream *createDataStream(const Clip &clip) const;
 
+	/**
+	 * The clip's lip-sync bytes, one per frame at lipSyncFps; empty if it has
+	 * none. Returns false if the file can't be read.
+	 */
+	bool readLipSync(const Clip &clip, Common::Array<byte> &bytes) const;
+
 	/** The clip as a raw PCM audio stream, or nullptr. */
 	Audio::SeekableAudioStream *createAudioStream(const Clip &clip) const;
 
