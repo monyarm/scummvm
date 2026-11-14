@@ -27,6 +27,7 @@
 #include "scooby/room.h"
 #include "scooby/room_script.h"
 #include "scooby/sound.h"
+#include "scooby/toolbar_rooms.h"
 #include "common/algorithm.h"
 #include "common/config-manager.h"
 #include "common/file.h"
@@ -529,6 +530,20 @@ void ScoobyEngine::checkAllInventory() {
 		}
 	} run = { room, script, inv };
 
+	// Whether each room shows the toolbar on entry, or its class hides it
+	// (0x407CC0).
+	uint hiddenRooms = 0;
+	for (uint i = 0; i < _art->getRoomCount(); i++) {
+		const Common::String name = _art->getRoomName(i);
+		inv.reset();
+		run.enter(name);
+		const bool shown = inv.getState() != Inventory::kStateBusy;
+		hiddenRooms += !shown;
+		debugC(3, kDebugScript, "inventory check room %s toolbar %s at x %d", name.c_str(), shown ? "shown" : "hidden",
+		       inv.getVanX());
+	}
+	debugC(3, kDebugScript, "inventory check rooms: %u of %u hide the toolbar", hiddenRooms, _art->getRoomCount());
+
 	// The inventory objects by name, and the cursor each gives.
 	Common::Array<Common::String> items;
 	Common::HashMap<Common::String, Common::String> cursorOf;
@@ -546,8 +561,11 @@ void ScoobyEngine::checkAllInventory() {
 	}
 	Common::sort(items.begin(), items.end());
 
-	// The toolbar, in the first room.
-	const Common::String first = _art->getRoomName(0);
+	// The toolbar, in the first room that shows it (Phantom's first room,
+	// P31_KST, never builds it).
+	Common::String first = _art->getRoomName(0);
+	for (uint i = 0; i < _art->getRoomCount() && isToolbarHidden(first); i++)
+		first = _art->getRoomName(i);
 	inv.reset();
 	run.enter(first);
 	debugC(3, kDebugScript, "inventory check toolbar parked %s", inv.describeToolbar().c_str());
@@ -630,7 +648,10 @@ void ScoobyEngine::checkAllInventory() {
 				inv.reset();
 				run.enter(name);
 				inv.addItem(item);
-				const int open = run.until(Inventory::kStateOpen, kMaxTicks);
+				// In a room that hides the toolbar, adding an item clears the
+				// flag (0x406DD0) and the van comes back only as far as
+				// parked, where a slot still takes a click (0x406A70).
+				const int open = run.until(isToolbarHidden(name) ? Inventory::kStateParked : Inventory::kStateOpen, kMaxTicks);
 				inv.takeLog();
 				inv.click(inv.getItemSprite(0));
 				run.tick();

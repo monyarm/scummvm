@@ -10,6 +10,7 @@ MODULE_OBJS = \
 	scooby.o \
 	sound.o \
 	sound_archive.o \
+	toolbar_rooms.o \
 	console.o \
 	metaengine.o \
 	movie.o

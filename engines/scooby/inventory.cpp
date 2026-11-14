@@ -29,6 +29,7 @@
 #include "scooby/room.h"
 #include "scooby/room_script.h"
 #include "scooby/sound.h"
+#include "scooby/toolbar_rooms.h"
 
 namespace Scooby {
 
@@ -240,6 +241,10 @@ void Inventory::enterRoom() {
 	// 0x407D50: parked.
 	_busy = false;
 	setVanX(0);
+	// Menus, chases, close-ups and set pieces hide it again (their classes'
+	// entries call 0x407CC0), or never build it.
+	if (isToolbarHidden(_room.getName()))
+		hideToolbar();
 
 	// The room's inventory objects (0x4026B0) and requires objects; an item
 	// already taken is hidden (0x402AD0).
@@ -292,6 +297,15 @@ void Inventory::playSound(const Common::String &name) {
 	}
 	_sound.play(name);
 	_log += Common::String::format("sound %s; ", name.c_str());
+}
+
+void Inventory::hideToolbar() {
+	// 0x407CC0: hidden, off the left edge. Adding an item or opening the
+	// toolbar (0x406DD0, 0x407C00) clears the flag, and it drives in to
+	// parked.
+	_busy = true;
+	setVanX(-(_vanWidth + 30));
+	debugC(2, kDebugScript, "toolbar hidden in %s", _room.getName().c_str());
 }
 
 void Inventory::openToolbar() {

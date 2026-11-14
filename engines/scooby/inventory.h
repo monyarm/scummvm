@@ -193,6 +193,7 @@ private:
 	void setVanX(int x);
 	void setRole(int sprite, Role role, int index);
 	void startVan(const char *anim, int mode);
+	void hideToolbar();               // 0x407CC0
 	void openToolbar();               // 0x407C00
 	void clickToolbar(int index);     // 0x406A70
 	void updateToolbar();             // 0x407120
