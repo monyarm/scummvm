@@ -21,11 +21,15 @@
 
 #include "scooby/scooby.h"
 #include "scooby/art_archive.h"
+#include "scooby/cel.h"
 #include "scooby/console.h"
 #include "common/config-manager.h"
 #include "common/debug-channels.h"
+#include "common/endian.h"
 #include "common/events.h"
 #include "common/fs.h"
+#include "common/md5.h"
+#include "common/memstream.h"
 #include "common/system.h"
 #include "engines/util.h"
 #include "graphics/framelimiter.h"
@@ -46,6 +50,7 @@ ScoobyEngine::ScoobyEngine(OSystem *syst, const ScoobyGameDescription *gameDesc)
 }
 
 ScoobyEngine::~ScoobyEngine() {
+	_screen.free();
 	delete _art;
 }
 
@@ -81,7 +86,14 @@ Common::Error ScoobyEngine::run() {
 		return Common::Error(Common::kNoGameDataFoundError, "TGIFILE.ART");
 	syncSoundSettings();
 
-	// Nothing to show yet: pump events until the user quits.
+	if (debugChannelSet(3, kDebugGraphics))
+		checkAllCels(*_art);
+
+	// No game logic yet: show the first room's background and wait. The
+	// console's "room" command switches rooms.
+	_screen.create(640, 480, format);
+	showRoom(_art->getRoomName(0));
+
 	Common::Event e;
 	Graphics::FrameLimiter limiter(g_system, 60);
 	while (!shouldQuit()) {
@@ -94,6 +106,34 @@ Common::Error ScoobyEngine::run() {
 	}
 
 	return Common::kNoError;
+}
+
+bool ScoobyEngine::showRoom(const Common::String &name) {
+	Common::Array<byte> block;
+	if (!_art || !_art->readBlock(name, block))
+		return false;
+
+	_screen.fillRect(Common::Rect(_screen.w, _screen.h), 0);
+	if (!drawRoomLayers(block, _screen)) {
+		warning("Room %s has bad layer data", name.c_str());
+		return false;
+	}
+	_system->copyRectToScreen(_screen.getPixels(), _screen.pitch, 0, 0, _screen.w, _screen.h);
+
+	if (debugChannelSet(1, kDebugGraphics)) {
+		// Hash the pixels row by row, so the surface's pitch doesn't matter.
+		Common::Array<byte> rows;
+		rows.resize(_screen.w * _screen.h * 2);
+		for (int y = 0; y < _screen.h; y++) {
+			const uint16 *src = (const uint16 *)_screen.getBasePtr(0, y);
+			for (int x = 0; x < _screen.w; x++)
+				WRITE_LE_UINT16(&rows[(y * _screen.w + x) * 2], src[x]);
+		}
+		Common::MemoryReadStream stream(rows.data(), rows.size());
+		debugC(1, kDebugGraphics, "room %s drawn, screen md5 %s", name.c_str(),
+		       Common::computeStreamMD5AsString(stream).c_str());
+	}
+	return true;
 }
 
 } // End of namespace Scooby

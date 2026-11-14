@@ -27,6 +27,7 @@
 #include "common/random.h"
 #include "common/str.h"
 #include "engines/engine.h"
+#include "graphics/surface.h"
 
 #include "scooby/detection.h"
 
@@ -39,6 +40,7 @@ private:
 	const ScoobyGameDescription *_gameDescription;
 	Common::RandomSource _randomSource;
 	ArtArchive *_art;
+	Graphics::Surface _screen;
 
 protected:
 	// Engine APIs
@@ -64,6 +66,11 @@ public:
 	 * Returns the Gen 1 art file, or nullptr until run() opens it
 	 */
 	ArtArchive *getArt() const { return _art; }
+
+	/**
+	 * Draws a room's layers (its background) to the screen
+	 */
+	bool showRoom(const Common::String &name);
 
 	/**
 	 * Gets a random number

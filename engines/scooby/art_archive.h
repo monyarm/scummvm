@@ -90,6 +90,9 @@ public:
 	 */
 	bool getSpan(const Common::String &name, uint32 &offset, uint32 &size) const;
 
+	/** Read a whole room or object block into memory. */
+	bool readBlock(const Common::String &name, Common::Array<byte> &data) const;
+
 	/** Name of a room or object block by index, or an empty string. */
 	Common::String getRoomName(uint index) const;
 	Common::String getObjectName(uint index) const;

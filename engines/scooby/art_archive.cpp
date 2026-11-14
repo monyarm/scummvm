@@ -213,6 +213,19 @@ bool ArtArchive::getSpan(const Common::String &name, uint32 &offset, uint32 &siz
 	return true;
 }
 
+bool ArtArchive::readBlock(const Common::String &name, Common::Array<byte> &data) const {
+	Common::SeekableReadStream *s = createReadStreamForMember(Common::Path(name));
+	if (!s)
+		return false;
+
+	data.resize(s->size());
+	const bool ok = s->read(data.data(), data.size()) == data.size() && !s->err();
+	delete s;
+	if (!ok)
+		warning("TGIFILE.ART: cannot read block %s", name.c_str());
+	return ok;
+}
+
 Common::String ArtArchive::getRoomName(uint index) const {
 	return index < _rooms.size() ? _rooms[index].name : Common::String();
 }

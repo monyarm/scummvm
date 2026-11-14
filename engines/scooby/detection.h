@@ -42,7 +42,7 @@ enum ScoobyDebugChannels {
 // this value (docs/02-SCUMMVM-INTEGRATION.md, section 3).
 enum ScoobyGeneration {
 	kGen1 = 1, // Showdown, Phantom: TGIFILE.ART, object.ini, .dat audio
-	kGen2 = 2, // Jinx: MMFW archives (.MMF, .MMA, .MMP, .mms)
+	kGen2 = 2, // Jinx, Activity Challenge: MMFW archives (.MMF, .MMA, .MMP, .mms)
 	kGen3 = 3  // Case File #1: MMFW archives with XML config
 };
 

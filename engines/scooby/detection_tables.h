@@ -26,6 +26,7 @@ const PlainGameDescriptor scoobyGames[] = {
 	{ "phantomknight", "Scooby-Doo! Phantom of the Knight" },
 	{ "jinxsphinx", "Scooby-Doo! Jinx at the Sphinx" },
 	{ "casefile1", "Scooby-Doo! Case File #1: The Glowing Bug Man" },
+	{ "activitychallenge", "Scooby-Doo! Activity Challenge" },
 	{ nullptr, nullptr }
 };
 
@@ -90,6 +91,22 @@ const ScoobyGameDescription gameDescriptions[] = {
 			GUIO1(GUIO_NOMIDI)
 		},
 		kGen3
+	},
+	{
+		// The disc keeps Scooby.exe in INSTALL\HDINSTALL, so detection uses
+		// the three archives at the disc root.
+		{
+			"activitychallenge",
+			nullptr,
+			AD_ENTRY3s("Bonus.mms", "b6708dba6c936d5df3355668bca45aa9", 289844,
+			           "BONUS.MMP", "2a96b23cb24e866d65ea3cd4939c78b1", 68733610,
+			           "BONUS.MMF", "35d13d927badf3d5f6177a003b072ac6", 19744128),
+			Common::EN_ANY,
+			Common::kPlatformWindows,
+			ADGF_UNSUPPORTED,
+			GUIO1(GUIO_NOMIDI)
+		},
+		kGen2
 	},
 
 	{ AD_TABLE_END_MARKER, kGen1 }

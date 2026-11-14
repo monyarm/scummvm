@@ -28,6 +28,7 @@ namespace Scooby {
 Console::Console() : GUI::Debugger() {
 	registerCmd("art_list", WRAP_METHOD(Console, Cmd_artList));
 	registerCmd("art_info", WRAP_METHOD(Console, Cmd_artInfo));
+	registerCmd("room", WRAP_METHOD(Console, Cmd_room));
 }
 
 Console::~Console() {
@@ -87,6 +88,24 @@ bool Console::Cmd_artInfo(int argc, const char **argv) {
 	art->getSpan(n.name, offset, size);
 	debugPrintf("%s id 0x%08x: index %u, offset 0x%08x, %u bytes\n",
 	            n.getType() == kArtRoom ? "ROOM" : "OBJ", n.id, n.getIndex(), offset, size);
+	return true;
+}
+
+bool Console::Cmd_room(int argc, const char **argv) {
+	if (argc != 2) {
+		debugPrintf("Usage: %s <ROOM_ name>; art_list ROOM_ lists them\n", argv[0]);
+		return true;
+	}
+
+	const ArtArchive *art = g_engine->getArt();
+	uint32 id;
+	if (!art || !art->findName(argv[1], id) || (ArtNameType)(id >> 28) != kArtRoom) {
+		debugPrintf("%s is not a room\n", argv[1]);
+		return true;
+	}
+
+	if (!g_engine->showRoom(argv[1]))
+		debugPrintf("%s could not be drawn\n", argv[1]);
 	return true;
 }
 
