@@ -33,7 +33,7 @@ class Sound;
  * A Gen 1 character (Scooby.exe 0x4048E0): a placement such as OBJ_FRED_A,
  * named FRED with the set _A, or the room's invisible narrator. Its state
  * picks the sequence it plays and, when that changes, the object holding it
- * (0x405190). Only the states the exit transition needs are here.
+ * (0x405190). Only the states the exit transition and the ghost need are here.
  */
 class Character {
 public:
@@ -41,7 +41,8 @@ public:
 		kStateWalk = 0, // walk off, or turn in place: once, then stay
 		kStateIdle = 6, // IDLE_MASTER, looping
 		kStateStay = 7, // keep the last step
-		kStateTalk = 8  // TALKS, its step set by lip sync
+		kStateTalk = 8, // TALKS, its step set by lip sync
+		kStateStayScared = 0x12 // STAY_SCARED once, with Global.Scared.<NAME>: the ghost appears
 	};
 
 	/** @p sprite is the placement's sprite in the room, or -1 for the narrator. */

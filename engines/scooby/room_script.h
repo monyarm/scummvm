@@ -24,7 +24,13 @@
 
 #include "common/array.h"
 #include "common/formats/ini-file.h"
+#include "common/hash-str.h"
+#include "common/hashmap.h"
 #include "common/str.h"
+
+namespace Common {
+class RandomSource;
+}
 
 #include "scooby/character.h"
 
@@ -101,8 +107,43 @@ public:
 	/** Ticks run since enter(). */
 	uint32 getTick() const { return _tick; }
 
+	/**
+	 * A click on a clickable's sprite, handled by its update on the next
+	 * tick (0x401440). Returns false if the sprite isn't a clickable.
+	 */
+	bool clickClickable(uint sprite);
+	/** Whether the clickable on @p sprite is playing its click. */
+	bool isClickablePlaying(uint sprite) const;
+	/** The clickable's state ANIM name (+0x60), or empty. */
+	Common::String getClickableState(uint sprite) const;
+	/** What the last click did, as "anim A steps N sound S next B", or "ghost". */
+	const Common::String &getClickLog() const { return _clickLog; }
+
+	/**
+	 * The ghost's chance on a click is 1 in @p chance, drawn from @p random
+	 * (0x401440: rand() % 30). A null source or 0 turns the ghost off.
+	 */
+	void setGhostChance(Common::RandomSource *random, uint chance);
+	/** Forget every clickable's saved state (the save file's Clickables section). */
+	void resetClickableStates() { _clickableStates.clear(); }
+
 private:
+	/** A default clickable (0x401000), its fields by offset. */
+	struct Clickable {
+		uint sprite;
+		Common::String object; // +0x24
+		Common::String state;  // +0x60: the ANIM it plays on a click
+		Common::String sound;  // +0x68: SFX_ and the state without ANIM_
+		bool playing;          // +0x70
+		bool clicked;          // a click waiting for the update
+	};
+
 	Character *findCharacter(const char *name);
+	Clickable *findClickable(uint sprite);
+	void setSoundName(Clickable &c);
+	void tickClickable(Clickable &c);
+	void advanceClickable(Clickable &c);
+	bool startGhost();
 	void tickScene();
 	void tickExit();
 
@@ -127,6 +168,18 @@ private:
 	bool _done;
 	uint32 _tick;
 	Common::String _walkLog;
+
+	Common::Array<Clickable> _clickables;
+	// The save file's Clickables section: object name -> state ANIM.
+	Common::HashMap<Common::String, Common::String, Common::IgnoreCase_Hash, Common::IgnoreCase_EqualTo> _clickableStates;
+	Common::String _clickLog;
+
+	// The ghost (game +0x1DC, +0x1E0) and its chance.
+	int _ghost;
+	bool _ghostPlaying;
+	bool _ghostDone;
+	Common::RandomSource *_random;
+	uint _ghostChance;
 };
 
 } // End of namespace Scooby

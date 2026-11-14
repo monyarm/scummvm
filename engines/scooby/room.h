@@ -107,6 +107,23 @@ public:
 	/** Show @p step of the sprite's sequence, clamped to its last step. */
 	void setStep(uint sprite, uint32 step);
 
+	/** A placement the default path built as a clickableobject (0x408DC0). */
+	bool isClickable(uint sprite) const { return _sprites[sprite].kind == kKindClickable; }
+	/** The room's OBJ_GHOST sprite (game +0x1DC), or -1. */
+	int findGhost() const;
+	/** The ANIM name the sprite was last started on. */
+	const Common::String &getAnim(uint sprite) const { return _sprites[sprite].anim; }
+	/** Whether the art file names @p anim as an ANIM (GetId != 0). */
+	bool hasAnim(const Common::String &anim) const;
+	/**
+	 * Start @p anim on the sprite's object (vtable +0x24, 0x430A00) at 3
+	 * ticks per step. An unknown name has id 0, so the object's sequence 0
+	 * plays, as in the original.
+	 */
+	bool startAnim(uint sprite, const Common::String &anim, int mode, int startStep);
+	/** Show or hide a sprite (+0x14, 0x4313F0). */
+	void setHidden(uint sprite, bool hidden) { _sprites[sprite].hidden = hidden; }
+
 	/** Show the OBJ_CURSOR sprite playing @p anim at (x, y); an empty name hides it. */
 	bool setCursor(const Common::String &anim);
 	void setCursorPosition(int x, int y);
@@ -150,6 +167,8 @@ private:
 		bool hidden;                  // +0x14: neither drawn nor hit
 		int hitType;                  // +4: 1 = cel pixels and masks, 2 = step polygon
 		uint parent;                  // index into _sprites; the root is its own parent
+		Kind kind = kKindLayer;       // the constructor the default placement path picked
+		Common::String anim;          // the ANIM last started
 		Common::String object;        // the OBJ name the block belongs to
 		Common::String label;
 		Common::String rollover;

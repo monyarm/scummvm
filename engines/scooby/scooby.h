@@ -55,6 +55,7 @@ private:
 
 	void checkAllRooms();
 	void checkAllExits();
+	void checkAllClickables();
 	void drawRoom();
 	void updateHover(int x, int y);
 	void clickExit(int sprite);

@@ -375,8 +375,10 @@ bool Room::load(const Common::String &name) {
 		s.y = (int16)READ_LE_UINT16(p + kPlacementY);
 		s.label = Common::String::format("%u %s", k, obj.c_str());
 		s.object = obj;
+		s.anim = anim;
 		int slot;
 		const Kind kind = getPlacementKind(obj, s.y, slot, s.depth);
+		s.kind = kind;
 
 		// Start modes: the clickable constructor (0x401000) and the ghost
 		// (0x4091FF) start stopped; the others loop. Exits, requires,
@@ -435,6 +437,7 @@ bool Room::setSequence(uint sprite, const Common::String &obj, const Common::Str
 	if (s.block && _art.findName(anim, id) && (ArtNameType)(id >> 28) == kArtAnim &&
 	    startSequence(s, id & 0x3FFFF, mode, kPlacementTicksPerStep, startStep)) {
 		debugC(2, kDebugScript, "Switching to ANIM %s", anim.c_str());
+		s.anim = anim;
 		return true;
 	}
 
@@ -444,6 +447,32 @@ bool Room::setSequence(uint sprite, const Common::String &obj, const Common::Str
 	s.player.countdown = kPlacementTicksPerStep;
 	s.player.step = 0;
 	return false;
+}
+
+int Room::findGhost() const {
+	for (uint i = 0; i < _sprites.size(); i++) {
+		if (_sprites[i].kind == kKindGhost)
+			return i;
+	}
+	return -1;
+}
+
+bool Room::hasAnim(const Common::String &anim) const {
+	uint32 id;
+	return _art.findName(anim, id) && (ArtNameType)(id >> 28) == kArtAnim;
+}
+
+bool Room::startAnim(uint sprite, const Common::String &anim, int mode, int startStep) {
+	Sprite &s = _sprites[sprite];
+	uint32 id;
+	if (!_art.findName(anim, id) || (ArtNameType)(id >> 28) != kArtAnim)
+		id = 0;
+	if (!s.block || !startSequence(s, id & 0x3FFFF, mode, kPlacementTicksPerStep, startStep)) {
+		warning("Room %s: cannot start %s on %s", _name.c_str(), anim.c_str(), s.object.c_str());
+		return false;
+	}
+	s.anim = anim;
+	return true;
 }
 
 int Room::getSequenceSteps(const Common::String &obj, const Common::String &anim) {

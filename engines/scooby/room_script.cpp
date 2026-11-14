@@ -20,6 +20,7 @@
  */
 
 #include "common/debug.h"
+#include "common/random.h"
 
 #include "scooby/detection.h"
 #include "scooby/room.h"
@@ -44,6 +45,14 @@ static const char *const kNarrator = "OBJ_NARRATOR_A";
 // A scene runs out of lines long before this.
 static const int kMaxLines = 99;
 
+// A clickable plays its state once at 3 ticks per step, then rests stopped
+// on step 0 of its next state (0x401440).
+static const int kModeStopped = 0;
+static const int kModeOnce = 3;
+
+// When the ghost has appeared, the game goes here (0x409BCA).
+static const char *const kGhostRoom = "ROOM_Ghost_Spot";
+
 static Common::String getIniString(const Common::INIFile &ini, const Common::String &section, const char *key) {
 	Common::String value;
 	if (!ini.getKey(key, section, value))
@@ -54,7 +63,8 @@ static Common::String getIniString(const Common::INIFile &ini, const Common::Str
 
 RoomScript::RoomScript(Room &room, Sound &sound, const Common::INIFile &objectIni) :
 	_room(room), _sound(sound), _ini(objectIni), _line(0), _speaker(-1), _exitParked(false), _leader(-1),
-	_busy(false), _done(false), _tick(0) {
+	_busy(false), _done(false), _tick(0), _ghost(-1), _ghostPlaying(false), _ghostDone(false), _random(nullptr),
+	_ghostChance(0) {
 	_exit.movie = -1;
 	for (uint g = 0; g < kGangCount; g++)
 		_lengths[g] = -1;
@@ -83,6 +93,145 @@ void RoomScript::enter() {
 	_done = false;
 	_tick = 0;
 	_walkLog.clear();
+
+	// The default clickables (0x401000): the state is the placement's ANIM,
+	// or the one the save file holds, shown stopped on step 0.
+	_clickables.clear();
+	for (uint s = 0; s < _room.getSpriteCount(); s++) {
+		if (!_room.isClickable(s))
+			continue;
+		Clickable c;
+		c.sprite = s;
+		c.object = _room.getObjectName(s);
+		c.state = _room.getAnim(s);
+		c.playing = false;
+		c.clicked = false;
+		if (_clickableStates.contains(c.object)) {
+			c.state = _clickableStates[c.object];
+			_room.startAnim(s, c.state, kModeStopped, -1);
+		}
+		// A state the art file doesn't name gets the last letter A.
+		if (!_room.hasAnim(c.state) && !c.state.empty())
+			c.state.setChar('A', c.state.size() - 1);
+		setSoundName(c);
+		_clickables.push_back(c);
+	}
+	_clickLog.clear();
+
+	_ghost = _room.findGhost();
+	_ghostPlaying = false;
+	_ghostDone = false;
+}
+
+void RoomScript::setGhostChance(Common::RandomSource *random, uint chance) {
+	_random = random;
+	_ghostChance = chance;
+}
+
+void RoomScript::setSoundName(Clickable &c) {
+	// 0x401650: "SFX_" and the state without its "ANIM_" prefix.
+	c.sound = c.state.size() > 5 ? Common::String("SFX_") + Common::String(c.state.c_str() + 5) : Common::String();
+}
+
+RoomScript::Clickable *RoomScript::findClickable(uint sprite) {
+	for (uint i = 0; i < _clickables.size(); i++) {
+		if (_clickables[i].sprite == sprite)
+			return &_clickables[i];
+	}
+	return nullptr;
+}
+
+bool RoomScript::clickClickable(uint sprite) {
+	Clickable *c = findClickable(sprite);
+	if (!c)
+		return false;
+	c->clicked = true;
+	return true;
+}
+
+bool RoomScript::isClickablePlaying(uint sprite) const {
+	for (uint i = 0; i < _clickables.size(); i++) {
+		if (_clickables[i].sprite == sprite)
+			return _clickables[i].playing;
+	}
+	return false;
+}
+
+Common::String RoomScript::getClickableState(uint sprite) const {
+	for (uint i = 0; i < _clickables.size(); i++) {
+		if (_clickables[i].sprite == sprite)
+			return _clickables[i].state;
+	}
+	return Common::String();
+}
+
+void RoomScript::advanceClickable(Clickable &c) {
+	// 0x401650: the last character + 1, unless that makes a digit 1-9; a
+	// name the art file doesn't have goes back to A.
+	if (c.state.empty())
+		return;
+	const char next = c.state.lastChar() + 1;
+	if (next < '1' || next > '9') {
+		c.state.setChar(next, c.state.size() - 1);
+		if (!_room.hasAnim(c.state))
+			c.state.setChar('A', c.state.size() - 1);
+		// The destructor (0x401350) saves it under the same rule.
+		_clickableStates[c.object] = c.state;
+	}
+	setSoundName(c);
+}
+
+void RoomScript::tickClickable(Clickable &c) {
+	// 0x401440, once a tick after the sprite's player. A click while the
+	// object is playing is ignored.
+	const bool clicked = c.clicked;
+	c.clicked = false;
+	if (clicked && !c.playing) {
+		// The ghost can come instead (0x40A990): 1 in 30, if the room has one.
+		if (_random && _ghostChance && _random->getRandomNumber(_ghostChance - 1) == 0 && startGhost()) {
+			_clickLog = "ghost";
+			debugC(1, kDebugScript, "clickable %s: the ghost appears at tick %u", c.object.c_str(), _tick);
+		} else {
+			const Common::String state = c.state;
+			const Common::String sound = c.sound;
+			_room.startAnim(c.sprite, state, kModeOnce, -1);
+			const uint32 steps = _room.getStepCount(c.sprite);
+			// Stop, then play, its sound (0x434CB0, 0x434C70), if it exists.
+			const bool hasSound = _sound.findClip(sound) != nullptr;
+			if (hasSound)
+				_sound.play(sound);
+			advanceClickable(c);
+			_clickLog = Common::String::format("anim %s steps %u sound %s next %s", state.c_str(), steps,
+			                                   hasSound ? sound.c_str() : "-", c.state.c_str());
+			debugC(1, kDebugScript, "clickable %s clicked at tick %u: %s", c.object.c_str(), _tick, _clickLog.c_str());
+			// The room's handler (vtable +0x14, through game +0x40) does
+			// nothing in the default room; story rooms override it.
+			debugC(2, kDebugScript, "room hook: %s clicked", c.object.c_str());
+			c.playing = true;
+		}
+	}
+
+	// At the end of its sequence it rests on step 0 of the new state.
+	if (c.playing && _room.isStopped(c.sprite)) {
+		_room.startAnim(c.sprite, c.state, kModeStopped, -1);
+		c.playing = false;
+		debugC(1, kDebugScript, "clickable %s rests on %s at tick %u", c.object.c_str(), c.state.c_str(), _tick);
+	}
+}
+
+bool RoomScript::startGhost() {
+	// 0x40A990: show the ghost and play it once, play Ghost_Appears, and
+	// scare every character. Input stays blocked until the room changes.
+	if (_ghost < 0 || _ghostPlaying)
+		return false;
+	_room.setHidden(_ghost, false);
+	_room.startAnim(_ghost, _room.getAnim(_ghost), kModeOnce, -1);
+	_ghostPlaying = true;
+	_busy = true;
+	_sound.play("Ghost_Appears");
+	for (uint i = 0; i < _characters.size(); i++)
+		_characters[i].setState(_room, _sound, Character::kStateStayScared);
+	return true;
 }
 
 RoomScript::Exit RoomScript::readExit(const Common::String &object) const {
@@ -130,8 +279,15 @@ void RoomScript::startExit(const Exit &exit) {
 void RoomScript::tick() {
 	// The sprite tree ticks first (0x431130): each character's update runs
 	// after its player. Then the room's own tick (0x40B490).
+	for (uint i = 0; i < _clickables.size(); i++)
+		tickClickable(_clickables[i]);
 	for (uint i = 0; i < _characters.size(); i++)
 		_characters[i].update(_room, _sound);
+	// 0x409BCA: when the ghost's sequence ends, go to the ghost room.
+	if (_ghostPlaying && !_ghostDone && _room.isStopped(_ghost)) {
+		_ghostDone = true;
+		debugC(1, kDebugScript, "the ghost is gone at tick %u: going to %s", _tick, kGhostRoom);
+	}
 	if (!_scene.empty())
 		tickScene();
 	if (_scene.empty() && _exitParked && !_done)
@@ -211,6 +367,11 @@ void RoomScript::tickExit() {
 }
 
 bool RoomScript::getNextRoom(Common::String &room, int &movie) const {
+	if (_ghostDone) {
+		room = kGhostRoom;
+		movie = -1;
+		return true;
+	}
 	if (!_done)
 		return false;
 	room = _exit.destination;

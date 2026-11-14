@@ -100,6 +100,10 @@ Common::Error ScoobyEngine::run() {
 	if (!_sound->open())
 		return Common::Error(Common::kNoGameDataFoundError, "Sfx.dat, Voice.dat or Music.dat");
 	_script = new RoomScript(*_currentRoom, *_sound, _objectIni);
+	// A click calls the ghost 1 time in 30 (0x401440). A "ghost_chance" key
+	// in the game's config domain changes the odds, for testing; 0 turns
+	// the ghost off.
+	_script->setGhostChance(&_randomSource, ConfMan.hasKey("ghost_chance") ? (uint)ConfMan.getInt("ghost_chance") : 30);
 
 	if (debugChannelSet(3, kDebugGraphics)) {
 		checkAllCels(*_art);
@@ -107,8 +111,10 @@ Common::Error ScoobyEngine::run() {
 	}
 	if (debugChannelSet(3, kDebugAudio))
 		_sound->checkAllClips();
-	if (debugChannelSet(3, kDebugScript))
+	if (debugChannelSet(3, kDebugScript)) {
 		checkAllExits();
+		checkAllClickables();
+	}
 
 	// No game logic yet: show a room as it is set up on entry and let its
 	// sprites play. The console's "room" command switches rooms. A
@@ -162,6 +168,10 @@ Common::Error ScoobyEngine::run() {
 				changed = true;
 				if (_hover >= 0 && !_currentRoom->getDestination(_hover).empty())
 					clickExit(_hover);
+				// A clickable's update takes the click on the next tick, while
+				// the cursor shows its rollover (0x401440).
+				else if (_hover >= 0 && _currentRoom->isClickable(_hover))
+					_script->clickClickable(_hover);
 			}
 		}
 
@@ -318,6 +328,52 @@ void ScoobyEngine::checkAllExits() {
 		}
 	}
 	debugC(3, kDebugScript, "exit check: %u exits, %u stuck", exits, stuck);
+}
+
+void ScoobyEngine::checkAllClickables() {
+	// Every clickable of every room, clicked twice from a fresh room: what
+	// each click plays and sounds, the state it moves to, and how many ticks
+	// until the object rests. The ghost is off.
+	const uint kMaxTicks = 10000;
+	uint clicks = 0, stuck = 0;
+	Room room(*_art, _objectIni);
+	RoomScript script(room, *_sound, _objectIni);
+	for (uint i = 0; i < _art->getRoomCount(); i++) {
+		const Common::String name = _art->getRoomName(i);
+		if (!room.load(name))
+			continue;
+		Common::Array<uint> sprites;
+		for (uint s = 0; s < room.getSpriteCount(); s++) {
+			if (room.isClickable(s))
+				sprites.push_back(s);
+		}
+		for (uint k = 0; k < sprites.size(); k++) {
+			room.load(name);
+			script.resetClickableStates();
+			script.enter();
+			for (int n = 1; n <= 2; n++) {
+				script.clickClickable(sprites[k]);
+				room.tick();
+				script.tick();
+				const uint32 fired = script.getTick() - 1;
+				uint t = 0;
+				while (t < kMaxTicks && script.isClickablePlaying(sprites[k])) {
+					room.tick();
+					script.tick();
+					t++;
+				}
+				clicks++;
+				if (script.isClickablePlaying(sprites[k])) {
+					stuck++;
+					debugC(3, kDebugScript, "click %s %s %d STUCK", name.c_str(), room.getObjectName(sprites[k]).c_str(), n);
+					break;
+				}
+				debugC(3, kDebugScript, "click %s %s %d %s rest %u", name.c_str(), room.getObjectName(sprites[k]).c_str(), n,
+				       script.getClickLog().c_str(), script.getTick() - 1 - fired);
+			}
+		}
+	}
+	debugC(3, kDebugScript, "click check: %u clicks, %u stuck", clicks, stuck);
 }
 
 void ScoobyEngine::checkAllRooms() {
