@@ -255,14 +255,24 @@ Character *RoomScript::findCharacter(const char *name) {
 	return nullptr;
 }
 
-void RoomScript::startScene(const Common::String &scene) {
+bool RoomScript::hasCharacter(const char *name) {
+	const Character *c = findCharacter(name);
+	return c && c->getSprite() >= 0;
+}
+
+bool RoomScript::startScene(const Common::String &scene, bool block) {
+	// 0x40B400: only if no scene is playing and no exit is parked. A
+	// blocking scene stops input until it is over.
 	if (scene.empty() || !_scene.empty() || _exitParked)
-		return;
+		return false;
 	_scene = scene;
 	_line = 0;
 	_speaker = -1;
-	_busy = true;
-	debugC(1, kDebugScript, "scene %s starts", scene.c_str());
+	_sceneBlocks = block;
+	if (block)
+		_busy = true;
+	debugC(1, kDebugScript, "scene %s starts%s", scene.c_str(), block ? "" : " (input stays on)");
+	return true;
 }
 
 void RoomScript::startExit(const Exit &exit) {
@@ -316,7 +326,7 @@ void RoomScript::tickScene() {
 	debugC(1, kDebugScript, "scene %s over after %d lines at tick %u", _scene.c_str(), _line - 1, _tick);
 	_scene.clear();
 	_speaker = -1;
-	if (!_exitParked)
+	if (!_exitParked && _sceneBlocks)
 		_busy = false;
 }
 

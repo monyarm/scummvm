@@ -80,8 +80,17 @@ public:
 	 */
 	void startExit(const Exit &exit);
 
-	/** Start a scene (0x40B400) if none is playing and no exit is parked. */
-	void startScene(const Common::String &scene);
+	/**
+	 * Start a scene (0x40B400) if none is playing and no exit is parked;
+	 * a blocking one stops input until it is over. Returns false if it
+	 * didn't start.
+	 */
+	bool startScene(const Common::String &scene, bool block = true);
+
+	/** Whether a character of that name is placed in the room (0x40A800). */
+	bool hasCharacter(const char *name);
+	/** Whether a scene is playing. */
+	bool isScenePlaying() const { return !_scene.empty(); }
 
 	/**
 	 * Once a tick, after the room's sprites: the characters, the scene
@@ -156,6 +165,7 @@ private:
 	Common::String _scene;
 	int _line;
 	int _speaker;
+	bool _sceneBlocks = true;
 
 	// The parked exit (+0x2C onwards) and the walk-off's leader (+0x90).
 	bool _exitParked;

@@ -127,6 +127,31 @@ public:
 	/** Show or hide a sprite (+0x14, 0x4313F0). */
 	void setHidden(uint sprite, bool hidden) { _sprites[sprite].hidden = hidden; }
 
+	/** A placement the default path built as an inventoryobject (0x4026B0). */
+	bool isInventoryObject(uint sprite) const { return _sprites[sprite].kind == kKindInventory; }
+	/** A placement the default path built as a requiresobject (0x402D90). */
+	bool isRequiresObject(uint sprite) const { return _sprites[sprite].kind == kKindRequires; }
+	bool isHidden(uint sprite) const { return _sprites[sprite].hidden; }
+	/** The sequence player's mode (+0x40): 0 when stopped or played out. */
+	int getMode(uint sprite) const { return _sprites[sprite].animated ? _sprites[sprite].player.mode : 0; }
+	int getX(uint sprite) const { return _sprites[sprite].x; }
+	int getY(uint sprite) const { return _sprites[sprite].y; }
+
+	/**
+	 * Add a sprite of the engine's own (the toolbar) under @p parent (-1 for
+	 * the root), at (x, y) from its parent, playing @p anim from step 0 in
+	 * mode 1 at 3 ticks per step (0x430790 as 0x407E50 calls it). @p hitType
+	 * is 1 (cels) or 2 (step polygon). Returns its index.
+	 */
+	uint addEngineSprite(int parent, const Common::String &obj, const Common::String &anim, int depth,
+	                     int x, int y, int hitType, const Common::String &label);
+	/** Move a sprite to (x, y) from its parent; its children follow. */
+	void setOffset(uint sprite, int x, int y);
+	/** 0x430C00: the widest and the tallest cel over the current sequence's steps. */
+	void getSize(uint sprite, int &width, int &height);
+	/** 0x430AA0 on the current sequence: set the mode and the step. */
+	void setPlayer(uint sprite, int mode, int startStep);
+
 	/** Show the OBJ_CURSOR sprite playing @p anim at (x, y); an empty name hides it. */
 	bool setCursor(const Common::String &anim);
 	void setCursorPosition(int x, int y);
@@ -157,7 +182,8 @@ private:
 		kKindExit,
 		kKindRequires,
 		kKindInventory,
-		kKindClickable
+		kKindClickable,
+		kKindEngine     // added by the engine: the toolbar
 	};
 
 	struct Sprite {
@@ -166,7 +192,8 @@ private:
 		uint32 frame;                 // fixed frame record, for layer sprites
 		bool animated;
 		Player player;
-		int x, y;
+		int x, y;                     // on the room's surface
+		int offsetX = 0, offsetY = 0; // from the parent (+0xC, +0x10)
 		bool hidden;                  // +0x14: neither drawn nor hit
 		int hitType;                  // +4: 1 = cel pixels and masks, 2 = step polygon
 		uint parent;                  // index into _sprites; the root is its own parent
@@ -182,6 +209,7 @@ private:
 	uint addSprite(uint parent, const Sprite &sprite);
 	void frontToBack(uint index, Common::Array<uint> &out) const;
 	void insertChild(uint parent, uint index);
+	void placeSubtree(uint index);
 	void buildDrawList();
 	uint32 getFrame(const Sprite &sprite) const;
 	uint32 getPolygon(const Sprite &sprite) const;

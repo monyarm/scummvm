@@ -4,6 +4,7 @@ MODULE_OBJS = \
 	art_archive.o \
 	cel.o \
 	character.o \
+	inventory.o \
 	room.o \
 	room_script.o \
 	scooby.o \

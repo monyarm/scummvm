@@ -23,9 +23,11 @@
 #include "scooby/art_archive.h"
 #include "scooby/cel.h"
 #include "scooby/console.h"
+#include "scooby/inventory.h"
 #include "scooby/room.h"
 #include "scooby/room_script.h"
 #include "scooby/sound.h"
+#include "common/algorithm.h"
 #include "common/config-manager.h"
 #include "common/debug-channels.h"
 #include "common/endian.h"
@@ -43,7 +45,7 @@ namespace Scooby {
 ScoobyEngine *g_engine;
 
 ScoobyEngine::ScoobyEngine(OSystem *syst, const ScoobyGameDescription *gameDesc) : Engine(syst),
-	_gameDescription(gameDesc), _randomSource("Scooby"), _art(nullptr), _currentRoom(nullptr), _tickBase(0), _ticksDone(0), _hover(-1), _lastHover(-1), _sound(nullptr), _script(nullptr) {
+	_gameDescription(gameDesc), _randomSource("Scooby"), _art(nullptr), _currentRoom(nullptr), _tickBase(0), _ticksDone(0), _hover(-1), _lastHover(-1), _sound(nullptr), _script(nullptr), _inventory(nullptr) {
 	g_engine = this;
 
 	// Gen 1 discs keep the game files in a "scooby" directory, and detection
@@ -53,6 +55,7 @@ ScoobyEngine::ScoobyEngine(OSystem *syst, const ScoobyGameDescription *gameDesc)
 }
 
 ScoobyEngine::~ScoobyEngine() {
+	delete _inventory;
 	delete _script;
 	delete _sound;
 	_room.free();
@@ -104,6 +107,9 @@ Common::Error ScoobyEngine::run() {
 	// in the game's config domain changes the odds, for testing; 0 turns
 	// the ghost off.
 	_script->setGhostChance(&_randomSource, ConfMan.hasKey("ghost_chance") ? (uint)ConfMan.getInt("ghost_chance") : 30);
+	// The inventory lasts the whole game; the toolbar is built in each room.
+	_inventory = new Inventory(*_currentRoom, *_sound, *_script, _objectIni);
+	_inventory->setRandom(&_randomSource);
 
 	if (debugChannelSet(3, kDebugGraphics)) {
 		checkAllCels(*_art);
@@ -114,6 +120,7 @@ Common::Error ScoobyEngine::run() {
 	if (debugChannelSet(3, kDebugScript)) {
 		checkAllExits();
 		checkAllClickables();
+		checkAllInventory();
 		checkAllMovies();
 	}
 
@@ -129,6 +136,21 @@ Common::Error ScoobyEngine::run() {
 	// sound_play does the same.
 	if (ConfMan.hasKey("start_sound"))
 		_sound->play(ConfMan.get("start_sound"));
+	// "start_items" puts inventory objects in the slots (comma-separated
+	// OBJ names), for testing; the console's inv_add does the same.
+	if (ConfMan.hasKey("start_items")) {
+		Common::String list = ConfMan.get("start_items");
+		for (Common::String::size_type start = 0; start < list.size();) {
+			Common::String::size_type end = list.findFirstOf(',', start);
+			if (end == Common::String::npos)
+				end = list.size();
+			Common::String item(list.c_str() + start, end - start);
+			item.trim();
+			if (!item.empty())
+				_inventory->addItem(item);
+			start = end + 1;
+		}
+	}
 	// And "start_movie" plays one movie first, then draws the room again.
 	if (ConfMan.hasKey("start_movie")) {
 		playMovie(ConfMan.getInt("start_movie"));
@@ -168,16 +190,23 @@ Common::Error ScoobyEngine::run() {
 					updateHover(e.mouse.x, e.mouse.y);
 					changed = true;
 				}
-			} else if (e.type == Common::EVENT_LBUTTONDOWN && !_script->isBusy()) {
+			} else if (e.type == Common::EVENT_LBUTTONDOWN && !_script->isBusy() && !_inventory->isInputBlocked()) {
 				_mousePos = e.mouse;
 				updateHover(e.mouse.x, e.mouse.y);
 				changed = true;
-				if (_hover >= 0 && !_currentRoom->getDestination(_hover).empty())
-					clickExit(_hover);
-				// A clickable's update takes the click on the next tick, while
-				// the cursor shows its rollover (0x401440).
-				else if (_hover >= 0 && _currentRoom->isClickable(_hover))
-					_script->clickClickable(_hover);
+				// The toolbar, inventory and requires objects take the click on
+				// the next tick, and so does the game's update (0x4098B0).
+				_inventory->click(_hover);
+				// Exits and clickables answer only the arrow (0x402130,
+				// 0x401440).
+				if (_inventory->isDefaultCursor()) {
+					if (_hover >= 0 && !_currentRoom->getDestination(_hover).empty())
+						clickExit(_hover);
+					// A clickable's update takes the click on the next tick,
+					// while the cursor shows its rollover (0x401440).
+					else if (_hover >= 0 && _currentRoom->isClickable(_hover))
+						_script->clickClickable(_hover);
+				}
 			}
 		}
 
@@ -190,12 +219,17 @@ Common::Error ScoobyEngine::run() {
 		int movie = -1;
 		for (uint32 i = 0; i < owed; i++) {
 			changed = _currentRoom->tick() || changed;
+			_inventory->tickObjects();
 			_script->tick();
-			changed = changed || _script->isBusy();
-			if (_script->getNextRoom(nextRoom, movie))
+			_inventory->tickGame();
+			changed = changed || _script->isBusy() || _inventory->getState() != Inventory::kStateParked;
+			if (_script->getNextRoom(nextRoom, movie) || _inventory->getNextRoom(nextRoom, movie))
 				break;
 		}
 		_ticksDone += owed;
+		// The cursor follows the game's (0x4098B0).
+		if (owed && nextRoom.empty() && !_script->isBusy())
+			updateHover(_mousePos.x, _mousePos.y);
 		if (!nextRoom.empty()) {
 			// 0x42DE10: ids outside 0-74 mean no movie. The movie plays
 			// before the next room loads.
@@ -249,8 +283,17 @@ void ScoobyEngine::updateHover(int x, int y) {
 	// The cursor shows the hovered object's rollover (vtable +0x18), or the
 	// default arrow.
 	_hover = _currentRoom->hitTest(x, y);
-	const Common::String rollover = _hover >= 0 ? _currentRoom->getRollover(_hover) : Common::String();
-	const char *cursor = rollover.empty() ? "ANIM_CURSORARROW" : rollover.c_str();
+	// The hovered object's rollover (vtable +0x18), which is empty for
+	// every object while an item is the cursor; else the game's cursor.
+	Common::String rollover;
+	if (_hover >= 0) {
+		if (_inventory->handles(_hover))
+			rollover = _inventory->getRollover(_hover);
+		else if (_inventory->isDefaultCursor())
+			rollover = _currentRoom->getRollover(_hover);
+	}
+	const Common::String cursorName = rollover.empty() ? _inventory->getCursor() : rollover;
+	const char *cursor = cursorName.c_str();
 	_currentRoom->setCursorPosition(x, y);
 	if (_hover != _lastHover) {
 		_lastHover = _hover;
@@ -277,6 +320,8 @@ bool ScoobyEngine::showRoom(const Common::String &name) {
 		return false;
 	if (_script)
 		_script->enter();
+	if (_inventory)
+		_inventory->enterRoom();
 	_hover = _lastHover = -1;
 	_currentRoom->setCursor("ANIM_CURSORARROW");
 
@@ -387,6 +432,166 @@ void ScoobyEngine::checkAllClickables() {
 		}
 	}
 	debugC(3, kDebugScript, "click check: %u clicks, %u stuck", clicks, stuck);
+}
+
+void ScoobyEngine::checkAllInventory() {
+	// The toolbar driving in and out; then, from a new game and a fresh
+	// room, a click on every inventory object, and on every requires object
+	// with the arrow, with the item it asks for, and with another item. The
+	// wrong-item line goes to the first speaker present (no random draw).
+	const uint kMaxTicks = 2000;
+	Room room(*_art, _objectIni);
+	RoomScript script(room, *_sound, _objectIni);
+	Inventory inv(room, *_sound, script, _objectIni);
+	uint checks = 0, stuck = 0;
+
+	struct Ticker {
+		Room &room;
+		RoomScript &script;
+		Inventory &inv;
+		void tick() {
+			room.tick();
+			inv.tickObjects();
+			script.tick();
+			inv.tickGame();
+		}
+		void enter(const Common::String &name) {
+			room.load(name);
+			script.enter();
+			inv.enterRoom();
+		}
+		// Ticks until the toolbar is in @p state, or -1.
+		int until(Inventory::State state, uint max) {
+			for (uint t = 1; t <= max; t++) {
+				tick();
+				if (inv.getState() == state)
+					return t;
+			}
+			return -1;
+		}
+	} run = { room, script, inv };
+
+	// The inventory objects by name, and the cursor each gives.
+	Common::Array<Common::String> items;
+	Common::HashMap<Common::String, Common::String> cursorOf;
+	const Common::INIFile::SectionList sections = _objectIni.getSections();
+	for (Common::INIFile::SectionList::const_iterator it = sections.begin(); it != sections.end(); ++it) {
+		Common::String id, cursor;
+		if (!_objectIni.getKey("ID", it->name, id))
+			continue;
+		id.trim();
+		if (!id.equalsIgnoreCase("inventoryobject") || !_objectIni.getKey("usecursor", it->name, cursor))
+			continue;
+		cursor.trim();
+		items.push_back(it->name);
+		cursorOf[it->name] = cursor;
+	}
+	Common::sort(items.begin(), items.end());
+
+	// The toolbar, in the first room.
+	const Common::String first = _art->getRoomName(0);
+	inv.reset();
+	run.enter(first);
+	debugC(3, kDebugScript, "inventory check toolbar parked %s", inv.describeToolbar().c_str());
+	inv.click(inv.getVanSprite());
+	const int in = run.until(Inventory::kStateOpen, kMaxTicks);
+	debugC(3, kDebugScript, "inventory check toolbar open after %d ticks at x %d %s", in, inv.getVanX(), inv.describeToolbar().c_str());
+	inv.click(inv.getVanSprite());
+	const int out = run.until(Inventory::kStateParked, kMaxTicks);
+	debugC(3, kDebugScript, "inventory check toolbar parked after %d ticks [%s]", out, inv.takeLog().c_str());
+	checks++;
+	if (in < 0 || out < 0)
+		stuck++;
+
+	for (uint i = 0; i < _art->getRoomCount(); i++) {
+		const Common::String name = _art->getRoomName(i);
+		if (!room.load(name))
+			continue;
+		Common::Array<uint> pickups, requiresObjs;
+		for (uint s = 0; s < room.getSpriteCount(); s++) {
+			if (room.isInventoryObject(s))
+				pickups.push_back(s);
+			else if (room.isRequiresObject(s))
+				requiresObjs.push_back(s);
+		}
+
+		for (uint k = 0; k < pickups.size(); k++) {
+			inv.reset();
+			run.enter(name);
+			const Common::String obj = room.getObjectName(pickups[k]);
+			inv.takeLog();
+			inv.click(pickups[k]);
+			uint t = 0;
+			Common::String next;
+			int movie = -1;
+			while (t < kMaxTicks && !inv.hasItem(obj)) {
+				run.tick();
+				t++;
+			}
+			const bool movieWait = inv.getNextRoom(next, movie);
+			checks++;
+			if (!inv.hasItem(obj))
+				stuck++;
+			const bool hidden = room.isHidden(pickups[k]);
+			const int x = inv.getVanX();
+			Common::String log = inv.takeLog();
+			run.enter(name);
+			debugC(3, kDebugScript, "inventory check pickup %s %s: [%s] in %u ticks, slot %s, toolbar x %d, %s, %s%s", name.c_str(),
+			       obj.c_str(), log.c_str(), t, inv.getSlot(0).c_str(), x,
+			       hidden ? "hidden" : "shown", room.isHidden(pickups[k]) ? "hidden on return" : "shown on return",
+			       movieWait ? Common::String::format(", then movie %d and %s", movie, next.c_str()).c_str() : "");
+		}
+
+		for (uint k = 0; k < requiresObjs.size(); k++) {
+			const Common::String obj = room.getObjectName(requiresObjs[k]);
+			Common::String required;
+			_objectIni.getKey("requiredanim", obj, required);
+			required.trim();
+
+			// The arrow.
+			inv.reset();
+			run.enter(name);
+			inv.takeLog();
+			inv.click(requiresObjs[k]);
+			run.tick();
+			Common::String line = Common::String::format("arrow [%s] cursor %s", inv.takeLog().c_str(), inv.getCursor().c_str());
+
+			// The item it asks for, then another.
+			for (int pass = 0; pass < 2; pass++) {
+				// The first item, by name, that gives the cursor (pass 0) or
+				// another (pass 1).
+				Common::String item;
+				for (uint n = 0; n < items.size() && item.empty(); n++) {
+					if ((cursorOf[items[n]] == required) == (pass == 0))
+						item = items[n];
+				}
+				if (item.empty()) {
+					line += Common::String::format("; no item gives %s", required.c_str());
+					continue;
+				}
+				inv.reset();
+				run.enter(name);
+				inv.addItem(item);
+				const int open = run.until(Inventory::kStateOpen, kMaxTicks);
+				inv.takeLog();
+				inv.click(inv.getItemSprite(0));
+				run.tick();
+				const Common::String held = inv.getCursor();
+				inv.click(requiresObjs[k]);
+				run.tick();
+				const Common::String after = inv.getCursor();
+				run.tick();
+				checks++;
+				if (open < 0)
+					stuck++;
+				line += Common::String::format("; %s %s held %s [%s] cursor %s", pass == 0 ? "item" : "other", item.c_str(), held.c_str(),
+				                               inv.takeLog().c_str(), after.c_str());
+			}
+			debugC(3, kDebugScript, "inventory check requires %s %s (%s): %s", name.c_str(), obj.c_str(), required.c_str(), line.c_str());
+			checks++;
+		}
+	}
+	debugC(3, kDebugScript, "inventory check: %u checks, %u stuck", checks, stuck);
 }
 
 void ScoobyEngine::checkAllRooms() {

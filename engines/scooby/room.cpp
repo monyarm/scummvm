@@ -373,6 +373,8 @@ bool Room::load(const Common::String &name) {
 		s.animated = false;
 		s.x = (int16)READ_LE_UINT16(p + kPlacementX);
 		s.y = (int16)READ_LE_UINT16(p + kPlacementY);
+		s.offsetX = s.x; // layers sit at (0, 0)
+		s.offsetY = s.y;
 		s.label = Common::String::format("%u %s", k, obj.c_str());
 		s.object = obj;
 		s.anim = anim;
@@ -678,6 +680,95 @@ int Room::hitTest(int x, int y) {
 			return _drawList[i];
 	}
 	return -1;
+}
+
+uint Room::addEngineSprite(int parent, const Common::String &obj, const Common::String &anim, int depth,
+                           int x, int y, int hitType, const Common::String &label) {
+	Sprite s;
+	s.depth = depth;
+	s.frame = 0;
+	s.animated = false;
+	s.offsetX = x;
+	s.offsetY = y;
+	s.hidden = false;
+	s.hitType = hitType;
+	s.kind = kKindEngine;
+	s.object = obj;
+	s.label = label;
+	s.block = getObjectBlock(obj);
+	const uint p = parent < 0 ? 0 : parent;
+	s.x = _sprites[p].x + x;
+	s.y = _sprites[p].y + y;
+	const uint index = addSprite(p, s);
+	// 0x430A00: an unknown ANIM starts nothing and selects no frame.
+	if (!s.block || !startAnim(index, anim, 1, 0))
+		_sprites[index].anim = anim;
+	buildDrawList();
+	return index;
+}
+
+void Room::setOffset(uint sprite, int x, int y) {
+	_sprites[sprite].offsetX = x;
+	_sprites[sprite].offsetY = y;
+	placeSubtree(sprite);
+}
+
+void Room::placeSubtree(uint index) {
+	// 0x431000 draws a child at its parent's position plus its own.
+	Sprite &s = _sprites[index];
+	if (index != 0) {
+		s.x = _sprites[s.parent].x + s.offsetX;
+		s.y = _sprites[s.parent].y + s.offsetY;
+	}
+	for (uint k = 0; k < s.children.size(); k++)
+		placeSubtree(s.children[k]);
+}
+
+void Room::getSize(uint sprite, int &width, int &height) {
+	// 0x430C00: every step's frame, every cel in it; the cel offsets are
+	// not added.
+	width = height = 0;
+	Sprite &s = _sprites[sprite];
+	if (!s.animated || !s.block)
+		return;
+	Block &block = *s.block;
+	const Common::Array<byte> &object = block.data;
+	const uint32 frameTable = READ_LE_UINT32(&object[kObjectFrameTable]);
+	for (uint32 k = 0; k < s.player.steps; k++) {
+		const uint32 ref = READ_LE_UINT32(&object[s.player.record + kSequenceHeaderSize + kStepSize * k + kStepFrameRef]);
+		const uint32 frame = READ_LE_UINT32(&object[frameTable + 4 * (ref & 0x3FFFF)]);
+		const uint n = READ_LE_UINT16(&object[frame + 4]);
+		for (uint c = 0; c < n; c++) {
+			const Cel *cel = getCel(block, READ_LE_UINT32(&object[frame + kFrameHeaderSize + kFrameEntrySize * c + 4]));
+			if (!cel)
+				continue;
+			width = MAX<int>(width, cel->getWidth());
+			height = MAX<int>(height, cel->getHeight());
+		}
+	}
+}
+
+void Room::setPlayer(uint sprite, int mode, int startStep) {
+	// 0x430AA0 on the sequence the sprite has.
+	Sprite &s = _sprites[sprite];
+	if (!s.animated) {
+		s.player.mode = 0;
+		return;
+	}
+	Player &p = s.player;
+	p.mode = mode;
+	p.ticksPerStep = p.countdown = kPlacementTicksPerStep;
+	if (mode == 5) {
+		p.mode = 0;
+		p.step = p.steps - 1;
+	} else if (startStep == -1) {
+		if (mode == 1 || mode == 3)
+			p.step = 0;
+		else if (mode == 2 || mode == 4)
+			p.step = p.steps - 1;
+	} else {
+		p.step = (uint32)startStep < p.steps ? startStep : p.steps - 1;
+	}
 }
 
 bool Room::setCursor(const Common::String &anim) {

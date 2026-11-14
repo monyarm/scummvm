@@ -38,6 +38,7 @@
 namespace Scooby {
 
 class ArtArchive;
+class Inventory;
 class Room;
 class RoomScript;
 class Sound;
@@ -57,6 +58,7 @@ private:
 	void checkAllExits();
 	void checkAllMovies();
 	void checkAllClickables();
+	void checkAllInventory();
 	void drawRoom();
 	void updateHover(int x, int y);
 	void clickExit(int sprite);
@@ -64,6 +66,7 @@ private:
 	int _lastHover;
 	Sound *_sound;
 	RoomScript *_script;
+	Inventory *_inventory;
 	Common::Point _mousePos;
 	// Movies played this session: those can be skipped (0x42DE10).
 	Common::HashMap<int, bool> _seenMovies;
@@ -100,6 +103,14 @@ public:
 	 * Returns the Gen 1 sound files, or nullptr until run() opens them
 	 */
 	Sound *getSound() const { return _sound; }
+
+	/**
+	 * Returns the inventory, or nullptr until run() creates it
+	 */
+	Inventory *getInventory() const { return _inventory; }
+
+	/** The INI file of the game's objects */
+	const Common::INIFile &getObjectIni() const { return _objectIni; }
 
 	/**
 	 * Draws a room as it is set up on entry: its layers and every placement

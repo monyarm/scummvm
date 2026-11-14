@@ -21,6 +21,7 @@
 
 #include "scooby/console.h"
 #include "scooby/art_archive.h"
+#include "scooby/inventory.h"
 #include "scooby/scooby.h"
 #include "scooby/sound.h"
 
@@ -34,6 +35,43 @@ Console::Console() : GUI::Debugger() {
 	registerCmd("sound_play", WRAP_METHOD(Console, Cmd_soundPlay));
 	registerCmd("sound_stop", WRAP_METHOD(Console, Cmd_soundStop));
 	registerCmd("movie", WRAP_METHOD(Console, Cmd_movie));
+	registerCmd("inv", WRAP_METHOD(Console, Cmd_inventory));
+	registerCmd("inv_add", WRAP_METHOD(Console, Cmd_inventoryAdd));
+	registerCmd("inv_remove", WRAP_METHOD(Console, Cmd_inventoryRemove));
+}
+
+bool Console::Cmd_inventory(int argc, const char **argv) {
+	const Inventory *inv = g_engine->getInventory();
+	if (!inv) {
+		debugPrintf("No inventory yet\n");
+		return true;
+	}
+	for (uint i = 0; i < Inventory::kSlotCount; i++)
+		debugPrintf("slot %u: %s\n", i, inv->getSlot(i).empty() ? "-" : inv->getSlot(i).c_str());
+	debugPrintf("cursor %s, toolbar state %d at x %d\n", inv->getCursor().c_str(), inv->getState(), inv->getVanX());
+	return true;
+}
+
+bool Console::Cmd_inventoryAdd(int argc, const char **argv) {
+	Inventory *inv = g_engine->getInventory();
+	if (argc < 2 || !inv) {
+		debugPrintf("Usage: %s <OBJ name>  (puts an inventory object in the first free slot)\n", argv[0]);
+		return true;
+	}
+	if (!inv->addItem(argv[1]))
+		debugPrintf("No free slot\n");
+	return true;
+}
+
+bool Console::Cmd_inventoryRemove(int argc, const char **argv) {
+	Inventory *inv = g_engine->getInventory();
+	if (argc < 2 || !inv) {
+		debugPrintf("Usage: %s <OBJ name>  (takes an item out of its slot)\n", argv[0]);
+		return true;
+	}
+	if (!inv->removeItem(argv[1]))
+		debugPrintf("%s is not in a slot\n", argv[1]);
+	return true;
 }
 
 bool Console::Cmd_soundList(int argc, const char **argv) {
