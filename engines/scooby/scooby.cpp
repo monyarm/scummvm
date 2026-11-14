@@ -21,6 +21,7 @@
 
 #include "scooby/scooby.h"
 #include "scooby/console.h"
+#include "common/debug-channels.h"
 #include "common/events.h"
 #include "common/system.h"
 #include "engines/util.h"
@@ -31,7 +32,7 @@ namespace Scooby {
 
 ScoobyEngine *g_engine;
 
-ScoobyEngine::ScoobyEngine(OSystem *syst, const ADGameDescription *gameDesc) : Engine(syst),
+ScoobyEngine::ScoobyEngine(OSystem *syst, const ScoobyGameDescription *gameDesc) : Engine(syst),
 	_gameDescription(gameDesc), _randomSource("Scooby") {
 	g_engine = this;
 }
@@ -40,11 +41,15 @@ ScoobyEngine::~ScoobyEngine() {
 }
 
 uint32 ScoobyEngine::getFeatures() const {
-	return _gameDescription->flags;
+	return _gameDescription->desc.flags;
 }
 
 Common::String ScoobyEngine::getGameId() const {
-	return _gameDescription->gameId;
+	return _gameDescription->desc.gameId;
+}
+
+ScoobyGeneration ScoobyEngine::getGeneration() const {
+	return _gameDescription->generation;
 }
 
 Common::Error ScoobyEngine::run() {
@@ -55,6 +60,7 @@ Common::Error ScoobyEngine::run() {
 		return Common::kUnsupportedColorMode;
 
 	setDebugger(new Console());
+	debugC(1, kDebugResource, "Starting %s (generation %d)", getGameId().c_str(), getGeneration());
 	syncSoundSettings();
 
 	// Nothing to show yet: pump events until the user quits.

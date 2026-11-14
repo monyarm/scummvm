@@ -23,13 +23,76 @@ namespace Scooby {
 
 const PlainGameDescriptor scoobyGames[] = {
 	{ "showdown", "Scooby-Doo! Showdown in Ghost Town" },
+	{ "phantomknight", "Scooby-Doo! Phantom of the Knight" },
+	{ "jinxsphinx", "Scooby-Doo! Jinx at the Sphinx" },
+	{ "casefile1", "Scooby-Doo! Case File #1: The Glowing Bug Man" },
 	{ nullptr, nullptr }
 };
 
-// No entries yet: each release gets one once its signature files' sizes and
-// MD5s are recorded, together with its engine generation (1, 2 or 3).
-const ADGameDescription gameDescriptions[] = {
-	AD_TABLE_END_MARKER
+// MD5s cover the first 5000 bytes (the detector default). Sizes are of the
+// whole file. Values are from the English Windows discs.
+//
+// Only Gen 1 is being implemented, so Gen 2 and Gen 3 entries are detected
+// but marked unsupported until their archive readers exist.
+const ScoobyGameDescription gameDescriptions[] = {
+	{
+		{
+			"showdown",
+			nullptr,
+			AD_ENTRY3s("Scooby.exe", "a7a84eb0e66863bb699bab9fc75fdf2b", 487473,
+			           "TGIFILE.ART", "ba57da019a38f63b1b85d8cf83457377", 144592896,
+			           "object.ini", "42db419bd6be75a49552d9e9bdeed880", 25196),
+			Common::EN_ANY,
+			Common::kPlatformWindows,
+			ADGF_UNSTABLE,
+			GUIO1(GUIO_NOMIDI)
+		},
+		kGen1
+	},
+	{
+		{
+			"phantomknight",
+			nullptr,
+			AD_ENTRY3s("Scooby.exe", "c36473c3204c10d75eebf0241e35aee8", 483377,
+			           "TGIFILE.ART", "a0c28dd3e75241794cb19481496bd919", 114386944,
+			           "object.ini", "aafe695ae3f6c2db91858661e28e1c6c", 28788),
+			Common::EN_ANY,
+			Common::kPlatformWindows,
+			ADGF_UNSTABLE,
+			GUIO1(GUIO_NOMIDI)
+		},
+		kGen1
+	},
+	{
+		{
+			"jinxsphinx",
+			nullptr,
+			AD_ENTRY3s("Scooby.exe", "2df7a8e242d525e589abbd2372a80824", 847872,
+			           "Mummy.mms", "17d996eb0ed078a90ce9ab76357e81b9", 887171,
+			           "Mummy.MMP", "acd69eec416b74a5f2aade1c06e441ef", 107393012),
+			Common::EN_ANY,
+			Common::kPlatformWindows,
+			ADGF_UNSUPPORTED,
+			GUIO1(GUIO_NOMIDI)
+		},
+		kGen2
+	},
+	{
+		{
+			"casefile1",
+			nullptr,
+			AD_ENTRY3s("Case File #1.exe", "00a2fd4530103cecb0b2f2684ce59129", 786432,
+			           "Museum.MMS", "f92430e7de3242a4fb7b9d8ec2ec6116", 787946,
+			           "MuseumCD.MMP", "1a906c898fc25a41c812bafd85f66b5e", 91589634),
+			Common::EN_ANY,
+			Common::kPlatformWindows,
+			ADGF_UNSUPPORTED,
+			GUIO1(GUIO_NOMIDI)
+		},
+		kGen3
+	},
+
+	{ AD_TABLE_END_MARKER, kGen1 }
 };
 
 } // End of namespace Scooby

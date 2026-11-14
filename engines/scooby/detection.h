@@ -37,13 +37,29 @@ enum ScoobyDebugChannels {
 	kDebugInput,        // event handling
 };
 
+// Engine generations. The three generations share one code lineage but use
+// different archive, config and video formats, so the engine dispatches on
+// this value (docs/02-SCUMMVM-INTEGRATION.md, section 3).
+enum ScoobyGeneration {
+	kGen1 = 1, // Showdown, Phantom: TGIFILE.ART, object.ini, .dat audio
+	kGen2 = 2, // Jinx: MMFW archives (.MMF, .MMA, .MMP, .mms)
+	kGen3 = 3  // Case File #1: MMFW archives with XML config
+};
+
+struct ScoobyGameDescription {
+	AD_GAME_DESCRIPTION_HELPERS(desc);
+
+	ADGameDescription desc;
+	ScoobyGeneration generation;
+};
+
 extern const PlainGameDescriptor scoobyGames[];
 
-extern const ADGameDescription gameDescriptions[];
+extern const ScoobyGameDescription gameDescriptions[];
 
 } // End of namespace Scooby
 
-class ScoobyMetaEngineDetection : public AdvancedMetaEngineDetection<ADGameDescription> {
+class ScoobyMetaEngineDetection : public AdvancedMetaEngineDetection<Scooby::ScoobyGameDescription> {
 	static const DebugChannelDef debugFlagList[];
 
 public:

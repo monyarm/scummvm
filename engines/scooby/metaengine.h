@@ -24,11 +24,13 @@
 
 #include "engines/advancedDetector.h"
 
-class ScoobyMetaEngine : public AdvancedMetaEngine<ADGameDescription> {
+#include "scooby/detection.h"
+
+class ScoobyMetaEngine : public AdvancedMetaEngine<Scooby::ScoobyGameDescription> {
 public:
 	const char *getName() const override;
 
-	Common::Error createInstance(OSystem *syst, Engine **engine, const ADGameDescription *desc) const override;
+	Common::Error createInstance(OSystem *syst, Engine **engine, const Scooby::ScoobyGameDescription *desc) const override;
 
 	/**
 	 * Determine whether the engine supports the specified MetaEngine feature.

@@ -34,7 +34,7 @@ namespace Scooby {
 
 class ScoobyEngine : public Engine {
 private:
-	const ADGameDescription *_gameDescription;
+	const ScoobyGameDescription *_gameDescription;
 	Common::RandomSource _randomSource;
 
 protected:
@@ -42,7 +42,7 @@ protected:
 	Common::Error run() override;
 
 public:
-	ScoobyEngine(OSystem *syst, const ADGameDescription *gameDesc);
+	ScoobyEngine(OSystem *syst, const ScoobyGameDescription *gameDesc);
 	~ScoobyEngine() override;
 
 	uint32 getFeatures() const;
@@ -51,6 +51,11 @@ public:
 	 * Returns the game Id
 	 */
 	Common::String getGameId() const;
+
+	/**
+	 * Returns the engine generation (1, 2 or 3) from the detection table
+	 */
+	ScoobyGeneration getGeneration() const;
 
 	/**
 	 * Gets a random number

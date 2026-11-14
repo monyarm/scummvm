@@ -33,8 +33,24 @@ const DebugChannelDef ScoobyMetaEngineDetection::debugFlagList[] = {
 	DEBUG_CHANNEL_END
 };
 
+// The games run from the disc, with their files in subdirectories of the
+// disc root: scooby (Showdown, Phantom), Jinx, MUSEUM and Scripts and
+// Resources (Case File #1). Detection matches base names inside those, so the
+// disc root is the path to add. For Showdown and Phantom the scooby directory
+// works too; Jinx and Case File #1 spread their signature files over two
+// directories, so they need the root.
+static const char *const directoryGlobs[] = {
+	"scooby",
+	"jinx",
+	"museum",
+	"scripts and resources",
+	nullptr
+};
+
 ScoobyMetaEngineDetection::ScoobyMetaEngineDetection() : AdvancedMetaEngineDetection(
 	Scooby::gameDescriptions, Scooby::scoobyGames) {
+	_maxScanDepth = 3;
+	_directoryGlobs = directoryGlobs;
 }
 
 REGISTER_PLUGIN_STATIC(SCOOBY_DETECTION, PLUGIN_TYPE_ENGINE_DETECTION, ScoobyMetaEngineDetection);

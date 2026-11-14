@@ -27,7 +27,7 @@ const char *ScoobyMetaEngine::getName() const {
 	return "scooby";
 }
 
-Common::Error ScoobyMetaEngine::createInstance(OSystem *syst, Engine **engine, const ADGameDescription *desc) const {
+Common::Error ScoobyMetaEngine::createInstance(OSystem *syst, Engine **engine, const Scooby::ScoobyGameDescription *desc) const {
 	*engine = new Scooby::ScoobyEngine(syst, desc);
 	return Common::kNoError;
 }
