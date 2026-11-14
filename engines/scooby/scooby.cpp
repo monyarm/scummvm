@@ -20,9 +20,12 @@
  */
 
 #include "scooby/scooby.h"
+#include "scooby/art_archive.h"
 #include "scooby/console.h"
+#include "common/config-manager.h"
 #include "common/debug-channels.h"
 #include "common/events.h"
+#include "common/fs.h"
 #include "common/system.h"
 #include "engines/util.h"
 #include "graphics/framelimiter.h"
@@ -33,11 +36,17 @@ namespace Scooby {
 ScoobyEngine *g_engine;
 
 ScoobyEngine::ScoobyEngine(OSystem *syst, const ScoobyGameDescription *gameDesc) : Engine(syst),
-	_gameDescription(gameDesc), _randomSource("Scooby") {
+	_gameDescription(gameDesc), _randomSource("Scooby"), _art(nullptr) {
 	g_engine = this;
+
+	// Gen 1 discs keep the game files in a "scooby" directory, and detection
+	// accepts the disc root, so search that directory too.
+	const Common::FSNode gameDataDir(ConfMan.getPath("path"));
+	SearchMan.addSubDirectoryMatching(gameDataDir, "scooby");
 }
 
 ScoobyEngine::~ScoobyEngine() {
+	delete _art;
 }
 
 uint32 ScoobyEngine::getFeatures() const {
@@ -61,6 +70,15 @@ Common::Error ScoobyEngine::run() {
 
 	setDebugger(new Console());
 	debugC(1, kDebugResource, "Starting %s (generation %d)", getGameId().c_str(), getGeneration());
+
+	// Only Gen 1 has readers so far. Detection marks Gen 2 and 3 unsupported,
+	// so they should not get here.
+	if (getGeneration() != kGen1)
+		return Common::kUnsupportedGameidError;
+
+	_art = new ArtArchive();
+	if (!_art->open("TGIFILE.ART"))
+		return Common::Error(Common::kNoGameDataFoundError, "TGIFILE.ART");
 	syncSoundSettings();
 
 	// Nothing to show yet: pump events until the user quits.

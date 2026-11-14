@@ -1,6 +1,7 @@
 MODULE := engines/scooby
 
 MODULE_OBJS = \
+	art_archive.o \
 	scooby.o \
 	console.o \
 	metaengine.o

@@ -32,10 +32,13 @@
 
 namespace Scooby {
 
+class ArtArchive;
+
 class ScoobyEngine : public Engine {
 private:
 	const ScoobyGameDescription *_gameDescription;
 	Common::RandomSource _randomSource;
+	ArtArchive *_art;
 
 protected:
 	// Engine APIs
@@ -56,6 +59,11 @@ public:
 	 * Returns the engine generation (1, 2 or 3) from the detection table
 	 */
 	ScoobyGeneration getGeneration() const;
+
+	/**
+	 * Returns the Gen 1 art file, or nullptr until run() opens it
+	 */
+	ArtArchive *getArt() const { return _art; }
 
 	/**
 	 * Gets a random number
