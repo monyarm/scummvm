@@ -93,6 +93,20 @@ public:
 	bool isScenePlaying() const { return !_scene.empty(); }
 
 	/**
+	 * The speech lock (game +0x15C): a scene holds it while it plays, and
+	 * Scrappy while he speaks, so no two talk at once. Returns false if it is
+	 * held (0x40A230).
+	 */
+	bool acquireSpeechLock();
+	void releaseSpeechLock();
+	bool isSpeechLocked() const { return _speechLock; }
+
+	/** A character placed in the room, by name, or nullptr (0x40A800). */
+	Character *getCharacter(const char *name);
+	/** The room's characters in placement order, then the narrator (game +0x19C). */
+	const Common::Array<Character> &getCharacters() const { return _characters; }
+
+	/**
 	 * Once a tick, after the room's sprites: the characters, the scene
 	 * player (0x40C810) and the walk-off (0x40BE20).
 	 */
@@ -166,6 +180,8 @@ private:
 	int _line;
 	int _speaker;
 	bool _sceneBlocks = true;
+	bool _sceneHoldsLock = false; // +0x84
+	bool _speechLock = false;     // game +0x15C
 
 	// The parked exit (+0x2C onwards) and the walk-off's leader (+0x90).
 	bool _exitParked;

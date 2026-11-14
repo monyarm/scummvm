@@ -33,6 +33,7 @@ class RandomSource;
 
 namespace Scooby {
 
+class Character;
 class Room;
 class RoomScript;
 class Sound;
@@ -90,6 +91,34 @@ public:
 	const Common::String &getCursor() const { return _cursor; }
 	bool isDefaultCursor() const;
 	void setCursor(const Common::String &anim) { _cursor = anim; }
+
+	/**
+	 * The cursor to show over @p sprite (-1 for none), as 0x4098B0 picks it:
+	 * the sprite's rollover for the game cursor, or else the game cursor. A
+	 * Scrappy hint (ANIM_CURSORSCRAPPY_ANIM) doesn't show while a scene
+	 * plays or someone holds the speech lock.
+	 */
+	Common::String getCursorFor(int sprite);
+	/** The cursor sprite now plays @p anim; a hint showing wiggles Scrappy. */
+	void cursorShown(const Common::String &anim);
+	const Common::String &getShownCursor() const { return _shownCursor; }
+	/**
+	 * A click on an exit or a character while a hint shows (0x402130,
+	 * 0x404B70): Scrappy says its hint, and the arrow comes back. Returns
+	 * false if no hint shows.
+	 */
+	bool clickHint(int sprite);
+	/** Scrappy says @p clip (0x40CEA0): only in hint mode unless @p force, and only with the speech lock. */
+	bool scrappySays(const Common::String &clip, bool force);
+	bool isScrappyTalking() const { return _scrappyTalking; }
+	/** The suspects met (game +0x174, 0x40A8B0): Scrappy has a hint about them. */
+	void meetSuspect(const Common::String &name);
+	bool hasMetSuspect(const Common::String &name) const;
+	uint getSnacks() const { return _snacks; }
+	/** Set the snack count (story rooms add snacks; 0x407E00 caps it at 99). For testing. */
+	void setSnacks(uint snacks) { _snacks = MIN<uint>(snacks, 99); if (_tens >= 0) showSnacks(); }
+	int getScrappySprite() const { return _scrappy; }
+	int getSnackBoxSprite() const { return _snackBox; }
 
 	/**
 	 * Whether @p sprite is one of the toolbar's, or a room's inventory or
@@ -172,6 +201,13 @@ private:
 	void roomEvent(const Common::String &object, bool success);
 	void playSound(const Common::String &name);
 	void showSnacks();                // 0x40D3B0
+	void closeToolbar();              // 0x407C60
+	void clickSnackBox();             // 0x40D130
+	void updateSnackBox();
+	void updateScrappy();             // 0x40CD90
+	void stopScrappy();
+	void feed(int sprite);            // 0x40B490: a snack for Scooby or Shaggy
+	const Character *characterAt(int sprite);
 	Common::String getIniString(const Common::String &section, const char *key) const;
 
 	static const int kToolbarDepth = 5000;
@@ -190,7 +226,11 @@ private:
 	int _total;                   // +0x24: the towed sprites' widths, plus gaps
 
 	int _van, _vanWidth, _vanY, _blockMoving, _blockOpen;
-	int _tens, _units;
+	int _tens, _units, _snackBox, _scrappy;
+	bool _scrappyTalking;         // +0x68 of Scrappy
+	Common::String _scrappyClip;  // +0x6C
+	Common::String _shownCursor;  // the cursor sprite's ANIM (game +0x18 +0x60)
+	Common::String _suspects[5];  // game +0x174
 	Common::HashMap<int, Role> _roles;
 	Common::HashMap<int, int> _indexes;    // a toolbar sprite's index (+0x5C)
 	Common::HashMap<int, Pickup> _pickups;

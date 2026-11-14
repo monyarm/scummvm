@@ -42,6 +42,7 @@ public:
 		kStateIdle = 6, // IDLE_MASTER, looping
 		kStateStay = 7, // keep the last step
 		kStateTalk = 8, // TALKS, its step set by lip sync
+		kStateAct = 0xF, // ANIM_<NAME><set><action> once, then idle (0x4061F0)
 		kStateStayScared = 0x12 // STAY_SCARED once, with Global.Scared.<NAME>: the ghost appears
 	};
 
@@ -66,6 +67,12 @@ public:
 	/** Talking, or with a line waiting (0x406060). */
 	bool isBusy() const;
 
+	/** Play ANIM_<NAME><set>@p action once, then go idle (0x4061F0, state 0xF). */
+	void act(Room &room, Sound &sound, const Common::String &action);
+	/** The sequence act() plays. */
+	Common::String getActAnim(const Common::String &action) const;
+	const Common::String &getSet() const { return _set; }
+
 	/**
 	 * The walk or turn for @p direction: its object and sequence names
 	 * (0x404EA0). A direction starting with TURN turns in place.
@@ -85,6 +92,7 @@ private:
 	Common::String _clip;    // +0x7C: the line being spoken
 	Common::String _waiting; // +0x84: a line to speak when next idle
 	Common::String _direction; // +0xA4
+	Common::String _action;    // +0x8C
 };
 
 } // End of namespace Scooby

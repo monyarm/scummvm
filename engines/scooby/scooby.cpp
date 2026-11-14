@@ -29,6 +29,8 @@
 #include "scooby/sound.h"
 #include "common/algorithm.h"
 #include "common/config-manager.h"
+#include "common/file.h"
+#include "image/bmp.h"
 #include "common/debug-channels.h"
 #include "common/endian.h"
 #include "common/events.h"
@@ -121,6 +123,7 @@ Common::Error ScoobyEngine::run() {
 		checkAllExits();
 		checkAllClickables();
 		checkAllInventory();
+		checkAllHints();
 		checkAllMovies();
 	}
 
@@ -178,36 +181,10 @@ Common::Error ScoobyEngine::run() {
 			soundWasPlaying = false;
 		}
 
-		bool changed = false;
+		bool changed = runTestScript();
 		while (g_system->getEventManager()->pollEvent(e)) {
-			// While a scene or an exit runs, the cursor is hidden and clicks
-			// are ignored (game +0x24).
-			if (e.type == Common::EVENT_MOUSEMOVE) {
-				_mousePos = e.mouse;
-				if (_script->isBusy()) {
-					_currentRoom->setCursorPosition(e.mouse.x, e.mouse.y);
-				} else {
-					updateHover(e.mouse.x, e.mouse.y);
-					changed = true;
-				}
-			} else if (e.type == Common::EVENT_LBUTTONDOWN && !_script->isBusy() && !_inventory->isInputBlocked()) {
-				_mousePos = e.mouse;
-				updateHover(e.mouse.x, e.mouse.y);
-				changed = true;
-				// The toolbar, inventory and requires objects take the click on
-				// the next tick, and so does the game's update (0x4098B0).
-				_inventory->click(_hover);
-				// Exits and clickables answer only the arrow (0x402130,
-				// 0x401440).
-				if (_inventory->isDefaultCursor()) {
-					if (_hover >= 0 && !_currentRoom->getDestination(_hover).empty())
-						clickExit(_hover);
-					// A clickable's update takes the click on the next tick,
-					// while the cursor shows its rollover (0x401440).
-					else if (_hover >= 0 && _currentRoom->isClickable(_hover))
-						_script->clickClickable(_hover);
-				}
-			}
+			if (e.type == Common::EVENT_MOUSEMOVE || e.type == Common::EVENT_LBUTTONDOWN)
+				changed = handleMouse(e.type == Common::EVENT_LBUTTONDOWN, e.mouse) || changed;
 		}
 
 		// 0x435BC0: the game owes elapsed_ms * 36 / 1000 ticks since the
@@ -222,7 +199,8 @@ Common::Error ScoobyEngine::run() {
 			_inventory->tickObjects();
 			_script->tick();
 			_inventory->tickGame();
-			changed = changed || _script->isBusy() || _inventory->getState() != Inventory::kStateParked;
+			changed = changed || _script->isBusy() || _inventory->getState() != Inventory::kStateParked ||
+			          _inventory->isScrappyTalking();
 			if (_script->getNextRoom(nextRoom, movie) || _inventory->getNextRoom(nextRoom, movie))
 				break;
 		}
@@ -272,6 +250,92 @@ static Common::String hashSurface(const Graphics::Surface &s) {
 	return Common::computeStreamMD5AsString(stream);
 }
 
+bool ScoobyEngine::handleMouse(bool click, const Common::Point &p) {
+	// While a scene or an exit runs, the cursor is hidden and clicks are
+	// ignored (game +0x24).
+	_mousePos = p;
+	if (!click) {
+		if (_script->isBusy()) {
+			_currentRoom->setCursorPosition(p.x, p.y);
+			return false;
+		}
+		updateHover(p.x, p.y);
+		return true;
+	}
+	if (_script->isBusy() || _inventory->isInputBlocked())
+		return false;
+	updateHover(p.x, p.y);
+	debugC(1, kDebugInput, "click at %d,%d on %s", p.x, p.y, _hover >= 0 ? _currentRoom->getLabel(_hover).c_str() : "-");
+	// The toolbar, inventory and requires objects take the click on the next
+	// tick, and so does the game's update (0x4098B0).
+	_inventory->click(_hover);
+	// With a hint showing, an exit or a character has Scrappy say it
+	// (0x402130, 0x404B70). Else exits and clickables answer only the arrow
+	// (0x402130, 0x401440).
+	if (_inventory->clickHint(_hover)) {
+		debugC(1, kDebugInput, "hint for %s", _currentRoom->getLabel(_hover).c_str());
+	} else if (_inventory->isDefaultCursor()) {
+		if (_hover >= 0 && !_currentRoom->getDestination(_hover).empty())
+			clickExit(_hover);
+		// A clickable's update takes the click on the next tick, while the
+		// cursor shows its rollover (0x401440).
+		else if (_hover >= 0 && _currentRoom->isClickable(_hover))
+			_script->clickClickable(_hover);
+	}
+	return true;
+}
+
+bool ScoobyEngine::runTestScript() {
+	// A "test_script" key in the game's config domain plays input for a live
+	// test without the host's mouse: steps separated by ';', each "move x y",
+	// "click x y", "wait ms", "shot name" (the screen as name.bmp in the
+	// "test_shots" folder) or "quit".
+	if (_testSteps.empty() && !_testLoaded) {
+		_testLoaded = true;
+		if (!ConfMan.hasKey("test_script"))
+			return false;
+		Common::String all = ConfMan.get("test_script");
+		for (Common::String::size_type start = 0; start < all.size();) {
+			Common::String::size_type end = all.findFirstOf(';', start);
+			if (end == Common::String::npos)
+				end = all.size();
+			Common::String step(all.c_str() + start, end - start);
+			step.trim();
+			if (!step.empty())
+				_testSteps.push_back(step);
+			start = end + 1;
+		}
+		_testNext = _system->getMillis();
+	}
+	bool changed = false;
+	while (_testStep < _testSteps.size() && _system->getMillis() >= _testNext) {
+		const Common::String &step = _testSteps[_testStep++];
+		char verb[16] = { 0 }, name[64] = { 0 };
+		int a = 0, b = 0;
+		if (sscanf(step.c_str(), "%15s %d %d", verb, &a, &b) < 1)
+			continue;
+		debugC(1, kDebugInput, "test step %u: %s", _testStep, step.c_str());
+		if (!strcmp(verb, "move") || !strcmp(verb, "click")) {
+			changed = handleMouse(false, Common::Point(a, b)) || changed;
+			if (!strcmp(verb, "click"))
+				changed = handleMouse(true, Common::Point(a, b)) || changed;
+		} else if (!strcmp(verb, "wait")) {
+			_testNext = _system->getMillis() + a;
+		} else if (!strcmp(verb, "shot") && sscanf(step.c_str(), "%*s %63s", name) == 1) {
+			Graphics::Surface *screen = _system->lockScreen();
+			Common::DumpFile out;
+			const Common::Path path = ConfMan.getPath("test_shots").appendComponent(Common::String(name) + ".bmp");
+			if (screen && out.open(path))
+				Image::writeBMP(out, *screen);
+			_system->unlockScreen();
+			debugC(1, kDebugInput, "test shot %s", name);
+		} else if (!strcmp(verb, "quit")) {
+			quitGame();
+		}
+	}
+	return changed;
+}
+
 void ScoobyEngine::drawRoom() {
 	_currentRoom->draw(_room);
 	// Rooms wider than the screen (1920 pixels) show their left edge until
@@ -283,16 +347,10 @@ void ScoobyEngine::updateHover(int x, int y) {
 	// The cursor shows the hovered object's rollover (vtable +0x18), or the
 	// default arrow.
 	_hover = _currentRoom->hitTest(x, y);
-	// The hovered object's rollover (vtable +0x18), which is empty for
-	// every object while an item is the cursor; else the game's cursor.
-	Common::String rollover;
-	if (_hover >= 0) {
-		if (_inventory->handles(_hover))
-			rollover = _inventory->getRollover(_hover);
-		else if (_inventory->isDefaultCursor())
-			rollover = _currentRoom->getRollover(_hover);
-	}
-	const Common::String cursorName = rollover.empty() ? _inventory->getCursor() : rollover;
+	// The hovered object's rollover for the game's cursor (vtable +0x18),
+	// else the game's cursor (0x4098B0).
+	const Common::String cursorName = _inventory->getCursorFor(_hover);
+	_inventory->cursorShown(cursorName);
 	const char *cursor = cursorName.c_str();
 	_currentRoom->setCursorPosition(x, y);
 	if (_hover != _lastHover) {
@@ -592,6 +650,121 @@ void ScoobyEngine::checkAllInventory() {
 		}
 	}
 	debugC(3, kDebugScript, "inventory check: %u checks, %u stuck", checks, stuck);
+}
+
+void ScoobyEngine::checkAllHints() {
+	// From a new game and a fresh room each time: Scrappy's hint for every
+	// exit, and for every character with a hint clip once met; a snack for
+	// every Scooby and Shaggy, and the ticks until they are idle again;
+	// and the empty snack box. No random draws: the first choice each time.
+	const uint kMaxTicks = 2000;
+	Room room(*_art, _objectIni);
+	RoomScript script(room, *_sound, _objectIni);
+	Inventory inv(room, *_sound, script, _objectIni);
+	uint hints = 0, snacks = 0, stuck = 0;
+	struct Ticker {
+		Room &room;
+		RoomScript &script;
+		Inventory &inv;
+		void tick() {
+			room.tick();
+			inv.tickObjects();
+			script.tick();
+			inv.tickGame();
+		}
+		void fresh(const Common::String &name) {
+			inv.reset();
+			room.load(name);
+			script.enter();
+			inv.enterRoom();
+			inv.takeLog();
+		}
+		// As the engine does: the cursor over the sprite, a hint if one
+		// shows, then the click on the next tick.
+		void click(int sprite) {
+			inv.cursorShown(inv.getCursorFor(sprite));
+			inv.clickHint(sprite);
+			inv.click(sprite);
+			tick();
+		}
+	} run = { room, script, inv };
+
+	// The empty snack box, in the first room.
+	run.fresh(_art->getRoomName(0));
+	inv.setSnacks(0);
+	run.click(inv.getSnackBoxSprite());
+	debugC(3, kDebugScript, "hint check empty snack box: [%s] cursor %s", inv.takeLog().c_str(), inv.getCursor().c_str());
+	_sound->stop();
+	inv.reset();
+
+	for (uint i = 0; i < _art->getRoomCount(); i++) {
+		const Common::String name = _art->getRoomName(i);
+		if (!room.load(name))
+			continue;
+		Common::Array<uint> exits;
+		for (uint s = 0; s < room.getSpriteCount(); s++) {
+			if (!room.getDestination(s).empty())
+				exits.push_back(s);
+		}
+		script.enter();
+		Common::Array<Common::String> people;
+		for (uint c = 0; c < script.getCharacters().size(); c++) {
+			const Character &ch = script.getCharacters()[c];
+			if (ch.getSprite() >= 0)
+				people.push_back(ch.getName());
+		}
+
+		// Hints: exits, then characters with a hint clip.
+		for (uint k = 0; k < exits.size() + people.size(); k++) {
+			run.fresh(name);
+			int sprite;
+			Common::String what;
+			if (k < exits.size()) {
+				sprite = exits[k];
+				what = room.getObjectName(sprite);
+			} else {
+				const Common::String person = people[k - exits.size()];
+				if (!_sound->findClip("Global.Scrappy." + person))
+					continue;
+				Character *c = script.getCharacter(person.c_str());
+				sprite = c->getSprite();
+				what = person;
+				inv.meetSuspect(person);
+			}
+			run.click(inv.getScrappySprite());
+			const Common::String shown = inv.getCursorFor(sprite);
+			run.click(sprite);
+			hints++;
+			debugC(3, kDebugScript, "hint check %s %s: shows %s [%s] cursor %s", name.c_str(), what.c_str(), shown.c_str(),
+			       inv.takeLog().c_str(), inv.getCursor().c_str());
+			_sound->stop();
+		}
+
+		// Snacks.
+		static const char *const kEaters[] = { "SCOOBY", "SHAGGY" };
+		for (uint e = 0; e < ARRAYSIZE(kEaters); e++) {
+			run.fresh(name);
+			Character *c = script.getCharacter(kEaters[e]);
+			if (!c)
+				continue;
+			run.click(inv.getSnackBoxSprite());
+			const Common::String held = inv.getCursor();
+			run.click(c->getSprite());
+			uint t = 0;
+			while (t < kMaxTicks && c->getState() != Character::kStateIdle) {
+				run.tick();
+				t++;
+			}
+			snacks++;
+			if (c->getState() != Character::kStateIdle)
+				stuck++;
+			debugC(3, kDebugScript, "snack check %s %s: held %s [%s] idle after %u ticks, %u left, cursor %s", name.c_str(),
+			       kEaters[e], held.c_str(), inv.takeLog().c_str(), t, inv.getSnacks(), inv.getCursor().c_str());
+			_sound->stop();
+		}
+	}
+	inv.reset();
+	debugC(3, kDebugScript, "hint check: %u hints, %u snacks, %u stuck", hints, snacks, stuck);
 }
 
 void ScoobyEngine::checkAllRooms() {

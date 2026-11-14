@@ -85,6 +85,10 @@ void Character::setState(Room &room, Sound &sound, int state) {
 		mode = kModeStopped;
 		_next = kStateIdle;
 		break;
+	case kStateAct:
+		anim = getActAnim(_action);
+		_next = kStateIdle;
+		break;
 	case kStateStayScared:
 		// The line being spoken stops; each file has one handle, so the
 		// scared line replaces it on the speech channel.
@@ -135,6 +139,16 @@ void Character::say(Room &room, Sound &sound, const Common::String &clip) {
 
 bool Character::isBusy() const {
 	return _state == kStateTalk || !_waiting.empty();
+}
+
+Common::String Character::getActAnim(const Common::String &action) const {
+	// 0x405190 state 0xF: "ANIM_%s%s%s" of the name, the set and the action.
+	return Common::String::format("ANIM_%s%s%s", _name.c_str(), _set.c_str(), action.c_str());
+}
+
+void Character::act(Room &room, Sound &sound, const Common::String &action) {
+	_action = action;
+	setState(room, sound, kStateAct);
 }
 
 void Character::walk(Room &room, Sound &sound, const Common::String &direction) {

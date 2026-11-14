@@ -36,6 +36,13 @@ namespace Scooby {
 static const char *const kArrowCursor = "ANIM_CURSORARROW";
 static const char *const kScrappyCursor = "ANIM_CURSORSCRAPPY";
 static const char *const kOpenCursor = "ANIM_CURSOROPEN";
+static const char *const kSnackCursor = "ANIM_CURSORSNACK";
+static const char *const kHintCursor = "ANIM_CURSORSCRAPPY_ANIM";
+static const char *const kWiggleSound = "Global.Scrappy.Help.Wiggle";
+static const char *const kScrappyIdle = "ANIM_TOOLBARSCRAPPY_IDLE";
+static const char *const kScrappyTalk = "ANIM_TOOLBARSCRAPPY_TALK";
+static const char *const kSnackBoxAnim = "ANIM_TOOLBARSNACK_BOX_ANIM";
+static const int kDigitsAway = -5000; // 0xC59C4000 as a float
 
 static const char *const kToolbarObject = "OBJ_TOOLBAR";
 static const char *const kVanIdle = "ANIM_TOOLBARMYSTERY_MACHINE_IDLE";
@@ -77,8 +84,9 @@ static const char *const kWrongNarrator = "Global.WRONGN_";
 
 Inventory::Inventory(Room &room, Sound &sound, RoomScript &script, const Common::INIFile &objectIni) :
 	_room(room), _sound(sound), _script(script), _ini(objectIni), _random(nullptr) {
+	_scrappyTalking = false;
 	reset();
-	_van = _vanWidth = _blockMoving = _blockOpen = _tens = _units = -1;
+	_van = _vanWidth = _blockMoving = _blockOpen = _tens = _units = _snackBox = _scrappy = -1;
 	_vanY = 0;
 	_clickSprite = -1;
 	_clicked = false;
@@ -98,6 +106,10 @@ void Inventory::reset() {
 		_history[i].clear();
 	_snacks = 1;
 	_cursor = kArrowCursor;
+	_shownCursor.clear();
+	for (uint i = 0; i < ARRAYSIZE(_suspects); i++)
+		_suspects[i].clear();
+	stopScrappy();
 	_busy = false;
 	_x = 0;
 	_total = 0;
@@ -160,6 +172,10 @@ void Inventory::startVan(const char *anim, int mode) {
 }
 
 void Inventory::enterRoom() {
+	// The toolbar's sprites are built again; a hint cut short by the room
+	// change gives up the speech lock.
+	stopScrappy();
+	_shownCursor.clear();
 	_roles.clear();
 	_indexes.clear();
 	_pickups.clear();
@@ -192,7 +208,7 @@ void Inventory::enterRoom() {
 	_room.setOffset(magnifier, -_total, 0);
 
 	// 0x40D020: the snack box and its two digits, the units after the tens.
-	const int snackBox = addToolbarSprite(_van, "ANIM_TOOLBARSNACK_BOX_IDLE", kIndexSnacks, kRoleSnackBox);
+	const int snackBox = _snackBox = addToolbarSprite(_van, "ANIM_TOOLBARSNACK_BOX_IDLE", kIndexSnacks, kRoleSnackBox);
 	int boxWidth;
 	_room.getSize(snackBox, boxWidth, h);
 	_tens = addToolbarSprite(snackBox, "ANIM_TOOLBARSNACK_BOX_NUMBERS", kIndexSnacks, kRoleButton);
@@ -203,7 +219,7 @@ void Inventory::enterRoom() {
 	_room.setOffset(snackBox, -_total, 0);
 	showSnacks();
 
-	const int scrappy = addToolbarSprite(_van, "ANIM_TOOLBARSCRAPPY_IDLE", kIndexScrappy, kRoleScrappy);
+	const int scrappy = _scrappy = addToolbarSprite(_van, kScrappyIdle, kIndexScrappy, kRoleScrappy);
 	_room.getSize(scrappy, w, h);
 	_total += w + kGap;
 	_room.setOffset(scrappy, -_total, 0);
@@ -567,8 +583,19 @@ void Inventory::tickObjects() {
 	// back): a click on a slot, an item or a button (0x407F30).
 	if (role == kRoleFingerprint || role == kRoleItem || role == kRoleButton)
 		clickToolbar(_indexes[target]);
-	else if (role == kRoleSnackBox || role == kRoleScrappy)
-		debugC(1, kDebugScript, "toolbar: %s is not implemented", role == kRoleSnackBox ? "the snack box" : "Scrappy");
+	// The snack box (0x40D130).
+	if (role == kRoleSnackBox)
+		clickSnackBox();
+	updateSnackBox();
+	// Scrappy (0x40CD90): while he talks, his lips follow the clip; else a
+	// click with the arrow makes his cursor the game's.
+	if (_scrappyTalking) {
+		updateScrappy();
+	} else if (role == kRoleScrappy && isDefaultCursor()) {
+		_cursor = kScrappyCursor;
+		debugC(1, kDebugScript, "toolbar: Scrappy's hint cursor");
+		_log += "hint mode; ";
+	}
 
 	// The van (0x408060): a click drives it; STOP plays out into IDLE.
 	if (role == kRoleVan && isDefaultCursor())
@@ -591,8 +618,13 @@ void Inventory::tickGame() {
 	// as the cursor that nothing took puts the item back, and a gang member
 	// says so. The tick the item became the cursor doesn't count.
 	const bool clicked = _clicked;
+	const int target = _clickSprite;
 	_clicked = false;
 	_clickSprite = -1;
+	// The room's update comes first (0x40B490): a snack for Scooby or
+	// Shaggy.
+	if (clicked && _cursor == kSnackCursor)
+		feed(target);
 	if (!_gangHere && getState() == kStateBusy)
 		return;
 	if (isDefaultCursor()) {
@@ -618,6 +650,229 @@ void Inventory::tickGame() {
 		_log += Common::String::format("wrong %s; ", scene.c_str());
 	}
 	_cursor = kArrowCursor;
+}
+
+void Inventory::closeToolbar() {
+	// 0x407C60: an open toolbar drives off.
+	if (getState() == kStateOpen) {
+		setVanX(_x + kDriveStep);
+		playSound(kToolbarSound);
+		startVan(kVanDrive, 1);
+	}
+}
+
+void Inventory::clickSnackBox() {
+	// 0x40D130: the arrow takes a snack, if there is one; the snack goes
+	// back if it is the cursor.
+	if (!isDefaultCursor()) {
+		if (_cursor == kSnackCursor) {
+			_cursor = kArrowCursor;
+			_log += "snack back; ";
+		}
+		return;
+	}
+	if (_snacks == 0) {
+		// Scrappy says there are none: rand() & 1, 0 for 940B.
+		const uint r = _random ? _random->getRandomNumber(1) : 0;
+		scrappySays(r == 0 ? "Global.940B_1_SCRAPPY" : "Global.940_1_SCRAPPY", true);
+		return;
+	}
+	_room.startAnim(_snackBox, kSnackBoxAnim, 3, -1);
+	playSound("Global.Snack_Box");
+	_cursor = kSnackCursor;
+	_room.setOffset(_tens, kDigitsAway, 0);
+	_room.setOffset(_units, kDigitsAway, 0);
+	debugC(1, kDebugScript, "toolbar: a snack (%u left)", _snacks);
+	_log += "snack; ";
+}
+
+void Inventory::updateSnackBox() {
+	// 0x40D130's tail: with the box's sequence stopped, the digits show.
+	if (_snackBox < 0 || _room.getMode(_snackBox) != 0)
+		return;
+	int w, h;
+	_room.getSize(_tens, w, h);
+	_room.setOffset(_units, w, 0);
+	_room.setOffset(_tens, 0, 0);
+}
+
+bool Inventory::scrappySays(const Common::String &clip, bool force) {
+	// 0x40CEA0
+	if (!force && _cursor != kScrappyCursor)
+		return false;
+	if (!_script.acquireSpeechLock()) {
+		_log += Common::String::format("locked %s; ", clip.c_str());
+		return false;
+	}
+	_scrappyTalking = true;
+	_scrappyClip = clip;
+	if (_scrappy >= 0)
+		_room.startAnim(_scrappy, kScrappyTalk, 0, -1);
+	// A name with no clip looks up as id 0: nothing plays, and the talk
+	// ends at once.
+	const bool found = !clip.empty() && _sound.findClip(clip);
+	if (found)
+		_sound.play(clip);
+	debugC(1, kDebugScript, "Scrappy says %s%s", clip.c_str(), found ? "" : " (no such clip)");
+	_log += Common::String::format("scrappy %s%s; ", clip.c_str(), found ? "" : " (none)");
+	updateScrappy();
+	return true;
+}
+
+void Inventory::updateScrappy() {
+	// 0x40CD90's talking branch: lip sync while the clip plays, then idle
+	// and the speech lock goes.
+	if (!_scrappyTalking)
+		return;
+	uint shape;
+	if (_sound.getLipShape(_scrappyClip, shape)) {
+		if (shape && _scrappy >= 0)
+			_room.setStep(_scrappy, shape - 1);
+		return;
+	}
+	if (_sound.isClipPlaying(_scrappyClip))
+		return;
+	stopScrappy();
+}
+
+void Inventory::stopScrappy() {
+	if (!_scrappyTalking)
+		return;
+	_scrappyTalking = false;
+	// The room may have been loaded again under the toolbar.
+	if (_scrappy >= 0 && (uint)_scrappy < _room.getSpriteCount() && _roles.contains(_scrappy))
+		_room.startAnim(_scrappy, kScrappyIdle, 0, -1);
+	_script.releaseSpeechLock();
+	debugC(1, kDebugScript, "Scrappy is done talking");
+}
+
+void Inventory::meetSuspect(const Common::String &name) {
+	// 0x40A8B0: five places.
+	if (hasMetSuspect(name))
+		return;
+	for (uint i = 0; i < ARRAYSIZE(_suspects); i++) {
+		if (_suspects[i].empty()) {
+			_suspects[i] = name;
+			return;
+		}
+	}
+}
+
+bool Inventory::hasMetSuspect(const Common::String &name) const {
+	// 0x40A930
+	for (uint i = 0; i < ARRAYSIZE(_suspects); i++) {
+		if (!_suspects[i].empty() && _suspects[i].equalsIgnoreCase(name))
+			return true;
+	}
+	return false;
+}
+
+const Character *Inventory::characterAt(int sprite) {
+	const Common::Array<Character> &chars = _script.getCharacters();
+	for (uint i = 0; i < chars.size(); i++) {
+		if (sprite >= 0 && chars[i].getSprite() == sprite)
+			return &chars[i];
+	}
+	return nullptr;
+}
+
+Common::String Inventory::getCursorFor(int sprite) {
+	Common::String rollover;
+	if (sprite >= 0) {
+		if (isDefaultCursor()) {
+			rollover = handles(sprite) ? getRollover(sprite) : _room.getRollover(sprite);
+		} else if (_cursor == kScrappyCursor) {
+			// 0x40CF50 (Scrappy himself), 0x402410 (an exit with a
+			// scrappyid), 0x4062E0 (a suspect met, with a hint clip).
+			const Character *c = characterAt(sprite);
+			if (_roles.contains(sprite) && _roles.getVal(sprite) == kRoleScrappy)
+				rollover = kScrappyCursor;
+			else if (!_room.getDestination(sprite).empty() && !getIniString(_room.getObjectName(sprite), "scrappyid").empty())
+				rollover = kHintCursor;
+			else if (c && hasMetSuspect(c->getName()) && _sound.findClip("Global.Scrappy." + c->getName()))
+				rollover = kHintCursor;
+		} else if (_cursor == kSnackCursor) {
+			// 0x40D410
+			if (_roles.contains(sprite) && _roles.getVal(sprite) == kRoleSnackBox)
+				rollover = kSnackCursor;
+		}
+	}
+	// 0x4098B0: no hint while a scene plays or the speech lock is held.
+	if (rollover == kHintCursor && (_script.isScenePlaying() || _script.isSpeechLocked()))
+		rollover.clear();
+	return rollover.empty() ? _cursor : rollover;
+}
+
+void Inventory::cursorShown(const Common::String &anim) {
+	// 0x4098B0: Scrappy wiggles when a hint shows.
+	if (anim == _shownCursor)
+		return;
+	if (anim == kHintCursor)
+		playSound(kWiggleSound);
+	_shownCursor = anim;
+}
+
+bool Inventory::clickHint(int sprite) {
+	// 0x402130 (an exit) and 0x404B70 (a character): with the hint showing,
+	// Scrappy says it and the arrow comes back.
+	if (sprite < 0 || _shownCursor != kHintCursor)
+		return false;
+	Common::String clip;
+	const Character *c = characterAt(sprite);
+	if (!_room.getDestination(sprite).empty())
+		clip = getIniString(_room.getObjectName(sprite), "scrappyid");
+	else if (c)
+		clip = "Global.Scrappy." + c->getName();
+	else
+		return false;
+	scrappySays(clip, false);
+	_cursor = kArrowCursor;
+	return true;
+}
+
+void Inventory::feed(int sprite) {
+	// 0x40B490: Scooby or Shaggy, clicked with a snack, eats it unless busy
+	// talking; the snack is gone from the cursor either way.
+	bool fed = false;
+	static const char *const kEaters[] = { "SCOOBY", "SHAGGY" };
+	for (uint i = 0; i < ARRAYSIZE(kEaters); i++) {
+		Character *c = _script.getCharacter(kEaters[i]);
+		if (!c || c->getSprite() != sprite)
+			continue;
+		if (!c->isBusy()) {
+			c->act(_room, _sound, "EAT_SNACK");
+			// 0x407E20: one fewer.
+			if (_snacks) {
+				_snacks--;
+				showSnacks();
+			}
+			playSound("Global.Scooby.Eat_Snack");
+			_log += Common::String::format("%s eats %s; ", kEaters[i], c->getActAnim("EAT_SNACK").c_str());
+			fed = true;
+		}
+		_cursor = kArrowCursor;
+	}
+	if (!fed)
+		return;
+
+	// The room's own line, <room without ROOM_>_Snack_Given, if a character
+	// here has one; else Fred's (A or B) or Velma's (C), Velma's if Fred
+	// isn't here.
+	const Common::String name = _room.getName();
+	Common::String scene = Common::String(name.c_str() + MIN<uint>(5, name.size())) + "_Snack_Given";
+	bool own = false;
+	const Common::Array<Character> &chars = _script.getCharacters();
+	for (uint i = 0; i < chars.size() && !own; i++)
+		own = _sound.findClip(Common::String::format("%s1_%s", scene.c_str(), chars[i].getName().c_str())) != nullptr;
+	if (!own) {
+		uint r = 2;
+		if (_script.hasCharacter("FRED"))
+			r = _random ? _random->getRandomNumber(2) : 0;
+		scene = r == 0 ? "Global.Snack_GivenA_" : r == 1 ? "Global.Snack_GivenB_" : "Global.Snack_GivenC_";
+	}
+	_script.startScene(scene, false);
+	_log += Common::String::format("given %s; ", scene.c_str());
+	closeToolbar();
 }
 
 bool Inventory::getNextRoom(Common::String &room, int &movie) const {

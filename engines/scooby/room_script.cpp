@@ -83,6 +83,9 @@ void RoomScript::enter() {
 	_scene.clear();
 	_line = 0;
 	_speaker = -1;
+	if (_sceneHoldsLock)
+		releaseSpeechLock();
+	_sceneHoldsLock = false;
 	_exitParked = false;
 	_exit = Exit();
 	_exit.movie = -1;
@@ -300,13 +303,40 @@ void RoomScript::tick() {
 	}
 	if (!_scene.empty())
 		tickScene();
-	if (_scene.empty() && _exitParked && !_done)
+	// 0x40B490: the walk-off waits for the speech lock.
+	if (_scene.empty() && _exitParked && !_done && !_speechLock)
 		tickExit();
 	_tick++;
 }
 
+bool RoomScript::acquireSpeechLock() {
+	// 0x40A230: game +0x15C.
+	if (_speechLock)
+		return false;
+	_speechLock = true;
+	debugC(2, kDebugScript, "Acquired Speech Lock");
+	return true;
+}
+
+void RoomScript::releaseSpeechLock() {
+	_speechLock = false;
+	debugC(2, kDebugScript, "Released Speech Lock");
+}
+
+Character *RoomScript::getCharacter(const char *name) {
+	Character *c = findCharacter(name);
+	return c && c->getSprite() >= 0 ? c : nullptr;
+}
+
 void RoomScript::tickScene() {
-	// 0x40C810: wait for the speaker, then look for the next line.
+	// 0x40C810: a scene holds the speech lock from its first line to its
+	// end, and waits while someone else (Scrappy) holds it.
+	if (!_sceneHoldsLock) {
+		if (!acquireSpeechLock())
+			return;
+		_sceneHoldsLock = true;
+	}
+	// Wait for the speaker, then look for the next line.
 	if (_speaker >= 0 && _characters[_speaker].isBusy())
 		return;
 	_line++;
@@ -328,6 +358,10 @@ void RoomScript::tickScene() {
 	_speaker = -1;
 	if (!_exitParked && _sceneBlocks)
 		_busy = false;
+	if (_sceneHoldsLock) {
+		_sceneHoldsLock = false;
+		releaseSpeechLock();
+	}
 }
 
 void RoomScript::tickExit() {

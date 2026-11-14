@@ -59,8 +59,15 @@ private:
 	void checkAllMovies();
 	void checkAllClickables();
 	void checkAllInventory();
+	void checkAllHints();
 	void drawRoom();
 	void updateHover(int x, int y);
+	bool handleMouse(bool click, const Common::Point &p);
+	bool runTestScript();
+	Common::Array<Common::String> _testSteps;
+	uint _testStep = 0;
+	uint32 _testNext = 0;
+	bool _testLoaded = false;
 	void clickExit(int sprite);
 	int _hover;     // sprite under the mouse, or -1
 	int _lastHover;
