@@ -33,6 +33,7 @@ Console::Console() : GUI::Debugger() {
 	registerCmd("sound_list", WRAP_METHOD(Console, Cmd_soundList));
 	registerCmd("sound_play", WRAP_METHOD(Console, Cmd_soundPlay));
 	registerCmd("sound_stop", WRAP_METHOD(Console, Cmd_soundStop));
+	registerCmd("movie", WRAP_METHOD(Console, Cmd_movie));
 }
 
 bool Console::Cmd_soundList(int argc, const char **argv) {
@@ -69,6 +70,16 @@ bool Console::Cmd_soundPlay(int argc, const char **argv) {
 	if (!sound || !sound->play(argv[1]))
 		debugPrintf("%s is not in Sfx.dat, Voice.dat or Music.dat\n", argv[1]);
 	return true;
+}
+
+bool Console::Cmd_movie(int argc, const char **argv) {
+	if (argc < 2) {
+		debugPrintf("Usage: %s <id>  (plays BK.<id>, then returns to the game)\n", argv[0]);
+		return true;
+	}
+	if (!g_engine->playMovie(atoi(argv[1])))
+		debugPrintf("Movie %s could not be played\n", argv[1]);
+	return false;
 }
 
 bool Console::Cmd_soundStop(int argc, const char **argv) {

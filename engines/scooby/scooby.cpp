@@ -114,6 +114,7 @@ Common::Error ScoobyEngine::run() {
 	if (debugChannelSet(3, kDebugScript)) {
 		checkAllExits();
 		checkAllClickables();
+		checkAllMovies();
 	}
 
 	// No game logic yet: show a room as it is set up on entry and let its
@@ -128,6 +129,11 @@ Common::Error ScoobyEngine::run() {
 	// sound_play does the same.
 	if (ConfMan.hasKey("start_sound"))
 		_sound->play(ConfMan.get("start_sound"));
+	// And "start_movie" plays one movie first, then draws the room again.
+	if (ConfMan.hasKey("start_movie")) {
+		playMovie(ConfMan.getInt("start_movie"));
+		drawRoom();
+	}
 
 	Common::Event e;
 	Graphics::FrameLimiter limiter(g_system, 60);
@@ -191,9 +197,10 @@ Common::Error ScoobyEngine::run() {
 		}
 		_ticksDone += owed;
 		if (!nextRoom.empty()) {
-			// Movies (Bink) are not played yet.
-			if (movie >= 0)
-				debugC(1, kDebugScript, "movie %d not played", movie);
+			// 0x42DE10: ids outside 0-74 mean no movie. The movie plays
+			// before the next room loads.
+			if (movie >= 0 && movie <= 74)
+				playMovie(movie);
 			const Common::String from = _currentRoom->getName();
 			if (!showRoom(nextRoom)) {
 				warning("Cannot go to %s; staying in %s", nextRoom.c_str(), from.c_str());

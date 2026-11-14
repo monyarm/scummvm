@@ -55,6 +55,7 @@ private:
 
 	void checkAllRooms();
 	void checkAllExits();
+	void checkAllMovies();
 	void checkAllClickables();
 	void drawRoom();
 	void updateHover(int x, int y);
@@ -64,6 +65,8 @@ private:
 	Sound *_sound;
 	RoomScript *_script;
 	Common::Point _mousePos;
+	// Movies played this session: those can be skipped (0x42DE10).
+	Common::HashMap<int, bool> _seenMovies;
 	// Exits taken this session; the original keeps them in its save's
 	// Exits section, so each exit's scene plays once.
 	Common::HashMap<Common::String, bool, Common::IgnoreCase_Hash, Common::IgnoreCase_EqualTo> _takenExits;
@@ -103,6 +106,12 @@ public:
 	 * at step 0, in the original's draw order
 	 */
 	bool showRoom(const Common::String &name);
+
+	/**
+	 * Play movie @p id (BK.NNN) to its end, or until skipped once it has been
+	 * seen. Returns false, after a warning, if the file can't be played.
+	 */
+	bool playMovie(int id);
 
 	/**
 	 * Gets a random number

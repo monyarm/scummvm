@@ -10,7 +10,8 @@ MODULE_OBJS = \
 	sound.o \
 	sound_archive.o \
 	console.o \
-	metaengine.o
+	metaengine.o \
+	movie.o
 
 # This module can be built as a plugin
 ifeq ($(ENABLE_SCOOBY), DYNAMIC_PLUGIN)

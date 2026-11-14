@@ -35,6 +35,7 @@ private:
 	bool Cmd_soundList(int argc, const char **argv);
 	bool Cmd_soundPlay(int argc, const char **argv);
 	bool Cmd_soundStop(int argc, const char **argv);
+	bool Cmd_movie(int argc, const char **argv);
 public:
 	Console();
 	~Console() override;
