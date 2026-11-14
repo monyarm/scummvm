@@ -39,6 +39,7 @@ private:
 	bool Cmd_inventory(int argc, const char **argv);
 	bool Cmd_inventoryAdd(int argc, const char **argv);
 	bool Cmd_inventoryRemove(int argc, const char **argv);
+	bool Cmd_profile(int argc, const char **argv);
 public:
 	Console();
 	~Console() override;

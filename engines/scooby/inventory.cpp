@@ -889,6 +889,60 @@ void Inventory::feed(int sprite) {
 	closeToolbar();
 }
 
+static const char *const kNothing = "Nothing";
+
+void Inventory::saveProfile(Common::INIFile &profile) const {
+	// 0x407780
+	const char *const section = "Inventory";
+	profile.setKey("Snacks", section, Common::String::format("%u", _snacks));
+	for (uint i = 0; i < kSlotCount; i++) {
+		const Slot &s = _slots[i];
+		profile.setKey(Common::String::format("Slot%u", i), section, s.name.empty() ? kNothing : s.name);
+		profile.setKey(Common::String::format("Anim%u", i), section, s.name.empty() ? kNothing : s.toolbarAnim);
+		profile.setKey(Common::String::format("Cursor%u", i), section, s.name.empty() ? kNothing : s.useCursor);
+	}
+	for (uint i = 0; i < kHistorySize; i++)
+		profile.setKey(Common::String::format("History%u", i), section, _history[i].empty() ? kNothing : _history[i]);
+	// 0x40A270 writes the suspects met with the game's keys.
+	for (uint i = 0; i < ARRAYSIZE(_suspects); i++)
+		profile.setKey(Common::String::format("Suspect%u", i), "Game", _suspects[i]);
+}
+
+void Inventory::loadProfile(const Common::INIFile &profile) {
+	// 0x407430: a value of "Nothing" is empty; a missing key reads as "".
+	const char *const section = "Inventory";
+	Common::String v;
+	_snacks = 1;
+	if (profile.getKey("Snacks", section, v) && !v.empty())
+		_snacks = MIN<uint>(atoi(v.c_str()), 99);
+	for (uint i = 0; i < kSlotCount; i++) {
+		Slot &s = _slots[i];
+		const Common::String keys[3] = { Common::String::format("Slot%u", i), Common::String::format("Anim%u", i),
+		                                  Common::String::format("Cursor%u", i) };
+		Common::String *fields[3] = { &s.name, &s.toolbarAnim, &s.useCursor };
+		for (uint k = 0; k < 3; k++) {
+			if (!profile.getKey(keys[k], section, v) || v == kNothing)
+				v.clear();
+			*fields[k] = v;
+		}
+		s.fingerprint = s.item = -1;
+	}
+	for (uint i = 0; i < kHistorySize; i++) {
+		if (!profile.getKey(Common::String::format("History%u", i), section, v) || v == kNothing)
+			v.clear();
+		_history[i] = v;
+	}
+	// 0x40A540
+	for (uint i = 0; i < ARRAYSIZE(_suspects); i++) {
+		if (!profile.getKey(Common::String::format("Suspect%u", i), "Game", v))
+			v.clear();
+		_suspects[i] = v;
+	}
+	_cursor = kArrowCursor;
+	debugC(1, kDebugScript, "inventory: profile read: %u snacks, slots %s %s %s %s", _snacks, _slots[0].name.c_str(),
+	       _slots[1].name.c_str(), _slots[2].name.c_str(), _slots[3].name.c_str());
+}
+
 bool Inventory::getNextRoom(Common::String &room, int &movie) const {
 	if (_nextRoom.empty())
 		return false;

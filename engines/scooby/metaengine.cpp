@@ -33,8 +33,11 @@ Common::Error ScoobyMetaEngine::createInstance(OSystem *syst, Engine **engine, c
 }
 
 bool ScoobyMetaEngine::hasFeature(MetaEngineFeature f) const {
-	// No saves or launcher features yet.
-	return false;
+	// Saves hold the player profile (engines/scooby/profile.cpp), in the
+	// extended format with thumbnails.
+	return f == kSupportsListSaves || f == kSupportsDeleteSave || f == kSupportsLoadingDuringStartup ||
+	       f == kSavesSupportMetaInfo || f == kSavesSupportThumbnail || f == kSavesSupportCreationDate ||
+	       f == kSavesSupportPlayTime || f == kSavesUseExtendedFormat;
 }
 
 #if PLUGIN_ENABLED_DYNAMIC(SCOOBY)

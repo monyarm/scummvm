@@ -60,6 +60,17 @@ private:
 	void checkAllClickables();
 	void checkAllInventory();
 	void checkAllHints();
+	void checkProfile();
+	void logProfile(const char *what, const Common::String &text);
+
+	// The player profile (profile.cpp): the original's <name>.sav, which a
+	// ScummVM save holds.
+	Common::INIFile _profile;   // as last read, so keys not modelled survive
+	Common::String _startRoom;  // game +0x24C: the last room that isn't a menu
+	static bool isMenuRoom(const Common::String &room);
+	void buildProfile(Common::INIFile &profile);
+	bool applyProfile(const Common::INIFile &profile);
+	bool readProfileText(const Common::String &text, Common::INIFile &profile);
 	void drawRoom();
 	void updateHover(int x, int y);
 	bool handleMouse(bool click, const Common::Point &p);
@@ -139,8 +150,18 @@ public:
 	}
 
 	bool hasFeature(EngineFeature f) const override {
-		return (f == kSupportsReturnToLauncher);
+		return f == kSupportsReturnToLauncher || f == kSupportsLoadingDuringRuntime || f == kSupportsSavingDuringRuntime;
 	}
+
+	bool canSaveGameStateCurrently(Common::U32String *msg = nullptr) override;
+	bool canLoadGameStateCurrently(Common::U32String *msg = nullptr) override;
+	Common::Error saveGameStream(Common::WriteStream *stream, bool isAutosave = false) override;
+	Common::Error loadGameStream(Common::SeekableReadStream *stream) override;
+
+	/** The profile as it would be saved now, as INI text. */
+	Common::String getProfileText();
+	/** Read a profile (0x42F640) and go to its StartRoom. */
+	bool loadProfile(const Common::INIFile &profile);
 };
 
 extern ScoobyEngine *g_engine;

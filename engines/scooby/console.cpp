@@ -38,6 +38,13 @@ Console::Console() : GUI::Debugger() {
 	registerCmd("inv", WRAP_METHOD(Console, Cmd_inventory));
 	registerCmd("inv_add", WRAP_METHOD(Console, Cmd_inventoryAdd));
 	registerCmd("inv_remove", WRAP_METHOD(Console, Cmd_inventoryRemove));
+	registerCmd("profile", WRAP_METHOD(Console, Cmd_profile));
+}
+
+bool Console::Cmd_profile(int argc, const char **argv) {
+	// The player profile as a save would hold it (the original's <name>.sav).
+	debugPrintf("%s", g_engine->getProfileText().c_str());
+	return true;
 }
 
 bool Console::Cmd_inventory(int argc, const char **argv) {

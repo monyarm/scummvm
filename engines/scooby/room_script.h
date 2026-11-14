@@ -149,6 +149,10 @@ public:
 	void setGhostChance(Common::RandomSource *random, uint chance);
 	/** Forget every clickable's saved state (the save file's Clickables section). */
 	void resetClickableStates() { _clickableStates.clear(); }
+	typedef Common::HashMap<Common::String, Common::String, Common::IgnoreCase_Hash, Common::IgnoreCase_EqualTo> StateMap;
+	/** The Clickables section: object name -> state ANIM, as the destructor (0x401350) writes it. */
+	const StateMap &getClickableStates() const { return _clickableStates; }
+	void setClickableState(const Common::String &object, const Common::String &state) { _clickableStates[object] = state; }
 
 private:
 	/** A default clickable (0x401000), its fields by offset. */

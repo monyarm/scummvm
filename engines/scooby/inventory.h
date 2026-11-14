@@ -147,6 +147,15 @@ public:
 	/** The van's x when the toolbar is open. */
 	int getOpenX() const;
 
+	/**
+	 * Write the profile's Inventory section (0x407780: Snacks, Slot%i,
+	 * Anim%i, Cursor%i, History%i, "Nothing" for empty) and the Game
+	 * section's Suspect%i (0x40A270).
+	 */
+	void saveProfile(Common::INIFile &profile) const;
+	/** Read them back (0x407430, 0x40A540): a missing Snacks is 1. */
+	void loadProfile(const Common::INIFile &profile);
+
 	/** The room the inventory asks for (a pick-up movie, the quit button). */
 	bool getNextRoom(Common::String &room, int &movie) const;
 	/** Input stops for a pick-up movie (0x402B00). */

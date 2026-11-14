@@ -125,6 +125,7 @@ Common::Error ScoobyEngine::run() {
 		checkAllClickables();
 		checkAllInventory();
 		checkAllHints();
+		checkProfile();
 		checkAllMovies();
 	}
 
@@ -136,6 +137,9 @@ Common::Error ScoobyEngine::run() {
 	if (ConfMan.hasKey("start_room"))
 		room = ConfMan.get("start_room");
 	showRoom(room);
+	// A save picked in the launcher (kSupportsLoadingDuringStartup).
+	if (ConfMan.hasKey("save_slot"))
+		loadGameState(ConfMan.getInt("save_slot"));
 	// Likewise "start_sound" plays one clip, for testing; the console's
 	// sound_play does the same.
 	if (ConfMan.hasKey("start_sound"))
@@ -330,6 +334,13 @@ bool ScoobyEngine::runTestScript() {
 				Image::writeBMP(out, *screen);
 			_system->unlockScreen();
 			debugC(1, kDebugInput, "test shot %s", name);
+		} else if (!strcmp(verb, "save")) {
+			const Common::Error err = saveGameState(a, Common::String::format("test %d", a));
+			debugC(1, kDebugInput, "test save %d: %s", a, err.getDesc().c_str());
+		} else if (!strcmp(verb, "load")) {
+			const Common::Error err = loadGameState(a);
+			debugC(1, kDebugInput, "test load %d: %s", a, err.getDesc().c_str());
+			changed = true;
 		} else if (!strcmp(verb, "quit")) {
 			quitGame();
 		}
@@ -377,6 +388,10 @@ void ScoobyEngine::clickExit(int sprite) {
 bool ScoobyEngine::showRoom(const Common::String &name) {
 	if (!_currentRoom || !_currentRoom->load(name))
 		return false;
+	// 0x40B920 (game +0x48): the profile's StartRoom is the last room that
+	// isn't a menu.
+	if (!isMenuRoom(name))
+		_startRoom = name;
 	if (_script)
 		_script->enter();
 	if (_inventory)
