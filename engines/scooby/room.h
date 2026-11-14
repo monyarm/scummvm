@@ -36,30 +36,61 @@ struct Surface;
 namespace Scooby {
 
 class ArtArchive;
+class Cel;
 
 /**
- * Builds a Gen 1 room as the original sets it up on entry: its layer
- * sprites, then one sprite per placement at step 0 of its sequence, in the
- * traced sprite tree (docs/formats/tgifile-art.md, "Rendering a room").
+ * A Gen 1 room as the original sets it up on entry: its layer sprites, then
+ * one animated sprite per placement, in the traced sprite tree
+ * (docs/formats/tgifile-art.md, "Rendering a room" and "Sequences").
  */
-class RoomRenderer {
+class Room {
 public:
-	RoomRenderer(const ArtArchive &art, const Common::INIFile &objectIni);
+	/** Game ticks per second (Scooby.exe 0x435BC0: elapsed ms * 36 / 1000). */
+	static const uint kTicksPerSecond = 36;
+
+	Room(const ArtArchive &art, const Common::INIFile &objectIni);
+	~Room();
 
 	/**
-	 * Render @p room into @p out, which is (re)created at the room's size in
-	 * RGB565. @p order receives the front-to-back draw order. Returns false,
-	 * after a warning, if the room's data is malformed.
+	 * Build @p name's sprite tree and start every placement in mode 1 at
+	 * 3 ticks per step from step 0. Returns false, after a warning, if the
+	 * room's data is malformed.
 	 */
-	bool render(const Common::String &room, Graphics::Surface &out, Common::String &order);
+	bool load(const Common::String &name);
+
+	/** Run one game tick. Returns true if any sprite changed step. */
+	bool tick();
+
+	/** Paint the current steps into @p out, (re)created at the room's size. */
+	void draw(Graphics::Surface &out);
+
+	const Common::String &getName() const { return _name; }
+	/** Front-to-back draw order, as sprite labels. */
+	const Common::String &getOrder() const { return _order; }
 
 private:
-	typedef Common::SharedPtr<Common::Array<byte> > BlockPtr;
+	struct Block {
+		Common::Array<byte> data;
+		Common::HashMap<uint32, Common::SharedPtr<Cel> > cels; // decoded once per room
+	};
+	typedef Common::SharedPtr<Block> BlockPtr;
+
+	// Sequence player state (0x430890 / 0x430AA0).
+	struct Player {
+		int mode;       // 0 stopped, 1 loop forward, 2 loop back, 3 once forward, 4 once back
+		int ticksPerStep;
+		int countdown;
+		uint32 step;
+		uint32 steps;   // step count of the sequence
+		uint32 record;  // sequence record offset in the object block
+	};
 
 	struct Sprite {
 		int depth;
-		BlockPtr block;               // block holding the frame record; null for the root
-		uint32 frame;                 // frame record offset in the block
+		BlockPtr block;               // block holding the frame records; null for the root
+		uint32 frame;                 // fixed frame record, for layer sprites
+		bool animated;
+		Player player;
 		int x, y;
 		Common::String label;
 		Common::Array<uint> children; // indexes into _sprites, by descending depth
@@ -67,15 +98,21 @@ private:
 
 	uint addSprite(uint parent, const Sprite &sprite);
 	void frontToBack(uint index, Common::Array<uint> &out) const;
-	bool paint(const Sprite &sprite, Graphics::Surface &out) const;
+	uint32 getFrame(const Sprite &sprite) const;
+	void paint(const Sprite &sprite, Graphics::Surface &out);
+	const Cel *getCel(Block &block, uint32 offset);
 	BlockPtr getObjectBlock(const Common::String &name);
-	bool findStepFrame(const Common::Array<byte> &object, uint32 sequence, uint32 &frame) const;
+	bool startSequence(Sprite &sprite, uint32 sequence, int mode, int ticksPerStep, int startStep);
 	void getPlacementParent(const Common::String &obj, int y, int &slot, int &depth) const;
 	int getIniInt(const Common::String &section, const char *key) const;
 
 	const ArtArchive &_art;
 	const Common::INIFile &_ini;
+	Common::String _name;
+	uint16 _width, _height;
 	Common::Array<Sprite> _sprites;
+	Common::Array<uint> _drawList; // front to back
+	Common::String _order;
 	Common::HashMap<Common::String, BlockPtr, Common::IgnoreCase_Hash, Common::IgnoreCase_EqualTo> _objects;
 };
 

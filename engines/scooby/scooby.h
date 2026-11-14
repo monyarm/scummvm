@@ -35,7 +35,7 @@
 namespace Scooby {
 
 class ArtArchive;
-class RoomRenderer;
+class Room;
 
 class ScoobyEngine : public Engine {
 private:
@@ -43,10 +43,13 @@ private:
 	Common::RandomSource _randomSource;
 	ArtArchive *_art;
 	Common::INIFile _objectIni;
-	RoomRenderer *_rooms;
+	Room *_currentRoom;
+	uint32 _tickBase;  // getMillis() when the room started
+	uint32 _ticksDone; // game ticks run since then
 	Graphics::Surface _room; // the current room, at its own size
 
 	void checkAllRooms();
+	void drawRoom();
 
 protected:
 	// Engine APIs

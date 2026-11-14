@@ -41,7 +41,7 @@ namespace Scooby {
 ScoobyEngine *g_engine;
 
 ScoobyEngine::ScoobyEngine(OSystem *syst, const ScoobyGameDescription *gameDesc) : Engine(syst),
-	_gameDescription(gameDesc), _randomSource("Scooby"), _art(nullptr), _rooms(nullptr) {
+	_gameDescription(gameDesc), _randomSource("Scooby"), _art(nullptr), _currentRoom(nullptr), _tickBase(0), _ticksDone(0) {
 	g_engine = this;
 
 	// Gen 1 discs keep the game files in a "scooby" directory, and detection
@@ -52,7 +52,7 @@ ScoobyEngine::ScoobyEngine(OSystem *syst, const ScoobyGameDescription *gameDesc)
 
 ScoobyEngine::~ScoobyEngine() {
 	_room.free();
-	delete _rooms;
+	delete _currentRoom;
 	delete _art;
 }
 
@@ -90,16 +90,17 @@ Common::Error ScoobyEngine::run() {
 
 	if (!_objectIni.loadFromFile("object.ini"))
 		return Common::Error(Common::kNoGameDataFoundError, "object.ini");
-	_rooms = new RoomRenderer(*_art, _objectIni);
+	_currentRoom = new Room(*_art, _objectIni);
 
 	if (debugChannelSet(3, kDebugGraphics)) {
 		checkAllCels(*_art);
 		checkAllRooms();
 	}
 
-	// No game logic yet: show a room as it is set up on entry, and wait.
-	// The console's "room" command switches rooms. A "start_room" key in the
-	// game's config domain picks the first one, for testing.
+	// No game logic yet: show a room as it is set up on entry and let its
+	// sprites play. The console's "room" command switches rooms. A
+	// "start_room" key in the game's config domain picks the first one, for
+	// testing.
 	Common::String room = _art->getRoomName(0);
 	if (ConfMan.hasKey("start_room"))
 		room = ConfMan.get("start_room");
@@ -107,8 +108,25 @@ Common::Error ScoobyEngine::run() {
 
 	Common::Event e;
 	Graphics::FrameLimiter limiter(g_system, 60);
+	uint32 lastLog = 0;
 	while (!shouldQuit()) {
 		while (g_system->getEventManager()->pollEvent(e)) {
+		}
+
+		// 0x435BC0: the game owes elapsed_ms * 36 / 1000 ticks since the
+		// room started; run them all, then draw once.
+		const uint32 elapsed = _system->getMillis() - _tickBase;
+		const uint32 owed = (uint32)((uint64)elapsed * Room::kTicksPerSecond / 1000) - _ticksDone;
+		bool changed = false;
+		for (uint32 i = 0; i < owed; i++)
+			changed = _currentRoom->tick() || changed;
+		_ticksDone += owed;
+		if (changed)
+			drawRoom();
+
+		if (elapsed - lastLog >= 1000) {
+			lastLog = elapsed - elapsed % 1000;
+			debugC(1, kDebugGraphics, "room %s: %u ticks after %u ms", _currentRoom->getName().c_str(), _ticksDone, elapsed);
 		}
 
 		limiter.delayBeforeSwap();
@@ -132,15 +150,21 @@ static Common::String hashSurface(const Graphics::Surface &s) {
 	return Common::computeStreamMD5AsString(stream);
 }
 
-bool ScoobyEngine::showRoom(const Common::String &name) {
-	Common::String order;
-	if (!_rooms || !_rooms->render(name, _room, order))
-		return false;
-
+void ScoobyEngine::drawRoom() {
+	_currentRoom->draw(_room);
 	// Rooms wider than the screen (1920 pixels) show their left edge until
 	// scrolling exists.
-	_system->fillScreen(0);
 	_system->copyRectToScreen(_room.getPixels(), _room.pitch, 0, 0, MIN<int>(_room.w, 640), MIN<int>(_room.h, 480));
+}
+
+bool ScoobyEngine::showRoom(const Common::String &name) {
+	if (!_currentRoom || !_currentRoom->load(name))
+		return false;
+
+	_system->fillScreen(0);
+	drawRoom();
+	_tickBase = _system->getMillis();
+	_ticksDone = 0;
 
 	if (debugChannelSet(1, kDebugGraphics))
 		debugC(1, kDebugGraphics, "room %s drawn, %dx%d md5 %s", name.c_str(), _room.w, _room.h, hashSurface(_room).c_str());
@@ -148,18 +172,26 @@ bool ScoobyEngine::showRoom(const Common::String &name) {
 }
 
 void ScoobyEngine::checkAllRooms() {
+	// Each room at tick 0 and after kCheckTicks ticks, when a sprite at 3
+	// ticks per step shows step 12 mod its step count.
+	const uint kCheckTicks = 37;
 	uint bad = 0;
 	Graphics::Surface surface;
+	Room room(*_art, _objectIni);
 	for (uint i = 0; i < _art->getRoomCount(); i++) {
 		const Common::String name = _art->getRoomName(i);
-		Common::String order;
-		if (!_rooms->render(name, surface, order)) {
+		if (!room.load(name)) {
 			debugC(3, kDebugGraphics, "room check %s BAD", name.c_str());
 			bad++;
 			continue;
 		}
+		room.draw(surface);
 		debugC(3, kDebugGraphics, "room check %s %dx%d md5 %s", name.c_str(), surface.w, surface.h, hashSurface(surface).c_str());
-		debugC(3, kDebugGraphics, "room check %s order %s", name.c_str(), order.c_str());
+		debugC(3, kDebugGraphics, "room check %s order %s", name.c_str(), room.getOrder().c_str());
+		for (uint t = 0; t < kCheckTicks; t++)
+			room.tick();
+		room.draw(surface);
+		debugC(3, kDebugGraphics, "room check %s t%u md5 %s", name.c_str(), kCheckTicks, hashSurface(surface).c_str());
 	}
 	surface.free();
 	debugC(3, kDebugGraphics, "room check: %u rooms, %u bad", _art->getRoomCount(), bad);
