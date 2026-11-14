@@ -32,6 +32,9 @@ private:
 	bool Cmd_artList(int argc, const char **argv);
 	bool Cmd_artInfo(int argc, const char **argv);
 	bool Cmd_room(int argc, const char **argv);
+	bool Cmd_soundList(int argc, const char **argv);
+	bool Cmd_soundPlay(int argc, const char **argv);
+	bool Cmd_soundStop(int argc, const char **argv);
 public:
 	Console();
 	~Console() override;

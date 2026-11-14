@@ -24,6 +24,7 @@
 #include "scooby/cel.h"
 #include "scooby/console.h"
 #include "scooby/room.h"
+#include "scooby/sound.h"
 #include "common/config-manager.h"
 #include "common/debug-channels.h"
 #include "common/endian.h"
@@ -41,7 +42,7 @@ namespace Scooby {
 ScoobyEngine *g_engine;
 
 ScoobyEngine::ScoobyEngine(OSystem *syst, const ScoobyGameDescription *gameDesc) : Engine(syst),
-	_gameDescription(gameDesc), _randomSource("Scooby"), _art(nullptr), _currentRoom(nullptr), _tickBase(0), _ticksDone(0), _hover(-1), _lastHover(-1) {
+	_gameDescription(gameDesc), _randomSource("Scooby"), _art(nullptr), _currentRoom(nullptr), _tickBase(0), _ticksDone(0), _hover(-1), _lastHover(-1), _sound(nullptr) {
 	g_engine = this;
 
 	// Gen 1 discs keep the game files in a "scooby" directory, and detection
@@ -51,6 +52,7 @@ ScoobyEngine::ScoobyEngine(OSystem *syst, const ScoobyGameDescription *gameDesc)
 }
 
 ScoobyEngine::~ScoobyEngine() {
+	delete _sound;
 	_room.free();
 	delete _currentRoom;
 	delete _art;
@@ -92,10 +94,16 @@ Common::Error ScoobyEngine::run() {
 		return Common::Error(Common::kNoGameDataFoundError, "object.ini");
 	_currentRoom = new Room(*_art, _objectIni);
 
+	_sound = new Sound(_mixer);
+	if (!_sound->open())
+		return Common::Error(Common::kNoGameDataFoundError, "Sfx.dat, Voice.dat or Music.dat");
+
 	if (debugChannelSet(3, kDebugGraphics)) {
 		checkAllCels(*_art);
 		checkAllRooms();
 	}
+	if (debugChannelSet(3, kDebugAudio))
+		_sound->checkAllClips();
 
 	// No game logic yet: show a room as it is set up on entry and let its
 	// sprites play. The console's "room" command switches rooms. A
@@ -105,11 +113,32 @@ Common::Error ScoobyEngine::run() {
 	if (ConfMan.hasKey("start_room"))
 		room = ConfMan.get("start_room");
 	showRoom(room);
+	// Likewise "start_sound" plays one clip, for testing; the console's
+	// sound_play does the same.
+	if (ConfMan.hasKey("start_sound"))
+		_sound->play(ConfMan.get("start_sound"));
 
 	Common::Event e;
 	Graphics::FrameLimiter limiter(g_system, 60);
 	uint32 lastLog = 0;
+	uint32 soundLog = 0;
+	bool soundWasPlaying = false;
 	while (!shouldQuit()) {
+		// Report playback once a second, and when a clip ends.
+		if (_sound->isPlaying()) {
+			const uint32 played = _sound->getElapsedMillis();
+			if (!soundWasPlaying)
+				soundLog = 0;
+			if (played >= soundLog + 1000) {
+				soundLog = played - played % 1000;
+				debugC(1, kDebugAudio, "sound %s: %u ms played at %u ms", _sound->getPlayingName().c_str(), played, _system->getMillis());
+			}
+			soundWasPlaying = true;
+		} else if (soundWasPlaying) {
+			debugC(1, kDebugAudio, "sound %s ended at %u ms", _sound->getPlayingName().c_str(), _system->getMillis());
+			soundWasPlaying = false;
+		}
+
 		bool changed = false;
 		while (g_system->getEventManager()->pollEvent(e)) {
 			if (e.type == Common::EVENT_MOUSEMOVE) {

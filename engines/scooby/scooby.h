@@ -36,6 +36,7 @@ namespace Scooby {
 
 class ArtArchive;
 class Room;
+class Sound;
 
 class ScoobyEngine : public Engine {
 private:
@@ -53,6 +54,7 @@ private:
 	void updateHover(int x, int y);
 	int _hover;     // sprite under the mouse, or -1
 	int _lastHover;
+	Sound *_sound;
 
 protected:
 	// Engine APIs
@@ -78,6 +80,11 @@ public:
 	 * Returns the Gen 1 art file, or nullptr until run() opens it
 	 */
 	ArtArchive *getArt() const { return _art; }
+
+	/**
+	 * Returns the Gen 1 sound files, or nullptr until run() opens them
+	 */
+	Sound *getSound() const { return _sound; }
 
 	/**
 	 * Draws a room as it is set up on entry: its layers and every placement

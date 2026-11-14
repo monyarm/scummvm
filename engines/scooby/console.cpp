@@ -22,6 +22,7 @@
 #include "scooby/console.h"
 #include "scooby/art_archive.h"
 #include "scooby/scooby.h"
+#include "scooby/sound.h"
 
 namespace Scooby {
 
@@ -29,6 +30,52 @@ Console::Console() : GUI::Debugger() {
 	registerCmd("art_list", WRAP_METHOD(Console, Cmd_artList));
 	registerCmd("art_info", WRAP_METHOD(Console, Cmd_artInfo));
 	registerCmd("room", WRAP_METHOD(Console, Cmd_room));
+	registerCmd("sound_list", WRAP_METHOD(Console, Cmd_soundList));
+	registerCmd("sound_play", WRAP_METHOD(Console, Cmd_soundPlay));
+	registerCmd("sound_stop", WRAP_METHOD(Console, Cmd_soundStop));
+}
+
+bool Console::Cmd_soundList(int argc, const char **argv) {
+	const Sound *sound = g_engine->getSound();
+	if (!sound) {
+		debugPrintf("No sound files are open\n");
+		return true;
+	}
+	static const char *const kFiles[] = { "sfx", "voice", "music" };
+	const Common::String prefix = argc > 1 ? argv[1] : "";
+	uint shown = 0;
+	for (uint f = 0; f < Sound::kFileCount; f++) {
+		const Common::Array<SoundArchive::Clip> &clips = sound->getArchive((Sound::File)f).getClips();
+		for (uint i = 0; i < clips.size(); i++) {
+			const SoundArchive::Clip &c = clips[i];
+			if (!c.name.hasPrefixIgnoreCase(prefix))
+				continue;
+			const uint32 ms = (uint32)((uint64)c.dataSize * 1000 / (c.rate * c.channels * (c.bits / 8)));
+			debugPrintf("%-5s %-48s %5u Hz %u ch %2u bit %6u ms%s\n", kFiles[f], c.name.c_str(), c.rate, c.channels,
+			            c.bits, ms, c.loop ? " loop" : "");
+			shown++;
+		}
+	}
+	debugPrintf("%u clips\n", shown);
+	return true;
+}
+
+bool Console::Cmd_soundPlay(int argc, const char **argv) {
+	if (argc != 2) {
+		debugPrintf("Usage: %s <Section.Clip>; sound_list lists them\n", argv[0]);
+		return true;
+	}
+	Sound *sound = g_engine->getSound();
+	if (!sound || !sound->play(argv[1]))
+		debugPrintf("%s is not in Sfx.dat, Voice.dat or Music.dat\n", argv[1]);
+	return true;
+}
+
+bool Console::Cmd_soundStop(int argc, const char **argv) {
+	Sound *sound = g_engine->getSound();
+	if (sound)
+		sound->stop();
+	return true;
 }
 
 Console::~Console() {

@@ -5,6 +5,8 @@ MODULE_OBJS = \
 	cel.o \
 	room.o \
 	scooby.o \
+	sound.o \
+	sound_archive.o \
 	console.o \
 	metaengine.o
 
