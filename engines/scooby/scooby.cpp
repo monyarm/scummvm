@@ -23,6 +23,7 @@
 #include "scooby/art_archive.h"
 #include "scooby/cel.h"
 #include "scooby/console.h"
+#include "scooby/room.h"
 #include "common/config-manager.h"
 #include "common/debug-channels.h"
 #include "common/endian.h"
@@ -40,7 +41,7 @@ namespace Scooby {
 ScoobyEngine *g_engine;
 
 ScoobyEngine::ScoobyEngine(OSystem *syst, const ScoobyGameDescription *gameDesc) : Engine(syst),
-	_gameDescription(gameDesc), _randomSource("Scooby"), _art(nullptr) {
+	_gameDescription(gameDesc), _randomSource("Scooby"), _art(nullptr), _rooms(nullptr) {
 	g_engine = this;
 
 	// Gen 1 discs keep the game files in a "scooby" directory, and detection
@@ -50,7 +51,8 @@ ScoobyEngine::ScoobyEngine(OSystem *syst, const ScoobyGameDescription *gameDesc)
 }
 
 ScoobyEngine::~ScoobyEngine() {
-	_screen.free();
+	_room.free();
+	delete _rooms;
 	delete _art;
 }
 
@@ -86,13 +88,22 @@ Common::Error ScoobyEngine::run() {
 		return Common::Error(Common::kNoGameDataFoundError, "TGIFILE.ART");
 	syncSoundSettings();
 
-	if (debugChannelSet(3, kDebugGraphics))
-		checkAllCels(*_art);
+	if (!_objectIni.loadFromFile("object.ini"))
+		return Common::Error(Common::kNoGameDataFoundError, "object.ini");
+	_rooms = new RoomRenderer(*_art, _objectIni);
 
-	// No game logic yet: show the first room's background and wait. The
-	// console's "room" command switches rooms.
-	_screen.create(640, 480, format);
-	showRoom(_art->getRoomName(0));
+	if (debugChannelSet(3, kDebugGraphics)) {
+		checkAllCels(*_art);
+		checkAllRooms();
+	}
+
+	// No game logic yet: show a room as it is set up on entry, and wait.
+	// The console's "room" command switches rooms. A "start_room" key in the
+	// game's config domain picks the first one, for testing.
+	Common::String room = _art->getRoomName(0);
+	if (ConfMan.hasKey("start_room"))
+		room = ConfMan.get("start_room");
+	showRoom(room);
 
 	Common::Event e;
 	Graphics::FrameLimiter limiter(g_system, 60);
@@ -108,32 +119,50 @@ Common::Error ScoobyEngine::run() {
 	return Common::kNoError;
 }
 
+static Common::String hashSurface(const Graphics::Surface &s) {
+	// Hash the pixels row by row, so the surface's pitch doesn't matter.
+	Common::Array<byte> rows;
+	rows.resize(s.w * s.h * 2);
+	for (int y = 0; y < s.h; y++) {
+		const uint16 *src = (const uint16 *)s.getBasePtr(0, y);
+		for (int x = 0; x < s.w; x++)
+			WRITE_LE_UINT16(&rows[(y * s.w + x) * 2], src[x]);
+	}
+	Common::MemoryReadStream stream(rows.data(), rows.size());
+	return Common::computeStreamMD5AsString(stream);
+}
+
 bool ScoobyEngine::showRoom(const Common::String &name) {
-	Common::Array<byte> block;
-	if (!_art || !_art->readBlock(name, block))
+	Common::String order;
+	if (!_rooms || !_rooms->render(name, _room, order))
 		return false;
 
-	_screen.fillRect(Common::Rect(_screen.w, _screen.h), 0);
-	if (!drawRoomLayers(block, _screen)) {
-		warning("Room %s has bad layer data", name.c_str());
-		return false;
-	}
-	_system->copyRectToScreen(_screen.getPixels(), _screen.pitch, 0, 0, _screen.w, _screen.h);
+	// Rooms wider than the screen (1920 pixels) show their left edge until
+	// scrolling exists.
+	_system->fillScreen(0);
+	_system->copyRectToScreen(_room.getPixels(), _room.pitch, 0, 0, MIN<int>(_room.w, 640), MIN<int>(_room.h, 480));
 
-	if (debugChannelSet(1, kDebugGraphics)) {
-		// Hash the pixels row by row, so the surface's pitch doesn't matter.
-		Common::Array<byte> rows;
-		rows.resize(_screen.w * _screen.h * 2);
-		for (int y = 0; y < _screen.h; y++) {
-			const uint16 *src = (const uint16 *)_screen.getBasePtr(0, y);
-			for (int x = 0; x < _screen.w; x++)
-				WRITE_LE_UINT16(&rows[(y * _screen.w + x) * 2], src[x]);
-		}
-		Common::MemoryReadStream stream(rows.data(), rows.size());
-		debugC(1, kDebugGraphics, "room %s drawn, screen md5 %s", name.c_str(),
-		       Common::computeStreamMD5AsString(stream).c_str());
-	}
+	if (debugChannelSet(1, kDebugGraphics))
+		debugC(1, kDebugGraphics, "room %s drawn, %dx%d md5 %s", name.c_str(), _room.w, _room.h, hashSurface(_room).c_str());
 	return true;
+}
+
+void ScoobyEngine::checkAllRooms() {
+	uint bad = 0;
+	Graphics::Surface surface;
+	for (uint i = 0; i < _art->getRoomCount(); i++) {
+		const Common::String name = _art->getRoomName(i);
+		Common::String order;
+		if (!_rooms->render(name, surface, order)) {
+			debugC(3, kDebugGraphics, "room check %s BAD", name.c_str());
+			bad++;
+			continue;
+		}
+		debugC(3, kDebugGraphics, "room check %s %dx%d md5 %s", name.c_str(), surface.w, surface.h, hashSurface(surface).c_str());
+		debugC(3, kDebugGraphics, "room check %s order %s", name.c_str(), order.c_str());
+	}
+	surface.free();
+	debugC(3, kDebugGraphics, "room check: %u rooms, %u bad", _art->getRoomCount(), bad);
 }
 
 } // End of namespace Scooby

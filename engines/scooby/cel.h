@@ -65,8 +65,12 @@ public:
 	/** The pixel's word: the solid colour for opaque pixels of a solid cel, 0 where transparent. */
 	uint16 getColor(uint x, uint y) const;
 
-	/** Copy the opaque pixels to an RGB565 surface, with (x, y) the cel's top-left corner. */
-	void drawOpaque(Graphics::Surface &dst, int x, int y) const;
+	/**
+	 * Draw onto an RGB565 surface with (x, y) the cel's top-left corner:
+	 * opaque pixels are copied, translucent ones blended as the original's
+	 * 565 blitter does, transparent ones skipped.
+	 */
+	void draw(Graphics::Surface &dst, int x, int y) const;
 
 	/** MD5 of (coverage, colour) for every pixel, for checking against tools/probe_art.py. */
 	Common::String getHash() const;
@@ -83,11 +87,10 @@ private:
 };
 
 /**
- * Draw the opaque pass of a room block's layers: each used layer slot's
- * frame record, slot 0 (furthest back) first. Returns false if the block's
- * layer data is malformed.
+ * Blend one ARGB4444 pixel over an RGB565 pixel, as the original's blitter
+ * does (Scooby.exe 0x439170).
  */
-bool drawRoomLayers(const Common::Array<byte> &block, Graphics::Surface &dst);
+uint16 blendArgb4444(uint16 dst, uint16 src);
 
 /** Decode every cel in the art file and log its hash on the graphics channel. */
 void checkAllCels(const ArtArchive &art);

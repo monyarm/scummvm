@@ -41,15 +41,9 @@ static const byte kRunMarker = 0xF0;
 // cap only guards the allocation against a corrupt header.
 static const uint32 kMaxCelPixels = 1 << 24;
 
-// Room block: ten u32 layer slots at 0x80, each the offset of a frame record
-// or 0. A frame record is u32 size, u16 n, u16 0, then n x (i16 x, i16 y,
-// u32 cel offset).
-static const uint32 kRoomLayerSlots = 0x80;
-static const uint kRoomLayerCount = 10;
+// Room block: u32 cel count at 0xA8 and the offset of its cel table at 0xAC.
 static const uint32 kRoomCelCount = 0xA8;
 static const uint32 kRoomCelTable = 0xAC;
-static const uint32 kFrameHeaderSize = 8;
-static const uint32 kFrameEntrySize = 8;
 
 // Object resource: u32 size, then four (u32 count, u32 offset) table pairs.
 // Table 3 lists the object's cels.
@@ -195,7 +189,24 @@ uint16 Cel::getColor(uint x, uint y) const {
 	return _pixels[i];
 }
 
-void Cel::drawOpaque(Graphics::Surface &dst, int x, int y) const {
+// The original's blitter expands each channel to 8 bits through static
+// tables in Scooby.exe: 0x4708DC (4-bit), 0x47075C (5-bit) and 0x4707DC
+// (6-bit). Their values are 17 * i, round(255 * i / 31) and
+// round(255 * i / 63), so they are computed here rather than copied.
+static uint expand(uint value, uint max) {
+	return (255 * value + max / 2) / max;
+}
+
+uint16 blendArgb4444(uint16 dst, uint16 src) {
+	const uint a = expand(src >> 12, 15);
+	const uint ia = 255 - a;
+	const uint r = (expand(dst >> 11, 31) * ia + 0x80 + expand((src >> 8) & 15, 15) * a) >> 8;
+	const uint g = (expand((dst >> 5) & 63, 63) * ia + 0x80 + expand((src >> 4) & 15, 15) * a) >> 8;
+	const uint b = (expand(dst & 31, 31) * ia + 0x80 + expand(src & 15, 15) * a) >> 8;
+	return (uint16)(((r >> 3) << 11) | ((g >> 2) << 5) | (b >> 3));
+}
+
+void Cel::draw(Graphics::Surface &dst, int x, int y) const {
 	assert(dst.format.bytesPerPixel == 2);
 	for (uint cy = 0; cy < _height; cy++) {
 		const int sy = y + (int)cy;
@@ -204,9 +215,13 @@ void Cel::drawOpaque(Graphics::Surface &dst, int x, int y) const {
 		uint16 *out = (uint16 *)dst.getBasePtr(0, sy);
 		for (uint cx = 0; cx < _width; cx++) {
 			const int sx = x + (int)cx;
-			if (sx < 0 || sx >= dst.w || getCoverage(cx, cy) != kOpaque)
+			if (sx < 0 || sx >= dst.w)
 				continue;
-			out[sx] = getColor(cx, cy);
+			const Coverage c = getCoverage(cx, cy);
+			if (c == kOpaque)
+				out[sx] = getColor(cx, cy);
+			else if (c == kTranslucent)
+				out[sx] = blendArgb4444(out[sx], _pixels[cy * _width + cx]);
 		}
 	}
 }
@@ -224,36 +239,6 @@ Common::String Cel::getHash() const {
 	}
 	Common::MemoryReadStream stream(buf.data(), buf.size());
 	return Common::computeStreamMD5AsString(stream);
-}
-
-bool drawRoomLayers(const Common::Array<byte> &block, Graphics::Surface &dst) {
-	const uint32 blockSize = block.size();
-	if (blockSize < kRoomLayerSlots + 4 * kRoomLayerCount)
-		return false;
-
-	for (uint slot = 0; slot < kRoomLayerCount; slot++) {
-		const uint32 frame = READ_LE_UINT32(&block[kRoomLayerSlots + 4 * slot]);
-		if (!frame)
-			continue;
-		if (frame > blockSize || blockSize - frame < kFrameHeaderSize)
-			return false;
-
-		const uint n = READ_LE_UINT16(&block[frame + 4]);
-		if ((blockSize - frame - kFrameHeaderSize) / kFrameEntrySize < n)
-			return false;
-
-		for (uint k = 0; k < n; k++) {
-			const byte *entry = &block[frame + kFrameHeaderSize + kFrameEntrySize * k];
-			const int dx = (int16)READ_LE_UINT16(entry);
-			const int dy = (int16)READ_LE_UINT16(entry + 2);
-			Cel cel;
-			if (!cel.load(block.data(), blockSize, READ_LE_UINT32(entry + 4)))
-				return false;
-			debugC(2, kDebugGraphics, "layer %u: %u x %u cel at (%d, %d)", slot, cel.getWidth(), cel.getHeight(), dx, dy);
-			cel.drawOpaque(dst, dx, dy);
-		}
-	}
-	return true;
 }
 
 static void checkCelTable(const Common::String &name, const Common::Array<byte> &block,

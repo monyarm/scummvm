@@ -26,6 +26,7 @@
 #include "common/error.h"
 #include "common/random.h"
 #include "common/str.h"
+#include "common/formats/ini-file.h"
 #include "engines/engine.h"
 #include "graphics/surface.h"
 
@@ -34,13 +35,18 @@
 namespace Scooby {
 
 class ArtArchive;
+class RoomRenderer;
 
 class ScoobyEngine : public Engine {
 private:
 	const ScoobyGameDescription *_gameDescription;
 	Common::RandomSource _randomSource;
 	ArtArchive *_art;
-	Graphics::Surface _screen;
+	Common::INIFile _objectIni;
+	RoomRenderer *_rooms;
+	Graphics::Surface _room; // the current room, at its own size
+
+	void checkAllRooms();
 
 protected:
 	// Engine APIs
@@ -68,7 +74,8 @@ public:
 	ArtArchive *getArt() const { return _art; }
 
 	/**
-	 * Draws a room's layers (its background) to the screen
+	 * Draws a room as it is set up on entry: its layers and every placement
+	 * at step 0, in the original's draw order
 	 */
 	bool showRoom(const Common::String &name);
 
