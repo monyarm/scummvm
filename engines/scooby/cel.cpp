@@ -189,6 +189,11 @@ uint16 Cel::getColor(uint x, uint y) const {
 	return _pixels[i];
 }
 
+bool Cel::hitTest(uint x, uint y) const {
+	const uint i = y * _width + x;
+	return (!_solid && _pixels[i] != 0) || _coverage[i] != kTransparent;
+}
+
 // The original's blitter expands each channel to 8 bits through static
 // tables in Scooby.exe: 0x4708DC (4-bit), 0x47075C (5-bit) and 0x4707DC
 // (6-bit). Their values are 17 * i, round(255 * i / 31) and

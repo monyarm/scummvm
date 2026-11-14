@@ -66,6 +66,12 @@ public:
 	uint16 getColor(uint x, uint y) const;
 
 	/**
+	 * The original's point test for a cel (0x431400): a non-solid cel's
+	 * non-zero pixel, or any pixel either mask covers.
+	 */
+	bool hitTest(uint x, uint y) const;
+
+	/**
 	 * Draw onto an RGB565 surface with (x, y) the cel's top-left corner:
 	 * opaque pixels are copied, translucent ones blended as the original's
 	 * 565 blitter does, transparent ones skipped.

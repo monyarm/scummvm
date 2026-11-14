@@ -52,21 +52,36 @@ public:
 	~Room();
 
 	/**
-	 * Build @p name's sprite tree and start every placement in mode 1 at
-	 * 3 ticks per step from step 0. Returns false, after a warning, if the
-	 * room's data is malformed.
+	 * Build @p name's sprite tree. Each placement starts as its kind's
+	 * constructor starts it (mode, hidden flag, hit test). Returns false,
+	 * after a warning, if the room's data is malformed.
 	 */
 	bool load(const Common::String &name);
 
-	/** Run one game tick. Returns true if any sprite changed step. */
+	/** Run one game tick. Returns true if any sprite (or the cursor) changed step. */
 	bool tick();
 
-	/** Paint the current steps into @p out, (re)created at the room's size. */
+	/** Paint the current steps, then the cursor, into @p out, (re)created at the room's size. */
 	void draw(Graphics::Surface &out);
 
 	const Common::String &getName() const { return _name; }
 	/** Front-to-back draw order, as sprite labels. */
 	const Common::String &getOrder() const { return _order; }
+
+	/**
+	 * The original's hit walk (0x4311F0): the first sprite, front to back,
+	 * whose test passes at (x, y). Returns a sprite index, or -1.
+	 */
+	int hitTest(int x, int y);
+	const Common::String &getLabel(int sprite) const { return _sprites[sprite].label; }
+	/** The sprite's rollover cursor ANIM name, or empty for the default. */
+	const Common::String &getRollover(int sprite) const { return _sprites[sprite].rollover; }
+	/** An exit's destinationroom=, or empty. */
+	const Common::String &getDestination(int sprite) const { return _sprites[sprite].destination; }
+
+	/** Show the OBJ_CURSOR sprite playing @p anim at (x, y); an empty name hides it. */
+	bool setCursor(const Common::String &anim);
+	void setCursorPosition(int x, int y);
 
 private:
 	struct Block {
@@ -85,6 +100,18 @@ private:
 		uint32 record;  // sequence record offset in the object block
 	};
 
+	// Placement kinds, by the constructor the default placement path picks.
+	enum Kind {
+		kKindLayer,
+		kKindSimple,
+		kKindCharacter,
+		kKindGhost,
+		kKindExit,
+		kKindRequires,
+		kKindInventory,
+		kKindClickable
+	};
+
 	struct Sprite {
 		int depth;
 		BlockPtr block;               // block holding the frame records; null for the root
@@ -92,19 +119,32 @@ private:
 		bool animated;
 		Player player;
 		int x, y;
+		bool hidden;                  // +0x14: neither drawn nor hit
+		int hitType;                  // +4: 1 = cel pixels and masks, 2 = step polygon
 		Common::String label;
+		Common::String rollover;
+		Common::String destination;
 		Common::Array<uint> children; // indexes into _sprites, by descending depth
 	};
 
 	uint addSprite(uint parent, const Sprite &sprite);
 	void frontToBack(uint index, Common::Array<uint> &out) const;
 	uint32 getFrame(const Sprite &sprite) const;
+	uint32 getPolygon(const Sprite &sprite) const;
 	void paint(const Sprite &sprite, Graphics::Surface &out);
+	bool hitCels(const Sprite &sprite, int x, int y);
+	bool hitPolygon(const Sprite &sprite, int x, int y) const;
+	bool tickPlayer(Sprite &sprite);
 	const Cel *getCel(Block &block, uint32 offset);
 	BlockPtr getObjectBlock(const Common::String &name);
 	bool startSequence(Sprite &sprite, uint32 sequence, int mode, int ticksPerStep, int startStep);
-	void getPlacementParent(const Common::String &obj, int y, int &slot, int &depth) const;
+	Kind getPlacementKind(const Common::String &obj, int y, int &slot, int &depth) const;
 	int getIniInt(const Common::String &section, const char *key) const;
+	Common::String getIniString(const Common::String &section, const char *key) const;
+
+	Sprite _cursor;
+	bool _cursorShown;
+	Common::String _cursorAnim;
 
 	const ArtArchive &_art;
 	const Common::INIFile &_ini;

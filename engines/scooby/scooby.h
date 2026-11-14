@@ -50,6 +50,9 @@ private:
 
 	void checkAllRooms();
 	void drawRoom();
+	void updateHover(int x, int y);
+	int _hover;     // sprite under the mouse, or -1
+	int _lastHover;
 
 protected:
 	// Engine APIs

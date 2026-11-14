@@ -52,8 +52,9 @@ static const uint32 kPlacementY = 0x86;
 
 // Object resource: u32 size, then (count, offset) pairs for table 0
 // (sequences) at 4 and table 1 (frame records) at 12. A sequence record is
-// u32 size, u16 n, u16 flags, then n 12-byte steps; a step's second u32 is
-// its frame reference, whose low 18 bits index table 1.
+// u32 size, u16 n, u16 flags, then n 12-byte steps of (u32 unread, u32 frame
+// reference, u32 polygon offset or 0). The frame reference's low 18 bits
+// index table 1.
 static const uint32 kObjectSequenceCount = 4;
 static const uint32 kObjectSequenceTable = 8;
 static const uint32 kObjectFrameCount = 12;
@@ -62,6 +63,11 @@ static const uint32 kSequenceSteps = 4;
 static const uint32 kSequenceHeaderSize = 8;
 static const uint32 kStepSize = 12;
 static const uint32 kStepFrameRef = 4;
+static const uint32 kStepPolygon = 8;
+
+// A polygon is u32 size, u32 n, i16 x, i16 y, u16 w, u16 h (its box), then
+// n x (i16 x, i16 y).
+static const uint32 kPolygonHeaderSize = 16;
 
 // A frame record is u32 size, u16 n, u16 0, then n x (i16 x, i16 y, u32 cel).
 static const uint32 kFrameHeaderSize = 8;
@@ -72,9 +78,7 @@ static const int kRootDepth = -0x7FFFFFFF;
 static const int kLayerDepthBase = -110000;
 static const int kLayerDepthStep = 10000;
 
-// The default placement path starts each placed sprite in mode 1 (loop
-// forward) at 3 ticks per step, from step 0.
-static const int kPlacementMode = 1;
+// Every placement constructor passes 3 ticks per step and start step 0.
 static const int kPlacementTicksPerStep = 3;
 
 // Characters placed at depth y - 200 (the 20-name table at 0x46A720 in
@@ -84,6 +88,9 @@ static const char *const kCharacters[] = {
 	"SHERIFF", "ICDOUBLE", "GUMMY", "DONKEY", "BRAD", "EWAN", "MARIA", "JANE",
 	"WIZARD", "JESTER", "PRINCESS", "UNICYCLE"
 };
+
+// The cursor is an OBJ_CURSOR sprite (0x4089E0).
+static const char *const kCursorObject = "OBJ_CURSOR";
 
 static bool inBlock(const Common::Array<byte> &block, uint32 offset, uint32 size) {
 	return offset <= block.size() && size <= block.size() - offset;
@@ -102,7 +109,14 @@ static bool isFrameRecord(const Common::Array<byte> &block, uint32 frame) {
 	return inBlock(block, frame + kFrameHeaderSize, kFrameEntrySize * READ_LE_UINT16(&block[frame + 4]));
 }
 
-Room::Room(const ArtArchive &art, const Common::INIFile &objectIni) : _art(art), _ini(objectIni), _width(0), _height(0) {
+Room::Room(const ArtArchive &art, const Common::INIFile &objectIni) :
+	_art(art), _ini(objectIni), _cursorShown(false), _width(0), _height(0) {
+	_cursor.depth = 0;
+	_cursor.frame = 0;
+	_cursor.animated = false;
+	_cursor.x = _cursor.y = 0;
+	_cursor.hidden = false;
+	_cursor.hitType = 1;
 }
 
 Room::~Room() {
@@ -149,7 +163,16 @@ int Room::getIniInt(const Common::String &section, const char *key) const {
 	return value.hasPrefix("0") ? 0 : -1;
 }
 
-void Room::getPlacementParent(const Common::String &obj, int y, int &slot, int &depth) const {
+Common::String Room::getIniString(const Common::String &section, const char *key) const {
+	// 0x40AB80, with an empty default.
+	Common::String value;
+	if (!_ini.getKey(key, section, value))
+		return Common::String();
+	value.trim();
+	return value;
+}
+
+Room::Kind Room::getPlacementKind(const Common::String &obj, int y, int &slot, int &depth) const {
 	// The default placement path (0x4091FF, 0x408F90, 0x408DC0, 0x401000).
 	Common::String kind;
 	if (!_ini.getKey("ID", obj, kind))
@@ -160,28 +183,45 @@ void Room::getPlacementParent(const Common::String &obj, int y, int &slot, int &
 	if (kind == "inventoryobject") {
 		slot = 0;
 		depth = -100;
-	} else if (kind == "requiresobject") {
+		return kKindInventory;
+	}
+	if (kind == "requiresobject") {
 		slot = 0;
 		depth = 0;
-	} else if (kind == "exitobject") {
+		return kKindRequires;
+	}
+	if (kind == "exitobject") {
 		slot = 0;
 		depth = -1000;
-	} else if (kind == "clickableobject") {
+		return kKindExit;
+	}
+	if (kind == "clickableobject") {
 		const int layer = getIniInt(obj, "layer");
 		slot = layer == -1 ? 0 : layer;
 		depth = getIniInt(obj, "priority");
-	} else {
-		// A character, as OBJ_<NAME> or OBJ_<NAME>_<x>, goes in front of
-		// layer 0 by its feet; anything else goes under layer 1.
-		Common::String stem = obj;
-		if (stem.size() > 2 && stem[stem.size() - 2] == '_')
-			stem = Common::String(stem.c_str(), stem.size() - 2);
-		bool character = obj == "OBJ_GHOST";
-		for (uint i = 0; i < ARRAYSIZE(kCharacters) && !character; i++)
-			character = stem == Common::String("OBJ_") + kCharacters[i];
-		slot = character ? 0 : 1;
-		depth = character ? y - 200 : 0;
+		return kKindClickable;
 	}
+
+	// A character, as OBJ_<NAME> or OBJ_<NAME>_<x>, or the ghost, goes in
+	// front of layer 0 by its feet; anything else goes under layer 1.
+	Common::String stem = obj;
+	if (stem.size() > 2 && stem[stem.size() - 2] == '_')
+		stem = Common::String(stem.c_str(), stem.size() - 2);
+	for (uint i = 0; i < ARRAYSIZE(kCharacters); i++) {
+		if (stem == Common::String("OBJ_") + kCharacters[i]) {
+			slot = 0;
+			depth = y - 200;
+			return kKindCharacter;
+		}
+	}
+	if (obj == "OBJ_GHOST") {
+		slot = 0;
+		depth = y - 200;
+		return kKindGhost;
+	}
+	slot = 1;
+	depth = 0;
+	return kKindSimple;
 }
 
 Room::BlockPtr Room::getObjectBlock(const Common::String &name) {
@@ -197,8 +237,8 @@ Room::BlockPtr Room::getObjectBlock(const Common::String &name) {
 }
 
 bool Room::startSequence(Sprite &sprite, uint32 sequence, int mode, int ticksPerStep, int startStep) {
-	// Check the whole sequence once, so that ticking and drawing can't
-	// step outside the block.
+	// Check the whole sequence once, so that ticking, drawing and hit tests
+	// can't step outside the block.
 	const Common::Array<byte> &object = sprite.block->data;
 	if (!inBlock(object, 0, kObjectFrameTable + 4))
 		return false;
@@ -218,9 +258,14 @@ bool Room::startSequence(Sprite &sprite, uint32 sequence, int mode, int ticksPer
 	if (p.steps == 0 || !inBlock(object, p.record + kSequenceHeaderSize, kStepSize * p.steps))
 		return false;
 	for (uint32 k = 0; k < p.steps; k++) {
-		const uint32 ref = READ_LE_UINT32(&object[p.record + kSequenceHeaderSize + kStepSize * k + kStepFrameRef]);
+		const uint32 step = p.record + kSequenceHeaderSize + kStepSize * k;
+		const uint32 ref = READ_LE_UINT32(&object[step + kStepFrameRef]);
 		if ((ref & 0x3FFFF) >= frameCount ||
 		    !isFrameRecord(object, READ_LE_UINT32(&object[frameTable + 4 * (ref & 0x3FFFF)])))
+			return false;
+		const uint32 polygon = READ_LE_UINT32(&object[step + kStepPolygon]);
+		if (polygon && (!inBlock(object, polygon, kPolygonHeaderSize) ||
+		                !inBlock(object, polygon + kPolygonHeaderSize, 4 * READ_LE_UINT16(&object[polygon + 4]))))
 			return false;
 	}
 
@@ -262,10 +307,13 @@ bool Room::load(const Common::String &name) {
 	root.frame = 0;
 	root.animated = false;
 	root.x = root.y = 0;
+	root.hidden = false;
+	root.hitType = 1;
 	root.label = "root";
 	_sprites.push_back(root);
 
-	// One sprite per used layer slot, slot 0 furthest back.
+	// One sprite per used layer slot, slot 0 furthest back. Layers are the
+	// base sprite class, so their hit test is type 1.
 	int layers[kRoomLayerCount];
 	for (uint slot = 0; slot < kRoomLayerCount; slot++) {
 		const uint32 frame = READ_LE_UINT32(&b[kRoomLayerSlots + 4 * slot]);
@@ -282,11 +330,13 @@ bool Room::load(const Common::String &name) {
 		s.frame = frame;
 		s.animated = false;
 		s.x = s.y = 0;
+		s.hidden = false;
+		s.hitType = 1;
 		s.label = Common::String::format("layer %u", slot);
 		layers[slot] = addSprite(0, s);
 	}
 
-	// One sprite per placement, playing its ANIM's sequence.
+	// One sprite per placement, started as its kind's constructor starts it.
 	const uint32 count = READ_LE_UINT32(&b[kRoomPlacementCount]);
 	const uint32 first = READ_LE_UINT32(&b[kRoomPlacementFirst]);
 	if (first > b.size() || (b.size() - first) / kPlacementSize < count) {
@@ -297,23 +347,39 @@ bool Room::load(const Common::String &name) {
 		const byte *p = &b[first + kPlacementSize * k];
 		const Common::String obj = readName(p);
 		const Common::String anim = readName(p + kPlacementName);
-		uint32 objId, animId;
+
 		Sprite s;
 		s.frame = 0;
 		s.animated = false;
-		if (!_art.findName(obj, objId) || (ArtNameType)(objId >> 28) != kArtObject ||
-		    !_art.findName(anim, animId) || (ArtNameType)(animId >> 28) != kArtAnim ||
-		    !(s.block = getObjectBlock(obj)) ||
-		    !startSequence(s, animId & 0x3FFFF, kPlacementMode, kPlacementTicksPerStep, 0)) {
-			warning("Room %s: placement %u (%s, %s) is not drawable", name.c_str(), k, obj.c_str(), anim.c_str());
-			return false;
-		}
-
 		s.x = (int16)READ_LE_UINT16(p + kPlacementX);
 		s.y = (int16)READ_LE_UINT16(p + kPlacementY);
 		s.label = Common::String::format("%u %s", k, obj.c_str());
 		int slot;
-		getPlacementParent(obj, s.y, slot, s.depth);
+		const Kind kind = getPlacementKind(obj, s.y, slot, s.depth);
+
+		// Start modes: the clickable constructor (0x401000) and the ghost
+		// (0x4091FF) start stopped; the others loop. Exits, requires,
+		// inventory, clickables and simple sprites are hit by their step
+		// polygon (type 2); characters and the ghost by their cels.
+		const int mode = (kind == kKindClickable || kind == kKindGhost) ? 0 : 1;
+		s.hidden = kind == kKindGhost;
+		s.hitType = (kind == kKindCharacter || kind == kKindGhost) ? 1 : 2;
+		if (kind == kKindExit) {
+			s.rollover = getIniString(obj, "rolloveranim");
+			s.destination = getIniString(obj, "destinationroom");
+		} else if (kind == kKindClickable) {
+			s.rollover = "ANIM_CURSOROPEN";
+		}
+
+		uint32 objId, animId;
+		if (!_art.findName(obj, objId) || (ArtNameType)(objId >> 28) != kArtObject ||
+		    !_art.findName(anim, animId) || (ArtNameType)(animId >> 28) != kArtAnim ||
+		    !(s.block = getObjectBlock(obj)) ||
+		    !startSequence(s, animId & 0x3FFFF, mode, kPlacementTicksPerStep, 0)) {
+			warning("Room %s: placement %u (%s, %s) is not drawable", name.c_str(), k, obj.c_str(), anim.c_str());
+			return false;
+		}
+
 		// A sprite whose layer slot is empty attaches to the root.
 		const uint parent = (slot >= 0 && slot < (int)kRoomLayerCount && layers[slot] >= 0) ? layers[slot] : 0;
 		addSprite(parent, s);
@@ -328,47 +394,59 @@ bool Room::load(const Common::String &name) {
 		_order += _sprites[_drawList[i]].label;
 	}
 	debugC(2, kDebugGraphics, "room %s draw order, front to back: %s", name.c_str(), _order.c_str());
+
+	// Restart the cursor's sequence with the room's fresh block cache.
+	if (_cursorShown) {
+		const Common::String anim = _cursorAnim;
+		_cursorAnim.clear();
+		setCursor(anim);
+	}
 	return true;
+}
+
+bool Room::tickPlayer(Sprite &s) {
+	Player &p = s.player;
+	if (!s.animated || p.mode == 0 || --p.countdown != 0)
+		return false;
+
+	// 0x430890
+	p.countdown = p.ticksPerStep;
+	const uint32 before = p.step;
+	switch (p.mode) {
+	case 1:
+		if (++p.step >= p.steps)
+			p.step = 0;
+		break;
+	case 2:
+		p.step = p.step != 0 ? p.step - 1 : p.steps - 1;
+		break;
+	case 3:
+		if (++p.step >= p.steps) {
+			p.mode = 0;
+			p.step = p.steps - 1;
+		}
+		break;
+	case 4:
+		if (p.step == 0)
+			p.mode = 0;
+		else
+			p.step--;
+		break;
+	default:
+		break;
+	}
+	return p.step != before;
 }
 
 bool Room::tick() {
 	// 0x431130 ticks the tree front to back; each sprite's player is
-	// independent, so the order doesn't change the result.
+	// independent, so the order doesn't change the result. Hidden sprites
+	// still tick: only a paused subtree (+0x30) is skipped.
 	bool changed = false;
-	for (uint i = 0; i < _sprites.size(); i++) {
-		Sprite &s = _sprites[i];
-		Player &p = s.player;
-		if (!s.animated || p.mode == 0 || --p.countdown != 0)
-			continue;
-
-		// 0x430890
-		p.countdown = p.ticksPerStep;
-		const uint32 before = p.step;
-		switch (p.mode) {
-		case 1:
-			if (++p.step >= p.steps)
-				p.step = 0;
-			break;
-		case 2:
-			p.step = p.step != 0 ? p.step - 1 : p.steps - 1;
-			break;
-		case 3:
-			if (++p.step >= p.steps) {
-				p.mode = 0;
-				p.step = p.steps - 1;
-			}
-			break;
-		case 4:
-			if (p.step == 0)
-				p.mode = 0;
-			else
-				p.step--;
-			break;
-		default:
-			break;
-		}
-		changed = changed || p.step != before;
-	}
+	for (uint i = 0; i < _sprites.size(); i++)
+		changed = tickPlayer(_sprites[i]) || changed;
+	if (_cursorShown)
+		changed = tickPlayer(_cursor) || changed;
 	return changed;
 }
 
@@ -378,6 +456,12 @@ uint32 Room::getFrame(const Sprite &s) const {
 	const Common::Array<byte> &object = s.block->data;
 	const uint32 ref = READ_LE_UINT32(&object[s.player.record + kSequenceHeaderSize + kStepSize * s.player.step + kStepFrameRef]);
 	return READ_LE_UINT32(&object[READ_LE_UINT32(&object[kObjectFrameTable]) + 4 * (ref & 0x3FFFF)]);
+}
+
+uint32 Room::getPolygon(const Sprite &s) const {
+	if (!s.animated)
+		return 0;
+	return READ_LE_UINT32(&s.block->data[s.player.record + kSequenceHeaderSize + kStepSize * s.player.step + kStepPolygon]);
 }
 
 const Cel *Room::getCel(Block &block, uint32 offset) {
@@ -412,12 +496,111 @@ void Room::draw(Graphics::Surface &out) {
 
 	// The original draws the list front to back with occlusion and blends
 	// translucent pixels back to front; painting it back to front gives the
-	// same pixels.
+	// same pixels. A hidden sprite (+0x14) isn't drawn (0x431000).
 	for (int i = (int)_drawList.size() - 1; i >= 0; i--) {
 		const Sprite &s = _sprites[_drawList[i]];
-		if (s.block)
+		if (s.block && !s.hidden)
 			paint(s, out);
 	}
+	if (_cursorShown)
+		paint(_cursor, out);
+}
+
+bool Room::hitPolygon(const Sprite &s, int px, int py) const {
+	// 0x430D10 -> 0x431350 -> 0x4312A0, on the current step's polygon.
+	const uint32 polygon = getPolygon(s);
+	if (!polygon)
+		return false;
+	const byte *poly = &s.block->data[polygon];
+	const int x = px - s.x;
+	const int y = py - s.y;
+	const int bx = (int16)READ_LE_UINT16(poly + 8);
+	const int by = (int16)READ_LE_UINT16(poly + 10);
+	if (!(x < bx + (int)READ_LE_UINT16(poly + 12) && bx < x && y < by + (int)READ_LE_UINT16(poly + 14) && by < y))
+		return false;
+
+	// Even-odd crossings, with C integer division as in the original.
+	const uint n = READ_LE_UINT16(poly + 4);
+	const byte *pts = poly + kPolygonHeaderSize;
+	bool inside = false;
+	for (uint i = 0, j = n - 1; i < n; j = i++) {
+		const int xi = (int16)READ_LE_UINT16(pts + 4 * i), yi = (int16)READ_LE_UINT16(pts + 4 * i + 2);
+		const int xj = (int16)READ_LE_UINT16(pts + 4 * j), yj = (int16)READ_LE_UINT16(pts + 4 * j + 2);
+		if (((yi <= y && y < yj) || (yj <= y && y < yi)) && x < (xj - xi) * (y - yi) / (yj - yi) + xi)
+			inside = !inside;
+	}
+	return inside;
+}
+
+bool Room::hitCels(const Sprite &s, int px, int py) {
+	// 0x431400: any cel of the current frame whose pixel or masks cover the point.
+	if (!s.block)
+		return false;
+	Block &block = *s.block;
+	const uint32 frame = getFrame(s);
+	const uint n = READ_LE_UINT16(&block.data[frame + 4]);
+	for (uint k = 0; k < n; k++) {
+		const byte *entry = &block.data[frame + kFrameHeaderSize + kFrameEntrySize * k];
+		const Cel *cel = getCel(block, READ_LE_UINT32(entry + 4));
+		if (!cel)
+			continue;
+		const int cx = px - (s.x + (int16)READ_LE_UINT16(entry));
+		const int cy = py - (s.y + (int16)READ_LE_UINT16(entry + 2));
+		if (cx >= 0 && cy >= 0 && cx < cel->getWidth() && cy < cel->getHeight() && cel->hitTest(cx, cy))
+			return true;
+	}
+	return false;
+}
+
+int Room::hitTest(int x, int y) {
+	// 0x4311F0 walks the tree front to back, skipping hidden sprites; the
+	// first hit wins.
+	for (uint i = 0; i < _drawList.size(); i++) {
+		const Sprite &s = _sprites[_drawList[i]];
+		if (s.hidden)
+			continue;
+		if (s.hitType == 2 ? hitPolygon(s, x, y) : hitCels(s, x, y))
+			return _drawList[i];
+	}
+	return -1;
+}
+
+bool Room::setCursor(const Common::String &anim) {
+	if (anim.empty()) {
+		_cursorShown = false;
+		_cursorAnim.clear();
+		return true;
+	}
+	if (_cursorShown && anim == _cursorAnim)
+		return true;
+
+	// The cursor plays its sequence in mode 1 at 3 ticks per step (an
+	// inference: 0x4089E0's own start call is not traced).
+	uint32 animId;
+	Sprite c;
+	c.frame = 0;
+	c.animated = false;
+	c.hidden = false;
+	c.hitType = 1;
+	c.depth = 0;
+	c.x = _cursor.x;
+	c.y = _cursor.y;
+	c.label = "cursor";
+	if (!_art.findName(anim, animId) || (ArtNameType)(animId >> 28) != kArtAnim ||
+	    !(c.block = getObjectBlock(kCursorObject)) ||
+	    !startSequence(c, animId & 0x3FFFF, 1, kPlacementTicksPerStep, 0)) {
+		warning("Cursor %s is not drawable", anim.c_str());
+		return false;
+	}
+	_cursor = c;
+	_cursorAnim = anim;
+	_cursorShown = true;
+	return true;
+}
+
+void Room::setCursorPosition(int x, int y) {
+	_cursor.x = x;
+	_cursor.y = y;
 }
 
 } // End of namespace Scooby

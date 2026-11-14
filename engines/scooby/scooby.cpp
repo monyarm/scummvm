@@ -41,7 +41,7 @@ namespace Scooby {
 ScoobyEngine *g_engine;
 
 ScoobyEngine::ScoobyEngine(OSystem *syst, const ScoobyGameDescription *gameDesc) : Engine(syst),
-	_gameDescription(gameDesc), _randomSource("Scooby"), _art(nullptr), _currentRoom(nullptr), _tickBase(0), _ticksDone(0) {
+	_gameDescription(gameDesc), _randomSource("Scooby"), _art(nullptr), _currentRoom(nullptr), _tickBase(0), _ticksDone(0), _hover(-1), _lastHover(-1) {
 	g_engine = this;
 
 	// Gen 1 discs keep the game files in a "scooby" directory, and detection
@@ -110,14 +110,31 @@ Common::Error ScoobyEngine::run() {
 	Graphics::FrameLimiter limiter(g_system, 60);
 	uint32 lastLog = 0;
 	while (!shouldQuit()) {
+		bool changed = false;
 		while (g_system->getEventManager()->pollEvent(e)) {
+			if (e.type == Common::EVENT_MOUSEMOVE) {
+				updateHover(e.mouse.x, e.mouse.y);
+				changed = true;
+			} else if (e.type == Common::EVENT_LBUTTONDOWN) {
+				updateHover(e.mouse.x, e.mouse.y);
+				changed = true;
+				// 0x402130 logs to the "Exits" channel and starts the walk
+				// and movie to destinationroom=; until those exist, go there
+				// directly.
+				if (_hover >= 0 && !_currentRoom->getDestination(_hover).empty()) {
+					const Common::String from = _currentRoom->getLabel(_hover);
+					const Common::String to = _currentRoom->getDestination(_hover);
+					debugC(1, kDebugInput, "exit %s clicked: going to %s", from.c_str(), to.c_str());
+					if (showRoom(to))
+						updateHover(e.mouse.x, e.mouse.y);
+				}
+			}
 		}
 
 		// 0x435BC0: the game owes elapsed_ms * 36 / 1000 ticks since the
 		// room started; run them all, then draw once.
 		const uint32 elapsed = _system->getMillis() - _tickBase;
 		const uint32 owed = (uint32)((uint64)elapsed * Room::kTicksPerSecond / 1000) - _ticksDone;
-		bool changed = false;
 		for (uint32 i = 0; i < owed; i++)
 			changed = _currentRoom->tick() || changed;
 		_ticksDone += owed;
@@ -157,9 +174,25 @@ void ScoobyEngine::drawRoom() {
 	_system->copyRectToScreen(_room.getPixels(), _room.pitch, 0, 0, MIN<int>(_room.w, 640), MIN<int>(_room.h, 480));
 }
 
+void ScoobyEngine::updateHover(int x, int y) {
+	// The cursor shows the hovered object's rollover (vtable +0x18), or the
+	// default arrow.
+	_hover = _currentRoom->hitTest(x, y);
+	const Common::String rollover = _hover >= 0 ? _currentRoom->getRollover(_hover) : Common::String();
+	const char *cursor = rollover.empty() ? "ANIM_CURSORARROW" : rollover.c_str();
+	_currentRoom->setCursorPosition(x, y);
+	if (_hover != _lastHover) {
+		_lastHover = _hover;
+		debugC(1, kDebugInput, "hover %s, cursor %s", _hover >= 0 ? _currentRoom->getLabel(_hover).c_str() : "-", cursor);
+	}
+	_currentRoom->setCursor(cursor);
+}
+
 bool ScoobyEngine::showRoom(const Common::String &name) {
 	if (!_currentRoom || !_currentRoom->load(name))
 		return false;
+	_hover = _lastHover = -1;
+	_currentRoom->setCursor("ANIM_CURSORARROW");
 
 	_system->fillScreen(0);
 	drawRoom();
@@ -188,6 +221,24 @@ void ScoobyEngine::checkAllRooms() {
 		room.draw(surface);
 		debugC(3, kDebugGraphics, "room check %s %dx%d md5 %s", name.c_str(), surface.w, surface.h, hashSurface(surface).c_str());
 		debugC(3, kDebugGraphics, "room check %s order %s", name.c_str(), room.getOrder().c_str());
+
+		if (debugChannelSet(3, kDebugInput)) {
+			// Hit-test a 4-pixel grid; hash the hit labels in row order.
+			Common::String hits;
+			uint points = 0, misses = 0;
+			for (int y = 0; y < surface.h; y += 4) {
+				for (int x = 0; x < surface.w; x += 4) {
+					const int hit = room.hitTest(x, y);
+					hits += hit >= 0 ? room.getLabel(hit) : Common::String("-");
+					hits += '\n';
+					points++;
+					misses += hit < 0;
+				}
+			}
+			Common::MemoryReadStream stream((const byte *)hits.c_str(), hits.size());
+			debugC(3, kDebugInput, "hit check %s %u points %u misses md5 %s", name.c_str(), points, misses,
+			       Common::computeStreamMD5AsString(stream).c_str());
+		}
 		for (uint t = 0; t < kCheckTicks; t++)
 			room.tick();
 		room.draw(surface);
