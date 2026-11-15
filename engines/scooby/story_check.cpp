@@ -67,7 +67,11 @@ void ScoobyEngine::checkRoomSetup() {
 			continue;
 		const Common::String music = _sound->isClipPlaying(_music->getClip()) ? _music->getClip() : Common::String("-");
 		const bool held = _script->isBusy();
-		const Common::String opening = _script->getOpening();
+		Common::String opening = _script->getOpening();
+		// Three of Chase B's rooms draw their opening each visit (0x41FA80,
+		// rand() & 3): the line names the set, so runs compare.
+		if ((name == "ROOM_P25_Chase_B2" || name == "ROOM_P28_Chase_B5" || name == "ROOM_P29_Chase_B6") && opening.hasPrefix("Chase_Branch_3.230"))
+			opening = "Chase_Branch_3.230[_|B2_|C_|D_]";
 		int starts = -1;
 		for (uint t = 0; t < kMaxTicks && starts < 0; t++) {
 			next.clear();
