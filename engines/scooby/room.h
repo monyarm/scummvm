@@ -63,7 +63,7 @@ public:
 		bool hidden = false;
 		Common::String anim; // the sequence, if not the placement's
 		Common::String required; // kRequires: the cursor it answers, if not its requiredanim=
-		int hitType = 2;     // kSprite: 0 never hit, 1 cels, 2 step polygon
+		int hitType = 1;     // kSprite: 0 never hit, 1 cels (graphics_Sprite_ctor 0x430D60), 2 step polygon
 	};
 
 	/** The room's class, offered each placement before the default path. */
