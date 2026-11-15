@@ -1016,6 +1016,304 @@ void ScoobyEngine::checkChases() {
 		}
 	}
 	newGameForCheck();
+
+	// The bank and the vault door's clock (WP-039).
+	{
+		const char *const kBank = "ROOM_P13_Bank";
+		const char *const kClockRoom = "ROOM_Vault_Clock";
+		const char *const kStreet3 = "ROOM_P11_Street3";
+		{
+			RoomClass *a = createRoomClass(*this, kBank);
+			RoomClass *b = createRoomClass(*this, kClockRoom);
+			debugC(3, kDebugScript, "bank check classes: P13_Bank %s; Vault_Clock %s", dynamic_cast<BankRoom *>(a) ? "bank" : a ? "other" : "-",
+			       dynamic_cast<VaultClockRoom *>(b) ? "clock" : b ? "other" : "-");
+			delete a;
+			delete b;
+		}
+		auto bank = [&]() { return dynamic_cast<BankRoom *>(_roomClass); };
+		auto door = [&]() {
+			const int s = Find::sprite(*this, "OBJ_P13_DOOR");
+			if (s < 0)
+				return Common::String("door none");
+			return Common::String::format("door %s mode %d step %u of %u depth %d%s", _currentRoom->getAnim(s).c_str(), _currentRoom->getMode(s),
+			                              _currentRoom->getStep(s), _currentRoom->getStepCount(s), _currentRoom->getDepth(s),
+			                              _currentRoom->isRequiresObject(s) ? " requires" : "");
+		};
+		auto clockUsedNow = [&]() {
+			_inventory->addItem("OBJ_INV_CLOCK");
+			_inventory->removeItem("OBJ_INV_CLOCK");
+		};
+		// The door and the opening: a new game (with moans), without moans,
+		// the clock on the door, the vault open.
+		newGameForCheck();
+		fresh.room(kStreet3);
+		fresh.room(kBank);
+		const Common::String withMoans = door() + ", opening '" + _script->getOpening() + "'";
+		setGameFlag("MoaningActive", false);
+		fresh.room(kStreet3);
+		fresh.room(kBank);
+		const Common::String noMoans = "opening '" + _script->getOpening() + "'";
+		clockUsedNow();
+		fresh.room(kStreet3);
+		fresh.room(kBank);
+		const Common::String clockOn = door();
+		setGameFlag("VaultOpen", true);
+		fresh.room(kStreet3);
+		fresh.room(kBank);
+		debugC(3, kDebugScript, "bank check placed: %s; without moans %s; the clock on it: %s; the vault open: %s", withMoans.c_str(), noMoans.c_str(),
+		       clockOn.c_str(), door().c_str());
+
+		// The door with the arrow: three lines in turn; the third 330C_ with
+		// the clock in the toolbar. With the clock on it: to the dial.
+		newGameForCheck();
+		fresh.room(kStreet3);
+		fresh.room(kBank);
+		_script->skip();
+		Common::String arrow;
+		for (uint k = 0; k < 4; k++) {
+			_script->sendEvent("OBJ_P13_DOOR", false);
+			arrow += bank()->getLastScene() + Common::String::format(" held %d; ", _script->isBusy() ? 1 : 0);
+			_script->skip();
+		}
+		_inventory->addItem("OBJ_INV_CLOCK");
+		for (uint k = 0; k < 3; k++) {
+			_script->sendEvent("OBJ_P13_DOOR", false);
+			arrow += bank()->getLastScene() + "; ";
+			_script->skip();
+		}
+		newGameForCheck();
+		clockUsedNow();
+		fresh.room(kStreet3);
+		fresh.room(kBank);
+		_script->skip();
+		_script->sendEvent("OBJ_P13_DOOR", false);
+		const int toDial = run.change(5);
+		debugC(3, kDebugScript, "bank check door with the arrow: %sthe clock on it: next %s at tick %d", arrow.c_str(), run.next.c_str(), toDial);
+		{
+			fresh.room(kStreet3);
+			fresh.room(kBank);
+			const int s = Find::sprite(*this, "OBJ_P13_DOOR");
+			Common::String at = "-";
+			for (int y = 100; y < 400 && s >= 0 && at == "-"; y += 4) {
+				for (int x = 4; x < 640 && at == "-"; x += 4) {
+					if (_currentRoom->hitTest(x, y) == s)
+						at = Common::String::format("%d %d", x + 8, y + 8);
+				}
+			}
+			debugC(3, kDebugScript, "bank points: DOOR=%s", at.c_str());
+		}
+
+		// The clock put on the door, by level: the times drawn (rand() % 10)
+		// over 80 tries each; the scene names the time stored; the clock
+		// used; on to the dial.
+		for (int level = 0; level < 3; level++) {
+			Common::Array<Common::String> seen;
+			bool agree = true, used = true;
+			Common::String next;
+			for (uint k = 0; k < 80; k++) {
+				newGameForCheck();
+				setDifficulty(level);
+				_inventory->addItem("OBJ_INV_CLOCK", "ANIM_TOOLBARBROKEN_CLOCK", "ANIM_CURSORBROKEN_CLOCK");
+				fresh.room(kStreet3);
+				fresh.room(kBank);
+				_script->skip();
+				_script->sendEvent("OBJ_P13_DOOR", true);
+				const Common::String scene = bank()->getLastScene();
+				const int h = getGameInt("ClockHour"), m = getGameInt("ClockMinute");
+				agree = agree && scene.hasSuffix(Common::String::format("_%.2d%.2d_", h, m)) && _script->getScene() == scene;
+				used = used && _inventory->hasItem("OBJ_INV_CLOCK") && _inventory->getSlot(0) != "OBJ_INV_CLOCK";
+				const Common::String time = Common::String::format("%d:%.2d", h, m);
+				bool known = false;
+				for (uint i = 0; i < seen.size(); i++)
+					known = known || seen[i] == time;
+				if (!known)
+					seen.push_back(time);
+				if (k == 0) {
+					run.change(kMax);
+					next = run.next;
+				}
+			}
+			Common::sort(seen.begin(), seen.end(), [](const Common::String &a, const Common::String &b) {
+				return atoi(a.c_str()) != atoi(b.c_str()) ? atoi(a.c_str()) < atoi(b.c_str()) : a < b;
+			});
+			Common::String times;
+			for (uint i = 0; i < seen.size(); i++)
+				times += seen[i] + " ";
+			debugC(3, kDebugScript, "bank check the clock on the door, level %d: times %sscene agrees %d, clock used %d; next %s", level, times.c_str(), agree ? 1 : 0,
+			       used ? 1 : 0, next.c_str());
+		}
+		setDifficulty(0);
+
+		// Back from the dial with the vault open: held, and a second later the
+		// door swings open with its scene and sound.
+		newGameForCheck();
+		setGameFlag("MoaningActive", false);
+		setGameFlag("VaultOpen", true);
+		fresh.room(kClockRoom);
+		fresh.room(kBank);
+		{
+			const Common::String before = door() + Common::String::format(", held %d", bank()->isBusy() ? 1 : 0);
+			int opens = -1, over = -1, freed = -1;
+			Common::String at;
+			const int d = Find::sprite(*this, "OBJ_P13_DOOR");
+			for (uint k = 1; k <= 400 && over < 0; k++) {
+				tick1();
+				if (opens < 0 && !bank()->getLastSound().empty()) {
+					opens = k;
+					at = Common::String::format("%s, %s, %s", _script->getScene().c_str(), bank()->getLastSound().c_str(), door().c_str());
+				}
+				if (freed < 0 && !bank()->isBusy())
+					freed = k;
+				if (opens > 0 && d >= 0 && _currentRoom->getMode(d) == 0)
+					over = k;
+				if (_script->isScenePlaying())
+					_script->skip();
+			}
+			debugC(3, kDebugScript, "bank check the vault opens: %s; on tick %d: %s; class hold off on tick %d; the door open on tick %d", before.c_str(), opens,
+			       at.c_str(), freed, over);
+		}
+
+		// The moans: the first a second in, then every 5-14 seconds; four of
+		// them. None without moans.
+		newGameForCheck();
+		fresh.room(kStreet3);
+		fresh.room(kBank);
+		{
+			Common::Array<Common::String> names;
+			int first = -1, last = -1, minGap = 100000, maxGap = 0, count = 0;
+			for (uint k = 1; k <= 20000 && count < 30; k++) {
+				const Common::String before = bank()->getLastSound();
+				const int delay = bank()->getMoanDelay();
+				tick1();
+				if (_script->isScenePlaying())
+					_script->skip();
+				if (bank()->getMoanDelay() > delay) {
+					count++;
+					if (first < 0)
+						first = k;
+					else {
+						minGap = MIN<int>(minGap, k - last);
+						maxGap = MAX<int>(maxGap, k - last);
+					}
+					last = k;
+					bool known = false;
+					for (uint i = 0; i < names.size(); i++)
+						known = known || names[i] == bank()->getLastSound();
+					if (!known)
+						names.push_back(bank()->getLastSound());
+				}
+			}
+			Common::sort(names.begin(), names.end());
+			Common::String list;
+			for (uint i = 0; i < names.size(); i++)
+				list += names[i] + " ";
+			setGameFlag("MoaningActive", false);
+			fresh.room(kStreet3);
+			fresh.room(kBank);
+			int none = 0;
+			for (uint k = 0; k < 600; k++) {
+				tick1();
+				none += bank()->getLastSound().hasPrefix("Town_Center.Moan") ? 1 : 0;
+			}
+			debugC(3, kDebugScript, "bank check moans: first on tick %d; %s; gaps within %d-%d over %d; without moans %d in 600 ticks", first, list.c_str(),
+			       minGap >= 181 && maxGap <= 505 ? 181 : minGap, minGap >= 181 && maxGap <= 505 ? 505 : maxGap, count, none);
+		}
+
+		// Walking in: Fred from Street 3, Daphne from the vault.
+		{
+			newGameForCheck();
+			auto walks = [&](const char *who) {
+				Character *c = _script->getCharacter(who);
+				return c ? Common::String::format("%s state %d", who, c->getState()) : Common::String(who) + " none";
+			};
+			fresh.room(kStreet3);
+			fresh.room(kBank);
+			const Common::String fromStreet = walks("FRED");
+			fresh.room("ROOM_P16_Bank_Vault");
+			fresh.room(kBank);
+			debugC(3, kDebugScript, "bank check walking in: from Street 3 %s; from the vault %s", fromStreet.c_str(), walks("DAPHNE").c_str());
+		}
+
+		// The dial: the hands and the time; where a hand points for the mouse;
+		// both hands dragged to the time, a step a tick, then the vault open
+		// and back to the bank.
+		newGameForCheck();
+		setGameInt("ClockHour", 10);
+		setGameInt("ClockMinute", 23);
+		fresh.room(kBank);
+		fresh.room(kClockRoom);
+		{
+			VaultClockRoom *c = dynamic_cast<VaultClockRoom *>(_roomClass);
+			auto hand = [&](const char *object) {
+				const int s = Find::sprite(*this, object);
+				return s < 0 ? Common::String::format("%s none", object + 16)
+				             : Common::String::format("%s %s mode %d step %u of %u hit %d", object + 16, _currentRoom->getAnim(s).c_str(), _currentRoom->getMode(s),
+				                                      _currentRoom->getStep(s), _currentRoom->getStepCount(s), _currentRoom->getHitType(s));
+			};
+			debugC(3, kDebugScript, "clock check placed: %s; %s; %s", hand("OBJ_VAULT_CLOCK_HOUR").c_str(), hand("OBJ_VAULT_CLOCK_MIN").c_str(),
+			       hand("OBJ_VAULT_CLOCK_TIME").c_str());
+			static const int kPoints[][2] = { { 330, 120 }, { 470, 250 }, { 450, 400 }, { 300, 420 }, { 150, 330 }, { 180, 150 }, { 325, 280 } };
+			Common::String targets;
+			for (uint i = 0; i < ARRAYSIZE(kPoints); i++) {
+				const Common::Point p(kPoints[i][0], kPoints[i][1]);
+				targets += Common::String::format("(%d,%d) hour %u minute %u; ", p.x, p.y, VaultClockRoom::getTarget(p, 12), VaultClockRoom::getTarget(p, 60));
+			}
+			debugC(3, kDebugScript, "clock check pointing: %s", targets.c_str());
+
+			struct Grab {
+				static Common::Point on(ScoobyEngine &e, int sprite) {
+					for (int y = 100; y < 480; y += 2) {
+						for (int x = 100; x < 540; x += 2) {
+							if (e._currentRoom->hitTest(x, y) == sprite)
+								return Common::Point(x, y);
+						}
+					}
+					return Common::Point(-1, -1);
+				}
+			};
+			// A point the mouse can hold for @p step of a hand of @p steps:
+			// 100 pixels out from the dial's center.
+			auto toward = [](uint step, uint steps) {
+				const double a = 2 * 3.14159265358979323846 * step / steps;
+				return Common::Point((int)(319 + 100 * sin(a) + 0.5), (int)(285 - 100 * cos(a) + 0.5));
+			};
+			auto drag = [&](int sprite, uint target, uint steps) {
+				const Common::Point p = Grab::on(*this, sprite);
+				// Where the live run grabs it and holds the mouse (not compared).
+				debugC(3, kDebugScript, "clock points: %s grab %d %d, hold %d %d", _currentRoom->getObjectName(sprite).c_str(), p.x, p.y, toward(target, steps).x,
+				       toward(target, steps).y);
+				_mousePos = p;
+				updateHover(p.x, p.y);
+				_mouseDown = true;
+				_roomClass->click(_hover);
+				tick1();
+				const int caught = c->getDrag();
+				_mousePos = toward(target, steps);
+				int reached = -1;
+				for (uint k = 2; k <= 100 && reached < 0; k++) {
+					tick1();
+					if (_currentRoom->getStep(sprite) == target && _currentRoom->getMode(sprite) == 0)
+						reached = k;
+				}
+				_mouseDown = false;
+				tick1();
+				return Common::String::format("caught %d, on step %u on tick %d, let go: drag %d", caught, _currentRoom->getStep(sprite), reached, c->getDrag());
+			};
+			const int minute = Find::sprite(*this, "OBJ_VAULT_CLOCK_MIN");
+			const int hourHand = Find::sprite(*this, "OBJ_VAULT_CLOCK_HOUR");
+			const Common::String m = drag(minute, 23, 60);
+			const int clicksMinute = c->getClicks();
+			const bool openAfterMinute = getGameFlag("VaultOpen");
+			run.next.clear();
+			const Common::String h = drag(hourHand, 10, 12);
+			const int clicks = c->getClicks();
+			tick1();
+			const Common::String next = run.next;
+			debugC(3, kDebugScript, "clock check set: minute %s, %d clicks, vault open %d; hour %s, %d clicks; vault open %d, next %s", m.c_str(), clicksMinute,
+			       openAfterMinute ? 1 : 0, h.c_str(), clicks - clicksMinute, getGameFlag("VaultOpen") ? 1 : 0, next.c_str());
+		}
+	}
+	newGameForCheck();
 	_checking = false;
 	debugC(3, kDebugScript, "chase check: done");
 }

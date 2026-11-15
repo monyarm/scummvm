@@ -108,6 +108,77 @@ private:
 	bool _skipped = false;
 };
 
+/**
+ * Showdown's bank, ROOM_P13_Bank (0x428660, vtable 0x45F0E8): the vault
+ * door, which the broken clock opens. Clicked with the clock, the gang
+ * hears a time (by level) and goes to the clock's dial; the time set there,
+ * the door swings open on their way back. The moans while the story has
+ * them, and the gang walking in.
+ */
+class BankRoom : public RoomClass {
+public:
+	explicit BankRoom(ScoobyEngine &engine) : RoomClass(engine) {}
+
+	void reset() override;                                                          // 0x4286C0
+	void prepare() override;                                                        // 0x4286E0 (+0x30)
+	void enter(const Common::String &from) override;                                // 0x428FE0
+	void tick() override;                                                           // 0x4290D0
+	bool isBusy() const override { return _opening > 0; }                           // game +0x24
+	void claimPlacement(const Common::String &object, Room::Claim &claim) override; // 0x428EC0
+	void event(const Common::String &object, bool success) override;               // 0x428710
+
+	/** The time drawn for @p level and draw @p r (0-9), as hour and minute (0x428710's tables). */
+	static void getTime(int level, uint r, int &hour, int &minute);
+
+	int getDoorSprite() const { return _door; }
+	int getOpeningCountdown() const { return _opening; }
+	int getMoanDelay() const { return _moanDelay; }
+	const Common::String &getLastScene() const { return _lastScene; }
+	const Common::String &getLastSound() const { return _lastSound; }
+
+private:
+	int _door = -1;          // +0xB8: OBJ_P13_DOOR, a requires object
+	int _opening = 0;        // +0xBC: ticks until the door swings open
+	int _moanDelay = 36;     // +0xC0
+	int _doorLine = 0;       // +0xC4: which line the door clicked with the arrow gets
+	Common::String _lastScene, _lastSound;
+};
+
+/**
+ * The vault door's clock, ROOM_Vault_Clock (0x42A780, vtable 0x45F1E8): two
+ * hands dragged round to the time the bank's scene named. Set, the vault
+ * opens (VaultOpen) and the gang goes back to the bank.
+ */
+class VaultClockRoom : public RoomClass {
+public:
+	explicit VaultClockRoom(ScoobyEngine &engine) : RoomClass(engine) {}
+
+	void enter(const Common::String &from) override;                                // 0x42AA70
+	void tick() override;                                                           // 0x42AAA0
+	bool click(int sprite) override;                                                // game +0x20 bit 2, read by the tick
+	void claimPlacement(const Common::String &object, Room::Claim &claim) override; // 0x42A830
+
+	/** The step a hand of @p steps points at for the mouse at @p p (0x42AAA0). */
+	static uint getTarget(const Common::Point &p, uint steps);
+
+	int getHourSprite() const { return _hour; }
+	int getMinuteSprite() const { return _minute; }
+	int getDrag() const { return _drag; }
+	int getClicks() const { return _clicks; }
+
+private:
+	int _hour = -1;          // +0xB8: OBJ_VAULT_CLOCK_HOUR, 12 steps
+	int _minute = -1;        // +0xBC: OBJ_VAULT_CLOCK_MIN, 60 steps
+	int _drag = 0;           // +0xC0: 0 none, 1 the hour hand, 2 the minute hand
+	uint32 _lastHour = 0;    // +0xC8
+	uint32 _lastMinute = 0;  // +0xCC
+	bool _pressed = false;   // the button went down since the last tick (game +0x20 bit 2)
+	int _pressedOn = -1;     // the sprite it went down on (+0x08)
+	bool _wasDown = false;   // to see it come up (game +0x20 bit 4)
+	bool _leaving = false;   // the exit was taken (the original takes it again every tick)
+	int _clicks = 0;         // the dial's clicks played, for the checks
+};
+
 /** The vault's room class the factory builds for @p room, or nullptr. */
 RoomClass *createVaultRoom(ScoobyEngine &engine, const Common::String &room);
 

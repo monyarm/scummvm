@@ -20,6 +20,7 @@
  */
 
 #include "common/debug.h"
+#include "common/util.h"
 
 #include "scooby/character.h"
 #include "scooby/detection.h"
@@ -341,8 +342,313 @@ void OpenSafeRoom::tick() {
 	}
 }
 
+// ---------------------------------------------------------------------------
+// The bank
+
+static const char *const kBank = "ROOM_P13_Bank";
+static const char *const kClockRoom = "ROOM_Vault_Clock";
+static const char *const kClock = "OBJ_INV_CLOCK";
+static const char *const kBankDoor = "OBJ_P13_DOOR";
+static const char *const kBankDoorOpen = "ANIM_P13_DOOROPEN";
+static const int kModeOnce = 3;
+
+// The times the scene can name, by level (rand() % 10), in 0x428710.
+static const int8 kTimes[3][10][2] = {
+	{ { 2, 0 }, { 3, 0 }, { 4, 0 }, { 5, 0 }, { 6, 0 }, { 7, 0 }, { 8, 0 }, { 9, 0 }, { 10, 0 }, { 11, 0 } },
+	{ { 1, 40 }, { 2, 50 }, { 3, 10 }, { 4, 20 }, { 5, 30 }, { 6, 40 }, { 7, 50 }, { 10, 10 }, { 11, 20 }, { 12, 30 } },
+	{ { 1, 14 }, { 2, 26 }, { 3, 18 }, { 4, 8 }, { 5, 16 }, { 7, 49 }, { 8, 2 }, { 10, 23 }, { 11, 57 }, { 12, 31 } }
+};
+static const char *const kLevelNames[3] = { "Spooky", "Spookier", "Spooktacular" };
+
+static bool clockUsed(const Inventory &inventory) {
+	if (!inventory.hasItem(kClock))
+		return false;
+	for (uint i = 0; i < 4; i++) {
+		if (inventory.getSlot(i) == kClock)
+			return false;
+	}
+	return true;
+}
+
+void BankRoom::getTime(int level, uint r, int &hour, int &minute) {
+	if (level < 0 || level > 2 || r > 9) {
+		hour = minute = 0;
+		return;
+	}
+	hour = kTimes[level][r][0];
+	minute = kTimes[level][r][1];
+}
+
+void BankRoom::reset() {
+	// 0x4286C0, after the base reset: the first moan a second in.
+	_moanDelay = 36;
+}
+
+void BankRoom::prepare() {
+	// 0x4286E0 (+0x30): Bank.330A_ on every visit while the story has moans.
+	_engine.getScript()->setOpening(_engine.getGameFlag("MoaningActive") ? "Bank.330A_" : "");
+}
+
+void BankRoom::claimPlacement(const Common::String &object, Room::Claim &claim) {
+	// 0x428EC0: the vault door, a requires object (0x408C80 with -1: layer 0)
+	// at depth 1. enter() shows it.
+	if (object == kBankDoor) {
+		claim.build = Room::Claim::kRequires;
+		claim.layer = 0;
+		claim.depth = 1;
+	}
+}
+
+void BankRoom::enter(const Common::String &from) {
+	// 0x428FE0, after the base entry, with the claim's door.
+	Room &room = *_engine.getRoom();
+	_lastScene.clear();
+	_lastSound.clear();
+	_opening = 0;
+	_door = findObject(room, kBankDoor);
+	// The vault open: its door on its last step. Not yet, with the clock on
+	// it: the door's first step.
+	if (_door >= 0) {
+		if (_engine.getGameFlag("VaultOpen"))
+			room.startAnim(_door, kBankDoorOpen, kModeLast, -1);
+		else if (clockUsed(*_engine.getInventory()))
+			room.startAnim(_door, kBankDoorOpen, kModeStopped, -1);
+	}
+	// Back from setting the clock: input held, and a second later the door
+	// swings open.
+	if (_engine.getGameFlag("VaultOpen") && from == kClockRoom) {
+		_opening = 36;
+		if (_door >= 0)
+			room.startAnim(_door, kBankDoorOpen, kModeStopped, -1);
+		debugC(1, kDebugScript, "bank: the vault opens in %d ticks", _opening);
+	}
+	_doorLine = 0;
+	// The gang walking in: Fred from Street 3 (0x405F20), Daphne from the
+	// vault (0x405E60).
+	Character *c = nullptr;
+	const char *direction = nullptr;
+	if (from == "ROOM_P11_Street3") {
+		c = _engine.getScript()->getCharacter("FRED");
+		direction = "DL";
+	} else if (from == kVault) {
+		c = _engine.getScript()->getCharacter("DAPHNE");
+		direction = "UR";
+	}
+	if (c)
+		c->walkIn(room, *_engine.getSound(), direction);
+}
+
+void BankRoom::event(const Common::String &object, bool success) {
+	// 0x428710: the vault door.
+	if (object != kBankDoor)
+		return;
+	Inventory &inventory = *_engine.getInventory();
+	RoomScript &script = *_engine.getScript();
+	if (!success) {
+		// With the arrow, the clock on the door: to its dial.
+		if (clockUsed(inventory) && inventory.isDefaultCursor()) {
+			debugC(1, kDebugScript, "bank: the door clicked; to %s", kClockRoom);
+			_engine.exitTo(kClockRoom);
+			return;
+		}
+		// Else three lines in turn; the third is 330C_ with the clock in
+		// the toolbar.
+		const char *scene;
+		if (_doorLine == 0) {
+			_doorLine = 1;
+			scene = "Bank.330B_";
+		} else if (_doorLine == 1) {
+			_doorLine = 2;
+			scene = "Bank.330B2_";
+		} else {
+			_doorLine = 0;
+			bool held = false;
+			for (uint i = 0; i < 4; i++)
+				held = held || inventory.getSlot(i) == kClock;
+			scene = held ? "Bank.330C_" : "Bank.330B3_";
+		}
+		if (script.startScene(scene, true))
+			_lastScene = scene;
+		return;
+	}
+	// The clock put on the door: a time by level (rand() % 10), stored as
+	// ClockHour and ClockMinute (game +0x284, +0x288), and the scene that
+	// names it on the way to the dial.
+	inventory.removeItem(kClock);
+	inventory.setCursor("ANIM_CURSORARROW");
+	const uint r = _engine.getRandomNumber(9);
+	int level = _engine.getDifficulty();
+	if (level < 0 || level > 2)
+		level = 0;
+	int hour, minute;
+	getTime(level, r, hour, minute);
+	_engine.setGameInt("ClockHour", hour);
+	_engine.setGameInt("ClockMinute", minute);
+	RoomScript::Exit exit;
+	exit.destination = kClockRoom;
+	exit.scene = Common::String::format("Bank_Vault.Clock_%s_%.2d%.2d_", kLevelNames[level], hour, minute);
+	exit.movie = -1;
+	_lastScene = exit.scene;
+	debugC(1, kDebugScript, "bank: the clock on the door; %d:%.2d, %s", hour, minute, exit.scene.c_str());
+	script.takeExit(exit);
+}
+
+void BankRoom::tick() {
+	// 0x4290D0, after the base tick: the door's countdown, then the moans.
+	Room &room = *_engine.getRoom();
+	RoomScript &script = *_engine.getScript();
+	Sound &sound = *_engine.getSound();
+	if (_opening != 0 && --_opening == 0) {
+		if (script.startScene("Bank.330D_", true))
+			_lastScene = "Bank.330D_";
+		_lastSound = "Bank.Vault_Opens";
+		sound.play(_lastSound);
+		if (_door >= 0)
+			room.startAnim(_door, kBankDoorOpen, kModeOnce, -1);
+		debugC(1, kDebugScript, "bank: the vault door opens at tick %u", script.getTick());
+	}
+	// A moan every 5-14 seconds while the story has them (rand() & 3, then
+	// (rand() % 10 + 5) seconds).
+	const int old = _moanDelay--;
+	if (old > 0 || !_engine.getGameFlag("MoaningActive"))
+		return;
+	_lastSound = Common::String::format("Town_Center.Moan.%u", _engine.getRandomNumber(3) + 1);
+	sound.play(_lastSound);
+	_moanDelay = (_engine.getRandomNumber(9) + 5) * Room::kTicksPerSecond;
+}
+
+// ---------------------------------------------------------------------------
+// The vault door's clock
+
+// The dial's center, the hands' turning point (0x45F238, 0x45F234).
+static const float kDialX = 319.0f;
+static const float kDialY = 285.0f;
+
+uint VaultClockRoom::getTarget(const Common::Point &p, uint steps) {
+	// atan2 from straight up, clockwise, as a turn; then the nearest step.
+	double turn = atan2((double)p.x - kDialX, -((double)p.y - kDialY)) * 0.15915493667125702;
+	if (turn < 0.0)
+		turn += 1.0;
+	return (uint)(int)(turn * steps + 0.5) % steps;
+}
+
+void VaultClockRoom::claimPlacement(const Common::String &object, Room::Claim &claim) {
+	// 0x42A830: the hands and the time, sprites at depth 0, hit by their
+	// cels, stopped on step 0 (enter() stops them); the time shows the one
+	// to set, ANIM_VAULT_CLOCK_TIME<hh>_<mm>.
+	if (object == "OBJ_VAULT_CLOCK_HOUR" || object == "OBJ_VAULT_CLOCK_MIN") {
+		claim.build = Room::Claim::kSprite;
+		claim.depth = 0;
+		claim.hitType = 1;
+	} else if (object == "OBJ_VAULT_CLOCK_TIME") {
+		// Its sequence is set in enter(): a time without one (no time drawn
+		// yet) leaves it showing nothing, as vtable +0x24 does with an
+		// unknown name.
+		claim.build = Room::Claim::kSprite;
+		claim.depth = 0;
+		claim.hitType = 1;
+	}
+}
+
+void VaultClockRoom::enter(const Common::String &from) {
+	// 0x42AA70, after the base entry: the toolbar slides off (0x407CC0, in
+	// the toolbar's rooms); nothing dragged.
+	Room &room = *_engine.getRoom();
+	_hour = findObject(room, "OBJ_VAULT_CLOCK_HOUR");
+	_minute = findObject(room, "OBJ_VAULT_CLOCK_MIN");
+	const int time = findObject(room, "OBJ_VAULT_CLOCK_TIME");
+	if (_hour >= 0)
+		room.setPlayer(_hour, kModeStopped, 0);
+	if (_minute >= 0)
+		room.setPlayer(_minute, kModeStopped, 0);
+	if (time >= 0) {
+		const Common::String anim = Common::String::format("ANIM_VAULT_CLOCK_TIME%.2d_%.2d", _engine.getGameInt("ClockHour"), _engine.getGameInt("ClockMinute"));
+		if (!room.startAnim(time, anim, kModeStopped, -1))
+			debugC(1, kDebugScript, "vault clock: no %s; the time shows nothing", anim.c_str());
+	}
+	_lastHour = _lastMinute = 0;
+	_drag = 0;
+	_pressed = false;
+	_pressedOn = -1;
+	_wasDown = _engine.isMouseDown();
+	_leaving = false;
+	_clicks = 0;
+}
+
+bool VaultClockRoom::click(int sprite) {
+	// The button going down (game +0x20 bit 2) on a sprite (+0x08); the tick
+	// reads it. The engine still handles the click (the exit).
+	_pressed = true;
+	_pressedOn = sprite;
+	return false;
+}
+
+void VaultClockRoom::tick() {
+	// 0x42AAA0, after the base tick.
+	Room &room = *_engine.getRoom();
+	const bool pressed = _pressed;
+	const int pressedOn = _pressedOn;
+	_pressed = false;
+	_pressedOn = -1;
+	const bool down = _engine.isMouseDown();
+	const bool released = _wasDown && !down;
+	_wasDown = down;
+	if (_hour < 0 || _minute < 0)
+		return;
+
+	if (_drag == 0) {
+		// A hand caught by the button going down on it.
+		if (pressed && pressedOn == _hour)
+			_drag = 1;
+		else if (pressed && pressedOn == _minute)
+			_drag = 2;
+	} else {
+		// The hand turns a step a tick toward the mouse, the shorter way.
+		const int hand = _drag == 1 ? _hour : _minute;
+		const uint steps = _drag == 1 ? 12 : 60;
+		const Common::Point mouse = _engine.getMousePos();
+		if (mouse.x != (int)kDialX || mouse.y != (int)kDialY) {
+			const int step = room.getStep(hand);
+			const uint diff = (getTarget(mouse, steps) + steps - step) % steps;
+			if (diff == 0)
+				room.setPlayer(hand, kModeStopped, -1);
+			else if (diff < steps / 2)
+				room.setPlayer(hand, 1, (uint)step + 1 >= steps ? 0 : step + 1);
+			else
+				room.setPlayer(hand, 2, step - 1);
+		}
+	}
+	// Let go: both hands stop.
+	if (_drag != 0 && released) {
+		_drag = 0;
+		room.setPlayer(_hour, kModeStopped, -1);
+		room.setPlayer(_minute, kModeStopped, -1);
+	}
+	// Nothing dragged and the time set: the vault opens, back to the bank.
+	if (_drag == 0 && !_leaving && (int)room.getStep(_minute) == _engine.getGameInt("ClockMinute") &&
+	    (int)room.getStep(_hour) == _engine.getGameInt("ClockHour") % 12) {
+		_leaving = true;
+		_engine.setGameFlag("VaultOpen", true);
+		debugC(1, kDebugScript, "vault clock: set at tick %u; the vault opens", _engine.getScript()->getTick());
+		_engine.exitTo(kBank);
+	}
+	// A hand on a new step: the dial's click, again from its start.
+	if (room.getStep(_minute) != _lastMinute || room.getStep(_hour) != _lastHour) {
+		Sound &sound = *_engine.getSound();
+		sound.stopClip("Vault_Clock.Dial.Click");
+		sound.play("Vault_Clock.Dial.Click");
+		_clicks++;
+		_lastMinute = room.getStep(_minute);
+		_lastHour = room.getStep(_hour);
+	}
+}
+
 RoomClass *createVaultRoom(ScoobyEngine &engine, const Common::String &room) {
 	// Showdown's factory (0x42E0E0).
+	if (room == kBank)
+		return new BankRoom(engine);
+	if (room == kClockRoom)
+		return new VaultClockRoom(engine);
 	if (room == kVault)
 		return new BankVaultRoom(engine);
 	if (room == kOpenSafe)
