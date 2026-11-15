@@ -6,6 +6,7 @@ MODULE_OBJS = \
 	character.o \
 	inventory.o \
 	menu_rooms.o \
+	options_rooms.o \
 	profile.o \
 	room_class.o \
 	room.o \

@@ -49,6 +49,7 @@ bool ScoobyEngine::playMovie(int id) {
 	// in the history: they can be skipped once the title room has set the
 	// machine's GBHTitleMovies (Phantom: FBFTitleMovies) to Yes, kept here as
 	// the "title_movies_seen" config key.
+	_lastMovie = id;
 	bool skippable;
 	if (isTitleMovie(id)) {
 		skippable = ConfMan.hasKey("title_movies_seen") && ConfMan.getBool("title_movies_seen");

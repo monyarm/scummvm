@@ -64,6 +64,7 @@ private:
 	void checkProfile();
 	void checkMenus();
 	void checkSignIn();
+	void checkOptionsCredits();
 	bool _checking = false;
 	/** One game tick as run() does it; true if it asks for another room. */
 	bool tickOnce(Common::String &nextRoom, int &movie);
@@ -90,6 +91,7 @@ private:
 	Common::String _requestedRoom;  // game vtable +0x04 / +0x08
 	int _requestedMovie = -1;
 	int _requestedLoad = -1;        // a player's save slot to load (game +0x58)
+	int _lastMovie = -1;            // game +0x90, set by the main loop (0x4362E0)
 	// The signed-in player (game +0x16C) and the save slot that holds their
 	// profile, or -1.
 	Common::String _playerName;
@@ -190,6 +192,10 @@ public:
 	void requestLoad(int slot) { _requestedLoad = slot; }
 	/** Delete the profile in @p slot. */
 	void deletePlayer(int slot);
+	/** The last movie played (game +0x90), or -1. */
+	int getLastMovie() const { return _lastMovie; }
+	/** Every movie in the history counts as seen (0x40B0D0, after the credits). */
+	void markAllMoviesSeen();
 
 	/**
 	 * The story's values in the profile's Game section, as the original

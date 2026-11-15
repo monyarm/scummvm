@@ -23,6 +23,7 @@
 
 #include "scooby/detection.h"
 #include "scooby/menu_rooms.h"
+#include "scooby/options_rooms.h"
 #include "scooby/room.h"
 #include "scooby/room_class.h"
 #include "scooby/scooby.h"
@@ -133,6 +134,10 @@ RoomClass *createRoomClass(ScoobyEngine &engine, const Common::String &room) {
 		return new QuitRoom(engine);
 	if (room == "ROOM_Sign_In")
 		return new SignInRoom(engine);
+	if (room == "ROOM_Options")
+		return new OptionsRoom(engine);
+	if (room == "ROOM_Credits")
+		return new CreditsRoom(engine);
 	return nullptr;
 }
 

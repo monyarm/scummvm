@@ -132,6 +132,8 @@ public:
 	/** A placement the default path built as a requiresobject (0x402D90). */
 	bool isRequiresObject(uint sprite) const { return _sprites[sprite].kind == kKindRequires; }
 	bool isHidden(uint sprite) const { return _sprites[sprite].hidden; }
+	/** A sprite the engine added (addEngineSprite, addGroupSprite), not a placement. */
+	bool isEngineSprite(uint sprite) const { return _sprites[sprite].kind == kKindEngine; }
 	/** The sequence player's mode (+0x40): 0 when stopped or played out. */
 	int getMode(uint sprite) const { return _sprites[sprite].animated ? _sprites[sprite].player.mode : 0; }
 	int getX(uint sprite) const { return _sprites[sprite].x; }
@@ -171,6 +173,8 @@ public:
 	void setFirstStepHit(uint sprite) { _sprites[sprite].firstStepHit = true; }
 	/** 0x430BA0: the width of the first cel of the step the sprite shows, or 0. */
 	int getFirstCelWidth(uint sprite);
+	/** 0x430BA0: the size of the first cel of the step the sprite shows, or 0 by 0. */
+	void getFirstCelSize(uint sprite, int &width, int &height);
 
 	/** Show the OBJ_CURSOR sprite playing @p anim at (x, y); an empty name hides it. */
 	bool setCursor(const Common::String &anim);

@@ -777,14 +777,24 @@ void Room::getSize(uint sprite, int &width, int &height) {
 }
 
 int Room::getFirstCelWidth(uint sprite) {
+	int width, height;
+	getFirstCelSize(sprite, width, height);
+	return width;
+}
+
+void Room::getFirstCelSize(uint sprite, int &width, int &height) {
+	width = height = 0;
 	Sprite &s = _sprites[sprite];
 	if (!s.block)
-		return 0;
+		return;
 	const uint32 frame = getFrame(s);
 	if (!frame || !READ_LE_UINT16(&s.block->data[frame + 4]))
-		return 0;
+		return;
 	const Cel *cel = getCel(*s.block, READ_LE_UINT32(&s.block->data[frame + kFrameHeaderSize + 4]));
-	return cel ? cel->getWidth() : 0;
+	if (cel) {
+		width = cel->getWidth();
+		height = cel->getHeight();
+	}
 }
 
 bool Room::hasStepPolygon(uint sprite) const {

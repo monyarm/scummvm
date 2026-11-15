@@ -257,6 +257,11 @@ Common::String ScoobyEngine::getGameString(const Common::String &key) const {
 	return _profile.getKey(key, "Game", v) ? v : Common::String();
 }
 
+void ScoobyEngine::markAllMoviesSeen() {
+	for (int id = 0; id < kMovieIds; id++)
+		_seenMovies[id] = true;
+}
+
 void ScoobyEngine::listPlayers(Common::Array<Common::String> &names, Common::Array<int> &slots) {
 	// The saves named as Sign In can show them, by name (the original's
 	// file listing); the autosave and other saves aren't players. A name

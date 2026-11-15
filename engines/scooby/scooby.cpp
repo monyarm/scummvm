@@ -26,6 +26,7 @@
 #include "scooby/inventory.h"
 #include "scooby/room.h"
 #include "scooby/menu_rooms.h"
+#include "scooby/options_rooms.h"
 #include "scooby/room_class.h"
 #include "scooby/room_script.h"
 #include "scooby/signin_room.h"
@@ -133,6 +134,7 @@ Common::Error ScoobyEngine::run() {
 		checkProfile();
 		checkMenus();
 		checkSignIn();
+		checkOptionsCredits();
 		checkAllMovies();
 	}
 
@@ -343,7 +345,7 @@ bool ScoobyEngine::handleMouse(bool click, const Common::Point &p) {
 bool ScoobyEngine::runTestScript() {
 	// A "test_script" key in the game's config domain plays input for a live
 	// test without the host's mouse: steps separated by ';', each "move x y",
-	// "click x y", "wait ms", "shot name" (the screen as name.bmp in the
+	// "click x y", "down x y", "up x y", "wait ms", "shot name" (the screen as name.bmp in the
 	// "test_shots" folder), "type word" (its letters as key presses, '_' for
 	// a space), "key code" (one keycode: 8, 13, 27, 127...) or "quit".
 	if (_testSteps.empty() && !_testLoaded) {
@@ -400,6 +402,12 @@ bool ScoobyEngine::runTestScript() {
 				k.kbd = Common::KeyState((Common::KeyCode)tolower((byte)ch), (byte)ch);
 				g_system->getEventManager()->pushEvent(k);
 			}
+		} else if (!strcmp(verb, "down") || !strcmp(verb, "up")) {
+			// The button going down or up at (x, y), as the host sends it.
+			Common::Event m;
+			m.type = !strcmp(verb, "down") ? Common::EVENT_LBUTTONDOWN : Common::EVENT_LBUTTONUP;
+			m.mouse = Common::Point(a, b);
+			g_system->getEventManager()->pushEvent(m);
 		} else if (!strcmp(verb, "key")) {
 			Common::Event k;
 			k.type = Common::EVENT_KEYDOWN;
@@ -938,6 +946,175 @@ void ScoobyEngine::checkSignIn() {
 	_requestedLoad = -1;
 	_checking = false;
 	debugC(3, kDebugScript, "sign in check: done");
+}
+
+void ScoobyEngine::checkOptionsCredits() {
+	// Options and Credits, driven through the engine: the sliders' ends and
+	// knobs for known volumes, knobs dragged to points around each line,
+	// the volumes and samples they leave; the credits' movies for each
+	// villain, the roll's parts and ticks, and how it ends.
+	_checking = true;
+	const uint kMaxTicks = 20000;
+	Common::String next;
+	int movie;
+	auto freshClass = [&](const char *name) {
+		RoomClass *c;
+		if (_roomClasses.tryGetVal(name, c)) {
+			if (_roomClass == c)
+				_roomClass = nullptr;
+			delete c;
+			_roomClasses.erase(name);
+		}
+	};
+	static const char *const kVolumeKeys[] = { "music_volume", "sfx_volume", "speech_volume" };
+	int saved[3];
+	for (uint i = 0; i < 3; i++)
+		saved[i] = ConfMan.getInt(kVolumeKeys[i]);
+
+	// The sliders, from known volumes.
+	static const int kStart[] = { 256, 205, 150 };
+	for (uint i = 0; i < 3; i++)
+		ConfMan.setInt(kVolumeKeys[i], kStart[i]);
+	syncSoundSettings();
+	freshClass("ROOM_Options");
+	showRoom("ROOM_Options");
+	OptionsRoom *opt = static_cast<OptionsRoom *>(_roomClass);
+	uint hiddenMarkers = 0;
+	for (uint s = 0; s < _currentRoom->getSpriteCount(); s++) {
+		const Common::String &o = _currentRoom->getObjectName(s);
+		if ((o == "OBJ_OPTIONS_NAIL" || o == "OBJ_OPTIONS_SWORDS") && _currentRoom->isHidden(s) && !_currentRoom->isEngineSprite(s))
+			hiddenMarkers++;
+	}
+	debugC(3, kDebugScript, "options check entry: %d markers, %u hidden", opt->getMarkerCount(), hiddenMarkers);
+	for (uint i = 0; i < OptionsRoom::kSliders && opt->getMarkerCount() == 6; i++) {
+		float x1, y1, x2, y2;
+		opt->getEnds(i, x1, y1, x2, y2);
+		const int k = opt->getKnob(i);
+		debugC(3, kDebugScript, "options check slider %u: %d,%d to %d,%d, volume %d, knob %.4f at %d,%d (%s, depth %d)", i, (int)x1, (int)y1,
+		       (int)x2, (int)y2, kStart[i], opt->getValue(i), _currentRoom->getX(k), _currentRoom->getY(k),
+		       _currentRoom->getAnim(k).c_str(), _currentRoom->getDepth(k));
+	}
+
+	// Dragging: grabbed 2 right and 3 down of where the knob is drawn, then
+	// the mouse to points along and off the line (percent of the way, and
+	// pixels across), then let go.
+	static const int kPoints[][2] = { { -20, 0 }, { 25, 0 }, { 50, 15 }, { 50, -15 }, { 75, 40 }, { 130, 0 } };
+	for (uint i = 0; i < OptionsRoom::kSliders && opt->getMarkerCount() == 6; i++) {
+		for (uint end = 0; end < 2; end++) {
+			// Each run from the starting volumes.
+			for (uint v = 0; v < 3; v++)
+				ConfMan.setInt(kVolumeKeys[v], kStart[v]);
+			syncSoundSettings();
+			freshClass("ROOM_Options");
+			showRoom("ROOM_Options");
+			opt = static_cast<OptionsRoom *>(_roomClass);
+			_sound->stop();
+			float fx1, fy1, fx2, fy2;
+			opt->getEnds(i, fx1, fy1, fx2, fy2);
+			const int x1 = (int)fx1, y1 = (int)fy1, x2 = (int)fx2, y2 = (int)fy2;
+			const int k = opt->getKnob(i);
+			_mousePos = Common::Point(_currentRoom->getX(k) + 2, _currentRoom->getY(k) + 3);
+			_mouseDown = true;
+			const bool grabbed = opt->click(k);
+			Common::String out;
+			// Each run goes to the points in order; the second ends past the
+			// left end instead of the right.
+			for (uint p = 0; p < ARRAYSIZE(kPoints); p++) {
+				const int pct = end && p == ARRAYSIZE(kPoints) - 1 ? -50 : kPoints[p][0];
+				const int across = kPoints[p][1];
+				_mousePos = Common::Point(x1 + (x2 - x1) * pct / 100, y1 + (y2 - y1) * pct / 100 + across);
+				tickOnce(next, movie);
+				out += Common::String::format(" %d,%d:%.4f@%d,%d", _mousePos.x, _mousePos.y, opt->getValue(i), _currentRoom->getX(k),
+				                              _currentRoom->getY(k));
+			}
+			_mouseDown = false;
+			tickOnce(next, movie);
+			const char *sample = opt->getSample(i);
+			debugC(3, kDebugScript, "options check drag %u%s: grabbed %d,%s; let go %.4f, volume %d, dragging %d, hears %s", i, end ? " left" : "",
+			       grabbed, out.c_str(), opt->getValue(i), ConfMan.getInt(kVolumeKeys[i]), opt->isDragging(i),
+			       *sample && _sound->isClipPlaying(sample) ? sample : "-");
+		}
+	}
+	_sound->stop();
+	for (uint i = 0; i < 3; i++)
+		ConfMan.setInt(kVolumeKeys[i], saved[i]);
+	syncSoundSettings();
+
+	// The credits: the villain's movie after the accusation.
+	static const char *const kVillains[] = { "ARTIE", "GUMMY", "ICDOUBLE", "JENNY", "SHERIFF", "BRAD", "JESTER", "EWAN", "MARIA",
+		"WIZARD", "NOBODY" };
+	Common::String movies;
+	for (uint i = 0; i < ARRAYSIZE(kVillains); i++) {
+		setGameString("Whodunit", kVillains[i]);
+		freshClass("ROOM_Credits");
+		showRoom("ROOM_Big_Head");
+		showRoom("ROOM_Credits");
+		movies += Common::String::format(" %s:%s/%d", kVillains[i], _requestedRoom.empty() ? "-" : _requestedRoom.c_str(),
+		                                 _requestedRoom.empty() ? -1 : _requestedMovie);
+		_requestedRoom.clear();
+	}
+	debugC(3, kDebugScript, "credits check villains:%s", movies.c_str());
+
+	// Then movie 58, then the roll; the ending for a signed-in player.
+	auto roll = [&](bool ending, int skipAt) {
+		freshClass("ROOM_Credits");
+		showRoom("ROOM_Big_Head");
+		showRoom("ROOM_Credits");
+		_requestedRoom.clear();
+		showRoom("ROOM_Credits");
+		const Common::String asked = Common::String::format("%s/%d", _requestedRoom.empty() ? "-" : _requestedRoom.c_str(),
+		                                                    _requestedRoom.empty() ? -1 : _requestedMovie);
+		_requestedRoom.clear();
+		_lastMovie = ending ? 58 : 1;
+		_seenMovies.clear();
+		_seenMovies[1] = true;
+		signIn("CHECKER", 7);
+		showRoom("ROOM_Credits");
+		CreditsRoom *cr = static_cast<CreditsRoom *>(_roomClass);
+		Room &room = *_currentRoom;
+		auto part = [&]() {
+			int w, h;
+			room.getFirstCelSize(cr->getText(), w, h);
+			return Common::String::format("%s %s text height %d, %d to scroll", room.getAnim(cr->getLogo()).c_str(),
+			                              room.getAnim(cr->getText()).c_str(), h, cr->getRemaining());
+		};
+		debugC(3, kDebugScript, "credits check %s: movie 58 asks for %s; rolling %d, busy %d, %s", ending ? "ending" : "skip", asked.c_str(),
+		       cr->getStage() == 0, cr->isBusy(), part().c_str());
+		next.clear();
+		movie = -1;
+		int stage = 0;
+		uint t = 0;
+		Common::String parts;
+		while (t < kMaxTicks) {
+			t++;
+			if ((int)t == skipAt)
+				cr->skip();
+			_sound->stop();
+			const bool asks = tickOnce(next, movie);
+			if (cr->getStage() != stage) {
+				stage = cr->getStage();
+				parts += Common::String::format(" [part %d at tick %u: %s]", stage, t, stage < 3 ? part().c_str() : "done");
+			}
+			if (t == 30)
+				parts += Common::String::format(" [tick 30: text at y %d]", room.getY(cr->getText()));
+			if (asks)
+				break;
+		}
+		debugC(3, kDebugScript, "credits check %s:%s to %s at tick %u; player '%s', StartRoom %s, %u movies seen", ending ? "ending" : "skip",
+		       parts.c_str(), next.c_str(), t, _playerName.c_str(), _startRoom.c_str(), _seenMovies.size());
+	};
+	roll(true, -1);
+	roll(false, 40);
+
+	// Back to no game.
+	_sound->stop();
+	newGame();
+	_startRoom.clear();
+	_profile = Common::INIFile();
+	_lastMovie = -1;
+	_seenMovies.clear();
+	_checking = false;
+	debugC(3, kDebugScript, "options and credits check: done");
 }
 
 Common::String ScoobyEngine::getFirstGameRoom() const {
