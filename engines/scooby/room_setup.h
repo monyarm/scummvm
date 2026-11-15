@@ -60,11 +60,14 @@ public:
 	/** The music clip last started, or empty. */
 	const Common::String &getClip() const { return _clip; }
 	int getGroup() const { return _group; }
-
-private:
-	/** 0x40AA10 at full volume. */
+	/**
+	 * 0x40AA10 at full volume: nothing while @p group is the current one;
+	 * -1 leaves no group (the clip playing goes on). Story rooms call it
+	 * (Street 3's hotspot).
+	 */
 	void setGroup(int group);
 
+private:
 	Sound &_sound;
 	int _group = -1;                         // +0x20C
 	Common::HashMap<int, int> _variants;     // +0x1E4: the last variant of each group

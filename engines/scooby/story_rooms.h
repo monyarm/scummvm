@@ -63,6 +63,43 @@ private:
 	int _takes = -1;        // +0xD4: OBJ_SCOOBY_P01_TAKES_SIGN
 };
 
+/**
+ * Showdown's Street 2 (0x42C3E0, vtable 0x45F27C): Gummy and his donkey,
+ * once Artie is met; the clock; Gummy's window.
+ */
+class Street2Room : public RoomClass {
+public:
+	explicit Street2Room(ScoobyEngine &engine) : RoomClass(engine) {}
+
+	void prepare() override;                                                       // 0x42CB40
+	void enter(const Common::String &from) override;                               // 0x42C440
+	void claimPlacement(const Common::String &object, Room::Claim &claim) override; // 0x42C7A0
+	void event(const Common::String &object, bool success) override;              // 0x42CAE0
+	void leaving(const Common::String &destination, Common::String &scene) override; // 0x42C600
+};
+
+/**
+ * Showdown's Street 3 (0x42CB80, vtable 0x45F2C0): moans, a hotspot that
+ * cuts the music for its own, and another with its scene.
+ */
+class Street3Room : public RoomClass {
+public:
+	explicit Street3Room(ScoobyEngine &engine) : RoomClass(engine) {}
+
+	void reset() override;                                                         // 0x42CBE0
+	void enter(const Common::String &from) override;                               // 0x42CE50
+	void tick() override;                                                          // 0x42CD10
+	void event(const Common::String &object, bool success) override;              // 0x42CC10
+	void idle() override;                                                          // 0x42CCC0
+
+private:
+	int _moanDelay = 0;      // +0xB8
+	bool _musicBack = true;  // +0xBC: the music group comes back when hotspot 2 is still
+	int _hotspot2 = -1;      // +0xC0
+	int _hotspot3 = -1;      // +0xC4
+	int _hotspotScene = 0;   // +0xC8: which of the three hotspot scenes is next
+};
+
 /** The story room class the factory builds for @p room, or nullptr. */
 RoomClass *createStoryRoom(ScoobyEngine &engine, const Common::String &room);
 

@@ -45,6 +45,7 @@ public:
 		kStateStay = 7, // keep the last step
 		kStateTalk = 8, // TALKS, its step set by lip sync
 		kStateAct = 0xF, // ANIM_<NAME><set><action> once, then idle (0x4061F0)
+		kStateActLoop = 0x10, // ANIM_<NAME><set><action>, looping (0x406210)
 		kStateScared = 0x11, // SCARED once, with Global.Scared.<NAME>, then idle
 		kStateStayScared = 0x12 // STAY_SCARED once, with Global.Scared.<NAME>: the ghost appears
 	};
@@ -74,6 +75,8 @@ public:
 
 	/** Play ANIM_<NAME><set>@p action once, then go idle (0x4061F0, state 0xF). */
 	void act(Room &room, Sound &sound, const Common::String &action);
+	/** Play ANIM_<NAME><set>@p action looping, until another state (0x406210, state 0x10). */
+	void actLoop(Room &room, Sound &sound, const Common::String &action);
 	/** The sequence act() plays. */
 	Common::String getActAnim(const Common::String &action) const;
 	const Common::String &getSet() const { return _set; }
@@ -88,8 +91,8 @@ public:
 	void walk(Room &room, Sound &sound, const Common::String &direction);
 
 	/**
-	 * Walk in from @p direction (0x405E60, 0x405EE0, 0x405FE0): ENDWALK, 50
-	 * behind the character's depth until the next state.
+	 * Walk in from @p direction (0x405E60 to 0x405FE0): ENDWALK, 50 behind
+	 * the character's depth (50 in front for DL, DR) until the next state.
 	 */
 	void walkIn(Room &room, Sound &sound, const Common::String &direction);
 

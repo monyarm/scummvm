@@ -236,4 +236,13 @@ void ScoobyEngine::loadRoomKeys(const Common::INIFile &profile) {
 	}
 }
 
+bool ScoobyEngine::isClueOwner(const Common::String &name) const {
+	// 0x40A870: the five ClueOwners names (game +0xD8).
+	for (int i = 0; i < 5; i++) {
+		if (getGameString(Common::String::format("ClueOwners%d", i)) == name)
+			return true;
+	}
+	return false;
+}
+
 } // End of namespace Scooby

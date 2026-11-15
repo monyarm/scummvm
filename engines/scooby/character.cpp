@@ -113,6 +113,12 @@ void Character::setState(Room &room, Sound &sound, int state) {
 		anim = getActAnim(_action);
 		_next = kStateIdle;
 		break;
+	case kStateActLoop:
+		// 0x405190 state 0x10: the action, looping, until another state.
+		anim = getActAnim(_action);
+		mode = kModeLoop;
+		_next = kStateActLoop;
+		break;
 	case kStateStayScared:
 		// The line being spoken stops; each file has one handle, so the
 		// scared line replaces it on the speech channel.
@@ -129,7 +135,7 @@ void Character::setState(Room &room, Sound &sound, int state) {
 		room.setSequence(_sprite, obj, anim, mode, -1);
 
 	_state = state;
-	_toNext = state != kStateIdle && state != kStateTalk;
+	_toNext = state != kStateIdle && state != kStateTalk && state != kStateActLoop;
 }
 
 void Character::update(Room &room, Sound &sound) {
@@ -170,18 +176,24 @@ Common::String Character::getActAnim(const Common::String &action) const {
 	return Common::String::format("ANIM_%s%s%s", _name.c_str(), _set.c_str(), action.c_str());
 }
 
+void Character::actLoop(Room &room, Sound &sound, const Common::String &action) {
+	// 0x406210
+	_action = action;
+	setState(room, sound, kStateActLoop);
+}
+
 void Character::act(Room &room, Sound &sound, const Common::String &action) {
 	_action = action;
 	setState(room, sound, kStateAct);
 }
 
 void Character::walkIn(Room &room, Sound &sound, const Common::String &direction) {
-	// 0x405EE0 and its siblings: keep the depth (+0x9C), go 50 behind it,
-	// then state 1.
+	// 0x405E60 to 0x405FE0: keep the depth (+0x9C), go 50 behind it from
+	// U, UL or UR, 50 in front from DL or DR, then state 1.
 	_inFrom = direction;
 	if (_sprite >= 0) {
 		_depth = room.getDepth(_sprite);
-		room.setDepth(_sprite, _depth - kWalkDepth);
+		room.setDepth(_sprite, _depth + (direction.hasPrefix("D") ? kWalkDepth : -kWalkDepth));
 	}
 	setState(room, sound, kStateEndWalk);
 }

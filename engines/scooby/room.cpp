@@ -370,7 +370,7 @@ bool Room::load(const Common::String &name) {
 	for (uint32 k = 0; k < count; k++) {
 		const byte *p = &b[first + kPlacementSize * k];
 		const Common::String obj = readName(p);
-		const Common::String anim = readName(p + kPlacementName);
+		Common::String anim = readName(p + kPlacementName);
 
 		Sprite s;
 		s.frame = 0;
@@ -407,6 +407,18 @@ bool Room::load(const Common::String &name) {
 			       obj.c_str(), claimed == kKindRequires ? "requires object" : "clickable", slot, s.depth,
 			       claim.hidden ? ", hidden" : "");
 		}
+		if (claim.build == Claim::kSprite) {
+			// graphics_AnimSprite_ctor, as the class calls it: its parent layer,
+			// its depth, looping at 3 ticks a step, its hit test.
+			kind = kKindSimple;
+			if (claim.layer >= 0)
+				slot = claim.layer;
+			s.depth = claim.depth;
+			if (!claim.anim.empty())
+				anim = s.anim = claim.anim;
+			debugC(1, kDebugScript, "room %s: placement %u (%s) claimed as a sprite playing %s in layer %d, depth %d, hit %d%s", name.c_str(), k,
+			       obj.c_str(), anim.c_str(), slot, s.depth, claim.hitType, claim.hidden ? ", hidden" : "");
+		}
 		s.kind = kind;
 
 		// Start modes: the clickable constructor (0x401000) and the ghost
@@ -416,6 +428,8 @@ bool Room::load(const Common::String &name) {
 		const int mode = (kind == kKindClickable || kind == kKindGhost) ? 0 : 1;
 		s.hidden = kind == kKindGhost || claim.hidden;
 		s.hitType = (kind == kKindCharacter || kind == kKindGhost) ? 1 : 2;
+		if (claim.build == Claim::kSprite)
+			s.hitType = claim.hitType;
 		if (kind == kKindExit) {
 			s.rollover = getIniString(obj, "rolloveranim");
 			s.destination = getIniString(obj, "destinationroom");
@@ -704,7 +718,8 @@ int Room::hitTest(int x, int y) {
 	// first hit wins.
 	for (uint i = 0; i < _drawList.size(); i++) {
 		const Sprite &s = _sprites[_drawList[i]];
-		if (s.hidden)
+		// Type 0 is never hit (0x4311F0 tests only types 1 and 2).
+		if (s.hidden || s.hitType == 0)
 			continue;
 		if (s.hitType == 2 ? hitPolygon(s, x, y) : hitCels(s, x, y))
 			return _drawList[i];

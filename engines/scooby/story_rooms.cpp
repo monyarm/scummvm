@@ -26,6 +26,7 @@
 #include "scooby/room.h"
 #include "scooby/room_script.h"
 #include "scooby/scooby.h"
+#include "scooby/room_setup.h"
 #include "scooby/sound.h"
 #include "scooby/story_rooms.h"
 
@@ -234,10 +235,174 @@ void TownCenterRoom::loadKeys(const Common::INIFile &profile) {
 	_signClicked = profile.getKey("SignClicked", kRoomName, v) && v == "Yes";
 }
 
+// The gang walking in from the room left (0x405E60 UR, 0x405EA0 DR,
+// 0x405EE0 UL, 0x405F20 DL, 0x405FE0 U).
+static void walkIn(ScoobyEngine &engine, const char *who, const char *direction) {
+	Character *c = engine.getScript()->getCharacter(who);
+	if (!c)
+		return;
+	c->walkIn(*engine.getRoom(), *engine.getSound(), direction);
+	debugC(1, kDebugScript, "%s: %s walks in %s", engine.getRoom()->getName().c_str(), who, direction);
+}
+
+static int findPlaced(ScoobyEngine &engine, const Common::String &object) {
+	const Room &room = *engine.getRoom();
+	for (uint s = 0; s < room.getSpriteCount(); s++) {
+		if (room.getObjectName(s) == object)
+			return s;
+	}
+	return -1;
+}
+
+// ---------------------------------------------------------------------------
+// Street 2
+
+void Street2Room::prepare() {
+	// 0x42CB40: Street 1's moaning opening on every visit while the story
+	// has moans; none otherwise.
+	_engine.getScript()->setOpening(_engine.getGameFlag("MoaningActive") ? "Street_1.130A_" : "");
+}
+
+void Street2Room::enter(const Common::String &from) {
+	// 0x42C440, after the base entry.
+	Room &room = *_engine.getRoom();
+	RoomScript &script = *_engine.getScript();
+	Character *gummy = script.getCharacter("GUMMY");
+	Character *donkey = script.getCharacter("DONKEY");
+	if (gummy) {
+		// Asleep until his puzzle; moved along once he has given his clue.
+		if (!_engine.getGameFlag("GummyPuzzle"))
+			gummy->actLoop(room, *_engine.getSound(), "SLEEPS");
+		else if (_engine.isClueOwner("GUMMY")) {
+			room.setOffset(gummy->getSprite(), room.getX(gummy->getSprite()) + 50, room.getY(gummy->getSprite()));
+			if (donkey)
+				room.setOffset(donkey->getSprite(), room.getX(donkey->getSprite()) + 50, room.getY(donkey->getSprite()));
+		}
+		// Neither is ever hit (+0x4 = 0).
+		room.setHitType(gummy->getSprite(), 0);
+		if (donkey)
+			room.setHitType(donkey->getSprite(), 0);
+	}
+	if (from == "ROOM_P10_Front_Of_General_Store") {
+		walkIn(_engine, "DAPHNE", "UR");
+	} else if (from == "ROOM_P09_Railroad_Station") {
+		walkIn(_engine, "FRED", "UL");
+	} else if (from == kRoomName) {
+		walkIn(_engine, "FRED", "DL");
+		walkIn(_engine, "DAPHNE", "DR");
+	}
+}
+
+void Street2Room::claimPlacement(const Common::String &object, Room::Claim &claim) {
+	// 0x42C7A0: Gummy and his donkey only once Artie is met.
+	if ((object.hasPrefix("OBJ_DONKEY") || object.hasPrefix("OBJ_GUMMY")) && !_engine.getInventory()->hasMetSuspect("ARTIE")) {
+		claim.build = Room::Claim::kSkip;
+	} else if (object == "OBJ_P04_STREET2_CLOCK") {
+		// Its face (A), or none once the clock is taken (B), in layer 0.
+		claim.build = Room::Claim::kSprite;
+		claim.layer = 0;
+		claim.depth = 0;
+		claim.anim = _engine.getInventory()->hasItem("OBJ_INV_CLOCK") ? "ANIM_P04_STREET2_CLOCKB" : "ANIM_P04_STREET2_CLOCKA";
+	} else if (object == "OBJ_P04_STREET2_WINDOW") {
+		// Only once Gummy has given his clue, never hit.
+		if (_engine.isClueOwner("GUMMY")) {
+			claim.build = Room::Claim::kSprite;
+			claim.layer = 0;
+			claim.depth = -1;
+			claim.hitType = 0;
+		} else {
+			claim.build = Room::Claim::kSkip;
+		}
+	}
+}
+
+void Street2Room::event(const Common::String &object, bool success) {
+	// 0x42CAE0: the hotspots' lines, input left on.
+	if (object == "OBJ_P04_STREET2_HOTSPOT1")
+		_engine.getScript()->startScene("Street_2.100C_", false);
+	else if (object == "OBJ_P04_STREET2_HOTSPOT2")
+		_engine.getScript()->startScene("Street_2.100D_", false);
+}
+
+void Street2Room::leaving(const Common::String &destination, Common::String &scene) {
+	// 0x42C600: to the general store, one of two lines (rand() & 1).
+	if (destination == "ROOM_P10_Front_Of_General_Store")
+		scene = _engine.getRandomNumber(1) == 0 ? "Street_2.General_Store1_" : "Street_2.General_Store2_";
+}
+
+// ---------------------------------------------------------------------------
+// Street 3
+
+void Street3Room::reset() {
+	// 0x42CBE0
+	_moanDelay = Room::kTicksPerSecond;
+	_musicBack = true;
+	_hotspotScene = 0;
+}
+
+void Street3Room::enter(const Common::String &from) {
+	// 0x42CE50, after the base entry.
+	if (from == kRoomName)
+		walkIn(_engine, "FRED", "DL");
+	else if (from == "ROOM_P12_Saloon")
+		walkIn(_engine, "VELMA", "U");
+	else if (from == "ROOM_P13_Bank")
+		walkIn(_engine, "SHAGGY", "UR");
+	_musicBack = true;
+	_hotspot2 = findPlaced(_engine, "OBJ_P11_STREET3_HOTSPOT2");
+	_hotspot3 = findPlaced(_engine, "OBJ_P11_STREET3_HOTSPOT3");
+}
+
+void Street3Room::tick() {
+	// 0x42CD10, after the base tick.
+	Room &room = *_engine.getRoom();
+	RoomScript &script = *_engine.getScript();
+	if (_moanDelay-- <= 0 && _engine.getGameFlag("MoaningActive")) {
+		const Common::String moan = Common::String::format("Street_3.Moan.%u", _engine.getRandomNumber(3) + 1);
+		_engine.getSound()->play(moan);
+		_moanDelay = (_engine.getRandomNumber(9) + 5) * Room::kTicksPerSecond;
+		debugC(1, kDebugScript, "Street 3: %s at tick %u", moan.c_str(), script.getTick());
+	}
+	// Hotspot 2 played out: the music group again, its next variant.
+	if (_hotspot2 >= 0 && room.getMode(_hotspot2) == 0 && _musicBack) {
+		_musicBack = false;
+		_engine.getMusic()->setGroup(2);
+	}
+	// Step 3 of hotspot 3's B state: its scene.
+	if (_hotspot3 >= 0 && room.getStep(_hotspot3) == 3 && room.getAnim(_hotspot3) == "ANIM_P11_STREET3_HOTSPOT3B")
+		script.startScene("Street_3.HOTSPOT3_", true);
+}
+
+void Street3Room::event(const Common::String &object, bool success) {
+	// 0x42CC10
+	if (object == "OBJ_P11_STREET3_HOTSPOT") {
+		static const char *const kScenes[] = { "Street_3.130X1_", "Street_3.130X2_", "Street_3.130X3_" };
+		_engine.getScript()->startScene(kScenes[_hotspotScene], true);
+		_hotspotScene = (_hotspotScene + 1) % ARRAYSIZE(kScenes);
+	} else if (object == "OBJ_P11_STREET3_HOTSPOT2") {
+		// The music leaves its group; it comes back when the hotspot is done.
+		_engine.getMusic()->setGroup(-1);
+		_musicBack = true;
+	}
+}
+
+void Street3Room::idle() {
+	// 0x42CCC0: rand() & 1.
+	if (_engine.getRandomNumber(1) == 0) {
+		if (_engine.getGameFlag("MoaningActive"))
+			_engine.getScript()->startScene("Street_3.100B2_", false);
+	} else {
+		_engine.getScript()->startScene("Street_3.1100A_", false);
+	}
+}
+
 RoomClass *createStoryRoom(ScoobyEngine &engine, const Common::String &room) {
 	if (room == kRoomName)
 		return new TownCenterRoom(engine);
+	if (room == "ROOM_P04_Street2")
+		return new Street2Room(engine);
+	if (room == "ROOM_P11_Street3")
+		return new Street3Room(engine);
 	return nullptr;
 }
-
 } // End of namespace Scooby

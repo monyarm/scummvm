@@ -55,6 +55,16 @@ public:
 	 * it, false for the default handler (0x40C1E0).
 	 */
 	virtual bool leaveBy(const Common::String &exitObject) { return false; }
+	/**
+	 * The rest of the class's exit handler, when it leaves by the default
+	 * one: it may change the exit's @p scene for @p destination.
+	 */
+	virtual void leaving(const Common::String &destination, Common::String &scene) {}
+	/**
+	 * Room vtable +0x30, first in the base entry (0x40B920): the class may
+	 * set its opening for this visit (RoomScript::setOpening).
+	 */
+	virtual void prepare() {}
 };
 
 /**
@@ -125,6 +135,8 @@ public:
 	/** The opening scene has played, or there is none. */
 	bool isOpeningDone() const;
 	const Common::String &getOpening() const { return _opening; }
+	/** 0x40C6B0 and +0x10 = 0: this visit's opening, not played (room vtable +0x30). */
+	void setOpening(const Common::String &scene);
 	/** A room's state, by name; every room has one. */
 	Memory &getMemory(const Common::String &room) { return _memories.getOrCreateVal(room); }
 	const MemoryMap &getMemories() const { return _memories; }

@@ -134,6 +134,7 @@ Common::Error ScoobyEngine::run() {
 	if (debugChannelSet(3, kDebugScript)) {
 		checkRoomSetup();
 		checkTownCenter();
+		checkStreets();
 		checkAllExits();
 		checkAllClickables();
 		checkAllInventory();

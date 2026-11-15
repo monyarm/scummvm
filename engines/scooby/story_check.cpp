@@ -37,6 +37,8 @@
 
 namespace Scooby {
 
+static const char *const kRoomTownCenter = "ROOM_P01_Town_Center";
+
 void ScoobyEngine::checkRoomSetup() {
 	// Every room, entered from nowhere with fresh state: the music its entry
 	// plays from a fresh start, its opening, whether input is held for it,
@@ -402,6 +404,262 @@ void ScoobyEngine::checkTownCenter() {
 	fresh.room(kRoom);
 	_checking = false;
 	debugC(3, kDebugScript, "town check: done");
+}
+
+void ScoobyEngine::checkStreets() {
+	// Showdown's Street 2 and Street 3 (WP-033), every step against the trace.
+	const Common::String kStreet2 = "ROOM_P04_Street2", kStreet3 = "ROOM_P11_Street3";
+	bool found = false;
+	for (uint i = 0; i < _art->getRoomCount(); i++)
+		found = found || _art->getRoomName(i) == kStreet2;
+	if (!found)
+		return;
+	_checking = true;
+	struct Run {
+		ScoobyEngine &e;
+		Common::String next;
+		int movie;
+		int until(bool (*done)(ScoobyEngine &), uint max) {
+			for (uint t = 1; t <= max; t++) {
+				next.clear();
+				if (e.tickOnce(next, movie))
+					return -1;
+				if (done(e))
+					return t;
+			}
+			return -1;
+		}
+	} run = { *this, Common::String(), -1 };
+	struct Is {
+		static bool noScene(ScoobyEngine &e) { return !e._script->isScenePlaying(); }
+		static bool scene(ScoobyEngine &e) { return e._script->isScenePlaying(); }
+	};
+	struct Skip {
+		ScoobyEngine &e;
+		Common::String scene() {
+			const Common::String s = e._script->isScenePlaying() ? e._script->getScene() : Common::String("-");
+			e._script->skip();
+			return s;
+		}
+	} skip = { *this };
+	struct Find {
+		static int sprite(ScoobyEngine &e, const Common::String &object) {
+			for (uint s = 0; s < e._currentRoom->getSpriteCount(); s++) {
+				if (e._currentRoom->getObjectName(s) == object)
+					return s;
+			}
+			return -1;
+		}
+		static Common::String point(ScoobyEngine &e, int sprite) {
+			for (int y = 4; y < 480 && sprite >= 0; y += 8) {
+				for (int x = 4; x < 640; x += 8) {
+					if (e._currentRoom->hitTest(x, y) == sprite)
+						return Common::String::format("%d,%d", x, y);
+				}
+			}
+			return "-";
+		}
+		static int exitTo(ScoobyEngine &e, const char *room) {
+			for (uint s = 0; s < e._currentRoom->getSpriteCount(); s++) {
+				if (e._currentRoom->getDestination(s) == room)
+					return s;
+			}
+			return -1;
+		}
+		static Common::String who(ScoobyEngine &e, const char *name) {
+			Character *c = e._script->getCharacter(name);
+			if (!c)
+				return Common::String::format("%s -", name);
+			return Common::String::format("%s %d %s depth %d", name, c->getState(), e._currentRoom->getAnim(c->getSprite()).c_str(),
+			                              e._currentRoom->getDepth(c->getSprite()));
+		}
+	};
+	const uint kMax = 3000;
+	newGameForCheck();
+
+	// Street 2 from Town Center: the moaning opening; Fred and Daphne walk in.
+	showRoom(kRoomTownCenter);
+	_script->getMemory(kRoomTownCenter).openingPlayed = true;
+	debugC(3, kDebugScript, "street check points: Town Center to Street 2 %s, to Street 3 %s", Find::point(*this, Find::exitTo(*this, "ROOM_P04_Street2")).c_str(),
+	       Find::point(*this, Find::exitTo(*this, "ROOM_P11_Street3")).c_str());
+	showRoom(kStreet2);
+	debugC(3, kDebugScript, "street check 2 from Town Center: opening '%s', held %d; %s; %s", _script->getOpening().c_str(),
+	       _script->isBusy() ? 1 : 0, Find::who(*this, "FRED").c_str(), Find::who(*this, "DAPHNE").c_str());
+	int t = run.until(Is::scene, kMax);
+	Common::String scene = skip.scene();
+	run.until(Is::noScene, 1);
+	debugC(3, kDebugScript, "street check 2 opening: %s after %d ticks; played %d", scene.c_str(), t,
+	       _script->getMemory(kStreet2).openingPlayed ? 1 : 0);
+	// A second visit: the opening again, while the moans are on.
+	showRoom(kStreet3);
+	showRoom(kStreet2);
+	debugC(3, kDebugScript, "street check 2 again: opening '%s', held %d", _script->getOpening().c_str(), _script->isBusy() ? 1 : 0);
+	setGameFlag("MoaningActive", false);
+	showRoom(kStreet3);
+	showRoom(kStreet2);
+	debugC(3, kDebugScript, "street check 2 without moans: opening '%s', held %d", _script->getOpening().c_str(), _script->isBusy() ? 1 : 0);
+	setGameFlag("MoaningActive", true);
+	_script->skip();
+
+	// Gummy, the donkey, the window and the clock, as the story moves on.
+	struct Placed {
+		static Common::String line(ScoobyEngine &e) {
+			Common::String out;
+			static const char *const kObjects[] = { "OBJ_GUMMY", "OBJ_DONKEY", "OBJ_P04_STREET2_WINDOW", "OBJ_P04_STREET2_CLOCK" };
+			for (uint i = 0; i < ARRAYSIZE(kObjects); i++) {
+				int s = -1;
+				for (uint k = 0; k < e._currentRoom->getSpriteCount() && s < 0; k++) {
+					if (e._currentRoom->getObjectName(k).hasPrefix(kObjects[i]))
+						s = k;
+				}
+				if (s < 0)
+					out += Common::String::format("%s none; ", kObjects[i]);
+				else
+					out += Common::String::format("%s %s x %d hit %d; ", e._currentRoom->getObjectName(s).c_str(), e._currentRoom->getAnim(s).c_str(),
+					                              e._currentRoom->getX(s), e._currentRoom->getHitType(s));
+			}
+			return out;
+		}
+	};
+	debugC(3, kDebugScript, "street check 2 before Artie: %s", Placed::line(*this).c_str());
+	_inventory->meetSuspect("ARTIE");
+	showRoom(kStreet3);
+	showRoom(kStreet2);
+	_script->skip();
+	Character *gummy = _script->getCharacter("GUMMY");
+	debugC(3, kDebugScript, "street check 2 Artie met: %s Gummy state %d", Placed::line(*this).c_str(), gummy ? gummy->getState() : -1);
+	setGameFlag("GummyPuzzle", true);
+	setGameString("ClueOwners0", "GUMMY");
+	_inventory->addItem("OBJ_INV_CLOCK");
+	showRoom(kStreet3);
+	showRoom(kStreet2);
+	_script->skip();
+	gummy = _script->getCharacter("GUMMY");
+	debugC(3, kDebugScript, "street check 2 Gummy's clue given: %s Gummy state %d", Placed::line(*this).c_str(), gummy ? gummy->getState() : -1);
+
+	// The hotspots' lines, input on; the exit to the general store.
+	Common::String lines;
+	static const char *const kHotspots[] = { "OBJ_P04_STREET2_HOTSPOT1", "OBJ_P04_STREET2_HOTSPOT2" };
+	for (uint i = 0; i < ARRAYSIZE(kHotspots); i++) {
+		const int s = Find::sprite(*this, kHotspots[i]);
+		_script->clickClickable(s);
+		run.until(Is::scene, 5);
+		const bool busy = _script->isBusy();
+		lines += Common::String::format("%s: %s, held %d; ", kHotspots[i], skip.scene().c_str(), busy ? 1 : 0);
+		run.until(Is::noScene, 60);
+	}
+	debugC(3, kDebugScript, "street check 2 hotspots: %s", lines.c_str());
+	debugC(3, kDebugScript, "street check points: Street 2 hotspot 1 %s, to the store %s, to Town Center %s", Find::point(*this, Find::sprite(*this, kHotspots[0])).c_str(),
+	       Find::point(*this, Find::exitTo(*this, "ROOM_P10_Front_Of_General_Store")).c_str(), Find::point(*this, Find::exitTo(*this, "ROOM_P01_Town_Center")).c_str());
+	int store = -1;
+	for (uint s = 0; s < _currentRoom->getSpriteCount() && store < 0; s++) {
+		if (_currentRoom->getDestination(s) == "ROOM_P10_Front_Of_General_Store")
+			store = s;
+	}
+	clickExit(store);
+	scene = skip.scene();
+	debugC(3, kDebugScript, "street check 2 exit to the store: scene %s", scene.hasPrefix("Street_2.General_Store") ? "Street_2.General_Store[12]_" : scene.c_str());
+	run.until(Is::scene, kMax);
+
+	// Street 3: who walks in from where.
+	static const char *const kFrom[] = { "ROOM_P01_Town_Center", "ROOM_P12_Saloon", "ROOM_P13_Bank" };
+	static const char *const kWho[] = { "FRED", "VELMA", "SHAGGY" };
+	for (uint i = 0; i < ARRAYSIZE(kFrom); i++) {
+		showRoom(kFrom[i]);
+		_script->skip();
+		showRoom(kStreet3);
+		debugC(3, kDebugScript, "street check 3 from %s: %s, opening '%s'", kFrom[i], Find::who(*this, kWho[i]).c_str(), _script->getOpening().c_str());
+		_script->skip();
+		run.until(Is::noScene, 1);
+	}
+	// The first hotspot's scenes in turn.
+	Common::String turns;
+	const int hotspot = Find::sprite(*this, "OBJ_P11_STREET3_HOTSPOT");
+	struct Rest {
+		static bool hotspot(ScoobyEngine &e) { return !e._script->isClickablePlaying(e._checkSprite) && !e._script->isScenePlaying(); }
+	};
+	_checkSprite = hotspot;
+	for (int k = 0; k < 4; k++) {
+		_script->clickClickable(hotspot);
+		run.until(Is::scene, 5);
+		turns += skip.scene() + " ";
+		run.until(Rest::hotspot, kMax);
+	}
+	debugC(3, kDebugScript, "street check 3 hotspot: %s", turns.c_str());
+	// The second cuts the music's group; when it's still, the next variant.
+	const int hotspot2 = Find::sprite(*this, "OBJ_P11_STREET3_HOTSPOT2");
+	debugC(3, kDebugScript, "street check points: Street 3 hotspot 2 %s, hotspot %s", Find::point(*this, hotspot2).c_str(), Find::point(*this, hotspot).c_str());
+	const Common::String before = _music->getClip();
+	_script->clickClickable(hotspot2);
+	run.until(Is::noScene, 1);
+	const int during = _music->getGroup();
+	struct Still {
+		static bool hotspot2(ScoobyEngine &e) { return e._music->getGroup() == 2; }
+	};
+	t = run.until(Still::hotspot2, kMax);
+	debugC(3, kDebugScript, "street check 3 hotspot 2: music %s, group %d while it plays %d steps, group 2 again after %d ticks: %s",
+	       before.c_str(), during, (int)_currentRoom->getStepCount(hotspot2), t, _music->getClip().c_str());
+	// The third: its scene on step 3 of its B state.
+	const int hotspot3 = Find::sprite(*this, "OBJ_P11_STREET3_HOTSPOT3");
+	Common::String third;
+	// Each click: the first scene while it plays, and the step it starts on;
+	// a scene skipped on step 3 starts again while the step lasts, as the
+	// tick tests it each time.
+	_checkSprite = hotspot3;
+	for (int k = 0; k < 3; k++) {
+		const Common::String state = _script->getClickableState(hotspot3);
+		_script->clickClickable(hotspot3);
+		Common::String first = "-";
+		int step = -1;
+		run.until(Is::noScene, 1);
+		for (uint n = 0; n < kMax && _script->isClickablePlaying(hotspot3); n++) {
+			if (_script->isScenePlaying()) {
+				if (first == "-") {
+					first = _script->getScene();
+					step = _currentRoom->getStep(hotspot3);
+				}
+				_script->skip();
+			}
+			run.until(Is::noScene, 1);
+		}
+		third += Common::String::format("%s: %s at step %d; ", state.c_str(), first.c_str(), step);
+		run.until(Rest::hotspot, kMax);
+	}
+	debugC(3, kDebugScript, "street check 3 hotspot 3: %s", third.c_str());
+	// Idle chatter: 100B2_ (with moans) or 1100A_, none without moans on rand 0.
+	uint known = 0, others = 0;
+	for (int k = 0; k < 6; k++) {
+		t = run.until(Is::scene, 4000);
+		const Common::String s = skip.scene();
+		known += (s == "Street_3.100B2_" || s == "Street_3.1100A_") ? 1 : 0;
+		run.until(Is::noScene, 1);
+	}
+	setGameFlag("MoaningActive", false);
+	for (int k = 0; k < 4; k++) {
+		t = run.until(Is::scene, 4000);
+		if (t >= 0 && skip.scene() != "Street_3.1100A_")
+			others++;
+		run.until(Is::noScene, 1);
+	}
+	debugC(3, kDebugScript, "street check 3 idle: with moans %u of 6 a 100B2 or 1100A scene; without, %u other scenes", known, others);
+
+	_sound->stop();
+	newGameForCheck();
+	_checking = false;
+	debugC(3, kDebugScript, "street check: done");
+}
+
+void ScoobyEngine::newGameForCheck() {
+	// A fresh story for the checks: every room's memory and class, the
+	// inventory and Showdown's values.
+	_script->resetMemories();
+	_script->resetClickableStates();
+	_inventory->reset();
+	_profile = Common::INIFile();
+	Common::Array<RoomClass *> classes = getAllRoomClasses();
+	for (uint i = 0; i < classes.size(); i++)
+		classes[i]->reset();
+	setGameFlag("MoaningActive", true);
 }
 
 } // End of namespace Scooby

@@ -149,6 +149,9 @@ void RoomScript::setup(const Common::String &opening, uint snacksNeeded, const C
 	_snacksNeeded = snacksNeeded;
 	_openingDelay = kOpeningDelay;
 	_sceneIsOpening = false;
+	// 0x40B920: the class's +0x30 first, which may set this visit's opening.
+	if (_hooks)
+		_hooks->prepare();
 	// 0x40B920: coming from the ghost spot, the gang talks about it first.
 	if (from == kGhostRoom) {
 		_opening = kGhostOpenings[draw(ARRAYSIZE(kGhostOpenings))];
@@ -172,6 +175,12 @@ void RoomScript::setup(const Common::String &opening, uint snacksNeeded, const C
 	       _memory->openingPlayed ? " (played)" : "", _snacksNeeded, _memory->snacksGiven);
 }
 
+void RoomScript::setOpening(const Common::String &scene) {
+	_opening = scene;
+	if (_memory)
+		_memory->openingPlayed = false;
+}
+
 bool RoomScript::isOpeningDone() const {
 	return _opening.empty() || (_memory && _memory->openingPlayed);
 }
@@ -189,7 +198,10 @@ void RoomScript::takeExit(const Exit &exit) {
 		debugC(1, kDebugScript, "exit %s: the room's class keeps the gang here", exit.object.c_str());
 		return;
 	}
-	startExit(exit);
+	Exit e = exit;
+	if (_hooks)
+		_hooks->leaving(e.destination, e.scene);
+	startExit(e);
 }
 
 bool RoomScript::skip() {

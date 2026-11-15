@@ -54,12 +54,15 @@ public:
 			kDefault,   // not claimed: the default path builds it
 			kSkip,      // claimed, and not built at all
 			kRequires,  // a requiresobject (0x408C80)
-			kClickable  // a clickableobject (0x408DC0)
+			kClickable, // a clickableobject (0x408DC0)
+			kSprite     // a plain animated sprite (graphics_AnimSprite_ctor), looping
 		};
 		Build build = kDefault;
 		int layer = -1;     // the parent layer slot; -1 for the default path's
 		int depth = 0;      // among its siblings (0x430EE0)
 		bool hidden = false;
+		Common::String anim; // kSprite: the sequence, if not the placement's
+		int hitType = 2;     // kSprite: 0 never hit, 1 cels, 2 step polygon
 	};
 
 	/** The room's class, offered each placement before the default path. */
@@ -186,8 +189,9 @@ public:
 	void setPlayer(uint sprite, int mode, int startStep);
 	/** The sprite of layer @p slot (0-9), or -1 if the room has none there. */
 	int getLayerSprite(uint slot) const { return slot < 10 ? _layerSprites[slot] : -1; }
-	/** Set the hit test: 1 for cels and masks, 2 for the step polygon. */
+	/** Set the hit test: 1 for cels and masks, 2 for the step polygon, 0 for none. */
 	void setHitType(uint sprite, int type) { _sprites[sprite].hitType = type; }
+	int getHitType(uint sprite) const { return _sprites[sprite].hitType; }
 	/** Whether any step of the sprite's sequence has a polygon (0x436FC0). */
 	bool hasStepPolygon(uint sprite) const;
 	/**

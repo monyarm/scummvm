@@ -73,6 +73,9 @@ private:
 	void loadRoomKeys(const Common::INIFile &profile);
 	void checkRoomSetup();   // story_check.cpp
 	void checkTownCenter();  // story_check.cpp
+	void checkStreets();     // story_check.cpp
+	void newGameForCheck();  // story_check.cpp
+	int _checkSprite = -1;   // a sprite a check waits on
 	bool _checking = false;
 	Music *_music = nullptr;
 	/** One game tick as run() does it; true if it asks for another room. */
@@ -184,6 +187,10 @@ public:
 	Common::String getFirstGameRoom() const;
 	/** The class of @p room, built on first use, or nullptr for the base class. */
 	RoomClass *getRoomClass(const Common::String &room);
+	/** The game's music (room_setup.h). */
+	Music *getMusic() const { return _music; }
+	/** Whether @p name is one of ClueOwners0-4 (game +0xD8, 0x40A870). */
+	bool isClueOwner(const Common::String &name) const;
 	/** Every room's class, in the art file's room order, built if need be (the factory, 0x42E0E0). */
 	Common::Array<RoomClass *> getAllRoomClasses();
 	Common::Point getMousePos() const { return _mousePos; }
