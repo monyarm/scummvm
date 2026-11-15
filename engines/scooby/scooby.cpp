@@ -461,8 +461,9 @@ void ScoobyEngine::updateHover(int x, int y) {
 	// default arrow.
 	_hover = _currentRoom->hitTest(x, y);
 	_currentRoom->setCursorPosition(x, y);
-	// A room class holding input hides the cursor (0x435150).
-	if (_roomClass && _roomClass->isBusy()) {
+	// A room class holding input hides the cursor (0x435150), and so does
+	// one that hides it alone.
+	if (_roomClass && (_roomClass->isBusy() || _roomClass->hidesCursor())) {
 		_currentRoom->setCursor("");
 		return;
 	}

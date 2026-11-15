@@ -22,6 +22,8 @@
 #ifndef SCOOBY_CHASE_ROOMS_H
 #define SCOOBY_CHASE_ROOMS_H
 
+#include "common/rect.h"
+
 #include "scooby/room_class.h"
 
 namespace Scooby {
@@ -128,6 +130,66 @@ private:
 	bool _comboScene = false;   // Chase.Branch_2.486_ is playing
 	bool _held = false;         // game +0x24, as the class sets and clears it
 	Common::String _lastScene;
+	Common::String _lastSound;
+};
+
+/**
+ * Showdown's artifact puzzle, ROOM_Artifact_<Bowl|Deer|Vase>_<09|12|15>
+ * (0x40D8A0, vtable 0x45E6CC), reached from the close-up: a jigsaw of 9, 12
+ * or 15 pieces. A click picks a piece up and it follows the mouse; within
+ * 10 pixels of its place it snaps there; a second click drops it back where
+ * it started. With every piece in place the artifact morphs, ArtifactsBuilt
+ * is 1, and the gang goes back to the close-up.
+ */
+class ArtifactRoom : public RoomClass {
+public:
+	ArtifactRoom(ScoobyEngine &engine, const Common::String &name) : RoomClass(engine), _name(name) {}
+
+	void reset() override;                                                          // 0x40D900
+	void enter(const Common::String &from) override;                                // 0x40E060
+	void roomLeft() override;                                                       // 0x40E0C0
+	void tick() override;                                                           // 0x40DA50
+	bool click(int sprite) override;                                                // game +0x20 bit 4, read by the tick
+	bool hidesCursor() const override { return _dragging >= 0; }                    // 0x435150 on the cursor
+	void claimPlacement(const Common::String &object, Room::Claim &claim) override; // 0x40E0E0
+	void saveKeys(Common::INIFile &profile) override;                               // 0x40E640
+	void loadKeys(const Common::INIFile &profile) override;                         // 0x40E6F0
+
+	static const uint kMaxPieces = 15;
+	/** Where piece @p i starts at level @p size (9, 12 or 15 pieces), from the tables at 0x46AE10. */
+	static Common::Point getStart(uint size, uint i);
+
+	uint getPieceCount() const { return _count; }
+	int getPieceSprite(uint i) const { return _pieces[i]; }
+	Common::Point getPiecePos(uint i) const { return _pos[i]; }
+	Common::Point getPieceTarget(uint i) const { return _target[i]; }
+	bool isPlaced(uint i) const { return _placed[i]; }
+	int getDragging() const { return _dragging; }
+	int getMorphSprite() const { return _morph; }
+	bool isSolved() const { return _solved; }
+	const Common::String &getLastSound() const { return _lastSound; }
+
+private:
+	/** 0x40D940: a piece went in: a clink; with all in place, the morph. */
+	void pieceIn();
+	/** Move piece @p i to @p p, at @p depth. */
+	void place(uint i, const Common::Point &p, int depth);
+	bool atTarget(uint i) const { return _pos[i] == _target[i]; }
+	bool near(uint i) const;
+	void play(const char *sound);
+
+	int _pieces[kMaxPieces];        // +0xB8: the pieces' sprites, as built
+	Common::Point _pos[kMaxPieces]; // their offsets (+0xC, +0x10 of each sprite)
+	Common::Point _target[kMaxPieces]; // +0xFC, +0x138: each piece's place (its placement's)
+	Common::String _anims[kMaxPieces];
+	bool _placed[kMaxPieces] = {};  // +0x188: PiecePlaced%i
+	uint _count = 0;                // +0x174
+	int _dragging = -1;             // +0x178
+	bool _solved = false;           // +0x17C: the morph is under way
+	Common::Point _grab;            // +0x180, +0x184: the piece's offset from the mouse
+	int _morph = -1;                // +0xF8: OBJ_ARTIFACT_<type>
+	bool _clicked = false;          // a click since the last tick (game +0x20 bit 4)
+	Common::String _name;           // +0x08: the room, and its keys' section
 	Common::String _lastSound;
 };
 

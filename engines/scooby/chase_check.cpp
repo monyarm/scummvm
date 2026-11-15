@@ -31,6 +31,7 @@
 #include "scooby/room_class.h"
 #include "scooby/room_script.h"
 #include "scooby/scooby.h"
+#include "scooby/sound.h"
 
 namespace Scooby {
 
@@ -563,6 +564,213 @@ void ScoobyEngine::checkChases() {
 		Common::INIFile none;
 		c->loadKeys(none);
 		debugC(3, kDebugScript, "closeup check keys: ComboBlewOn=Yes reads %d, reset %d, missing %d", yes ? 1 : 0, reset ? 1 : 0, c->hasComboBlownIn() ? 1 : 0);
+		delete c;
+	}
+	newGameForCheck();
+
+	// The artifact puzzle (WP-037).
+	static const char *const kArtTypes[] = { "Bowl", "Deer", "Vase" };
+	static const char *const kArtSizes[] = { "09", "12", "15" };
+	{
+		Common::String artClasses;
+		for (uint t = 0; t < 3; t++) {
+			for (uint s = 0; s < 3; s++) {
+				const Common::String name = Common::String::format("ROOM_Artifact_%s_%s", kArtTypes[t], kArtSizes[s]);
+				RoomClass *c = createRoomClass(*this, name);
+				artClasses += Common::String::format("%s %s; ", name.c_str() + 14, dynamic_cast<ArtifactRoom *>(c) ? "artifact" : c ? "other" : "-");
+				delete c;
+			}
+		}
+		debugC(3, kDebugScript, "artifact check classes: %s", artClasses.c_str());
+	}
+	auto art = [&]() { return dynamic_cast<ArtifactRoom *>(_roomClass); };
+	// Each room as it is entered: the pieces in build order, where each
+	// starts and where it goes; the outline; the artifact.
+	for (uint t = 0; t < 3; t++) {
+		for (uint s = 0; s < 3; s++) {
+			const Common::String name = Common::String::format("ROOM_Artifact_%s_%s", kArtTypes[t], kArtSizes[s]);
+			fresh.room(kCloseupRoom);
+			fresh.room(name);
+			ArtifactRoom *a = art();
+			Common::String out;
+			for (uint i = 0; a && i < a->getPieceCount(); i++) {
+				const int sp = a->getPieceSprite(i);
+				out += Common::String::format("%s (%d,%d)->(%d,%d) d%d h%d; ", _currentRoom->getAnim(sp).c_str() + 14, a->getPiecePos(i).x, a->getPiecePos(i).y,
+				                              a->getPieceTarget(i).x, a->getPieceTarget(i).y, _currentRoom->getDepth(sp), _currentRoom->getHitType(sp));
+			}
+			Common::String outline = "none";
+			for (uint k = 0; k < _currentRoom->getSpriteCount(); k++) {
+				if (_currentRoom->getAnim(k).hasSuffix("COMPLETE"))
+					outline = Common::String::format("%s d%d", _currentRoom->getAnim(k).c_str(), _currentRoom->getDepth(k));
+			}
+			const int m = a ? a->getMorphSprite() : -1;
+			debugC(3, kDebugScript, "artifact check %s: %u pieces: %soutline %s; artifact %s d%d hidden %d steps %u; %s",
+			       name.c_str() + 14, a ? a->getPieceCount() : 0, out.c_str(), outline.c_str(), m >= 0 ? _currentRoom->getAnim(m).c_str() : "none",
+			       m >= 0 ? _currentRoom->getDepth(m) : 0, m >= 0 && _currentRoom->isHidden(m) ? 1 : 0, m >= 0 ? _currentRoom->getStepCount(m) : 0,
+			       a ? a->getLastSound().c_str() : "");
+		}
+	}
+
+	// Playing Deer 09 with the mouse: the hover, a pick-up, the carry, the
+	// snap, a drop, a piece carried exactly onto its place, then all of them.
+	{
+		struct Mouse {
+			ScoobyEngine &e;
+			void to(const Common::Point &p) {
+				e._mousePos = p;
+				e.updateHover(p.x, p.y);
+			}
+			// A point on @p sprite's own pixels, or (-1, -1).
+			Common::Point on(int sprite) {
+				for (int y = 0; y < 480; y += 2) {
+					for (int x = 0; x < 640; x += 2) {
+						if (e._currentRoom->hitTest(x, y) == sprite)
+							return Common::Point(x, y);
+					}
+				}
+				return Common::Point(-1, -1);
+			}
+			void click() {
+				if (e._roomClass)
+					e._roomClass->click(e._hover);
+			}
+		} mouse = { *this };
+		newGameForCheck();
+		fresh.room(kCloseupRoom);
+		fresh.room("ROOM_Artifact_Deer_09");
+		ArtifactRoom *a = art();
+		// Where the live run picks each piece up and lets it go 3 and 3 from
+		// its place (not compared).
+		{
+			Common::String pts;
+			for (uint i = 0; i < a->getPieceCount(); i++) {
+				const Common::Point on = mouse.on(a->getPieceSprite(i));
+				const Common::Point to = a->getPieceTarget(i) - (a->getPiecePos(i) - on) + Common::Point(3, 3);
+				pts += Common::String::format("%d %d>%d %d|", on.x, on.y, to.x, to.y);
+			}
+			debugC(3, kDebugScript, "artifact points: %s", pts.c_str());
+		}
+		auto piece = [&](uint i) {
+			const int sp = a->getPieceSprite(i);
+			return Common::String::format("piece %u at (%d,%d) d%d placed %d", i, a->getPiecePos(i).x, a->getPiecePos(i).y, _currentRoom->getDepth(sp),
+			                              a->isPlaced(i) ? 1 : 0);
+		};
+		// The hover: the open hand over a loose piece.
+		const Common::Point on0 = mouse.on(a->getPieceSprite(0));
+		mouse.to(on0);
+		tick1();
+		updateHover(on0.x, on0.y);
+		const Common::String hoverCursor = _inventory->getCursor();
+		mouse.to(Common::Point(600, 20));
+		tick1();
+		const Common::String awayCursor = _inventory->getCursor();
+		// Picked up, then carried 15 to the right of its place, then 5 and 5
+		// from it, then snapped in.
+		const Common::Point grab = a->getPiecePos(0) - on0;
+		mouse.to(on0);
+		mouse.click();
+		tick1();
+		const Common::String up = Common::String::format("%s, carried %d, cursor hidden %d", piece(0).c_str(), a->getDragging(),
+		                                                 a->hidesCursor() ? 1 : 0);
+		mouse.to(a->getPieceTarget(0) - grab + Common::Point(15, 0));
+		tick1();
+		const Common::String far = piece(0);
+		mouse.to(a->getPieceTarget(0) - grab + Common::Point(5, 5));
+		tick1();
+		const Common::String close = piece(0);
+		tick1();
+		debugC(3, kDebugScript, "artifact check carry: cursor over a loose piece %s, away %s; picked up: %s; 15 off: %s; 5 and 5 off: %s; next tick: %s, carried %d, %s, ArtifactsBuilt %d",
+		       hoverCursor.c_str(), awayCursor.c_str(), up.c_str(), far.c_str(), close.c_str(), piece(0).c_str(), a->getDragging(),
+		       a->getLastSound().hasPrefix("Artifact.Clink") ? "a clink" : a->getLastSound().c_str(), getGameInt("ArtifactsBuilt"));
+		// Over a piece in its place: the arrow, and a click does nothing.
+		const Common::Point on0b = mouse.on(a->getPieceSprite(0));
+		mouse.to(on0b);
+		tick1();
+		mouse.click();
+		tick1();
+		const Common::String placedLine = Common::String::format("cursor %s, carried %d", _inventory->getCursor().c_str(), a->getDragging());
+		// Dropped anywhere else: back to its start.
+		const Common::Point on1 = mouse.on(a->getPieceSprite(1));
+		mouse.to(on1);
+		mouse.click();
+		tick1();
+		mouse.to(Common::Point(300, 400));
+		tick1();
+		mouse.click();
+		tick1();
+		debugC(3, kDebugScript, "artifact check placed and dropped: over the placed piece %s; piece 1 dropped: %s, carried %d, %s",
+		       placedLine.c_str(), piece(1).c_str(), a->getDragging(), a->getLastSound().c_str());
+		// Carried exactly onto its place: it stays carried, and a click then
+		// drops it back to its start.
+		const Common::Point on2 = mouse.on(a->getPieceSprite(2));
+		mouse.to(on2);
+		mouse.click();
+		tick1();
+		const Common::Point grab2 = a->getPiecePos(2) - on2;
+		mouse.to(a->getPieceTarget(2) - grab2);
+		tick1();
+		tick1();
+		tick1();
+		const Common::String exact = Common::String::format("%s, carried %d", piece(2).c_str(), a->getDragging());
+		mouse.click();
+		tick1();
+		debugC(3, kDebugScript, "artifact check exactly on its place: %s; clicked: %s, %s", exact.c_str(), piece(2).c_str(), a->getLastSound().c_str());
+		// The rest, each 3 and 3 off: the last builds the artifact; it
+		// morphs, and with its sound over the gang goes back to the close-up.
+		int built = -1;
+		for (uint i = 1; i < a->getPieceCount(); i++) {
+			const Common::Point on = mouse.on(a->getPieceSprite(i));
+			mouse.to(on);
+			mouse.click();
+			tick1();
+			const Common::Point g = a->getPiecePos(i) - on;
+			mouse.to(a->getPieceTarget(i) - g + Common::Point(3, 3));
+			tick1();
+			tick1();
+			if (a->isSolved() && built < 0)
+				built = i;
+		}
+		const int m = a->getMorphSprite();
+		const Common::String morph = Common::String::format("built on piece %d, ArtifactsBuilt %d, %s, artifact hidden %d mode %d", built, getGameInt("ArtifactsBuilt"),
+		                                                    a->getLastSound().c_str(), m >= 0 && _currentRoom->isHidden(m) ? 1 : 0, m >= 0 ? _currentRoom->getMode(m) : -1);
+		Common::INIFile ini;
+		_roomClass->saveKeys(ini);
+		Common::String keys;
+		for (uint i = 0; i < ArtifactRoom::kMaxPieces; i++) {
+			Common::String v;
+			ini.getKey(Common::String::format("PiecePlaced%u", i), "ROOM_Artifact_Deer_09", v);
+			keys += v == "Yes" ? "Y" : v == "No" ? "N" : "-";
+		}
+		_sound->stopClip("Artifact.Morph");
+		int over = -1, t = -1;
+		for (uint k = 1; k <= 200 && t < 0; k++) {
+			const bool changed = tick1();
+			if (over < 0 && m >= 0 && _currentRoom->getMode(m) == 0)
+				over = k;
+			if (changed)
+				t = k;
+		}
+		debugC(3, kDebugScript, "artifact check built: %s; PiecePlaced %s; artifact over at tick %d; next %s at tick %d", morph.c_str(), keys.c_str(), over,
+		       run.next.c_str(), t);
+		// Back again: every piece in its place.
+		showRoom(kCloseupRoom);
+		showRoom("ROOM_Artifact_Deer_09");
+		a = art();
+		uint in = 0;
+		for (uint i = 0; a && i < a->getPieceCount(); i++)
+			in += a->getPiecePos(i) == a->getPieceTarget(i) && _currentRoom->getDepth(a->getPieceSprite(i)) == 1 ? 1 : 0;
+		debugC(3, kDebugScript, "artifact check back: %u of %u in place", in, a ? a->getPieceCount() : 0);
+		// The keys read back, and a new game's reset.
+		ArtifactRoom *c = dynamic_cast<ArtifactRoom *>(createRoomClass(*this, "ROOM_Artifact_Deer_09"));
+		c->loadKeys(ini);
+		uint read = 0;
+		for (uint i = 0; i < ArtifactRoom::kMaxPieces; i++)
+			read += c->isPlaced(i) ? 1 : 0;
+		c->reset();
+		uint after = 0;
+		for (uint i = 0; i < ArtifactRoom::kMaxPieces; i++)
+			after += c->isPlaced(i) ? 1 : 0;
+		debugC(3, kDebugScript, "artifact check keys: %u placed read back, %u after a reset", read, after);
 		delete c;
 	}
 	newGameForCheck();

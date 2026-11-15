@@ -521,10 +521,255 @@ void CloseupRoom::loadKeys(const Common::INIFile &profile) {
 	_blownIn = profile.getKey("ComboBlewOn", kCloseup, v) && v == "Yes";
 }
 
+// ---------------------------------------------------------------------------
+// The artifact puzzle
+
+// Where each piece starts, by the level's piece count (0x46AE10, 0x46AE58,
+// 0x46AEB8).
+static const int16 kStarts09[9][2] = {
+	{ 133, 185 }, { 210, 185 }, { 317, 188 }, { 101, 256 }, { 207, 256 }, { 345, 262 }, { 73, 350 }, { 220, 360 }, { 382, 360 }
+};
+static const int16 kStarts12[12][2] = {
+	{ 136, 178 }, { 210, 178 }, { 315, 178 }, { 107, 234 }, { 218, 234 }, { 339, 237 },
+	{ 91, 300 }, { 212, 303 }, { 358, 299 }, { 71, 372 }, { 218, 378 }, { 383, 371 }
+};
+static const int16 kStarts15[15][2] = {
+	{ 140, 168 }, { 223, 167 }, { 310, 167 }, { 115, 217 }, { 219, 214 }, { 335, 213 }, { 102, 263 }, { 224, 263 },
+	{ 359, 263 }, { 88, 314 }, { 215, 316 }, { 372, 311 }, { 77, 371 }, { 219, 380 }, { 385, 373 }
+};
+// The distance, on each axis, at which a carried piece snaps into place.
+static const int kSnap = 10;
+
+Common::Point ArtifactRoom::getStart(uint size, uint i) {
+	if (size == 9 && i < 9)
+		return Common::Point(kStarts09[i][0], kStarts09[i][1]);
+	if (size == 12 && i < 12)
+		return Common::Point(kStarts12[i][0], kStarts12[i][1]);
+	if (size == 15 && i < 15)
+		return Common::Point(kStarts15[i][0], kStarts15[i][1]);
+	return Common::Point();
+}
+
+// The level's piece count, from the room's name: ..._09, _12 or _15.
+static uint levelSize(const Common::String &room) {
+	if (room.hasSuffix("09"))
+		return 9;
+	if (room.hasSuffix("12"))
+		return 12;
+	if (room.hasSuffix("15"))
+		return 15;
+	return 0;
+}
+
+void ArtifactRoom::reset() {
+	// 0x40D900, after the base reset.
+	_count = 0;
+	_solved = false;
+	_morph = -1;
+	_dragging = -1;
+	for (uint i = 0; i < kMaxPieces; i++)
+		_placed[i] = false;
+}
+
+void ArtifactRoom::claimPlacement(const Common::String &object, Room::Claim &claim) {
+	// 0x40E0E0. Each of these is a sprite (graphics_AnimSprite_ctor) under
+	// layer 0, hit by its cels (0x430D60 sets +4 to 1):
+	// - OBJ_ARTIFACT_<type>, the artifact that morphs: depth 2, hidden;
+	// - the outline, ANIM_ARTIFACT_<size>_<type>COMPLETE: depth 0;
+	// - each piece: depth 1, at its start for the level, or in its place if
+	//   it was put there. The placement's own position is the piece's place.
+	// The pieces are numbered as they are built, which is what the start
+	// tables follow. enter() finds the sprites.
+	static const char *const kTypes[] = { "BOWL", "DEER", "VASE" };
+	bool morph = false, piece = false;
+	for (uint t = 0; t < ARRAYSIZE(kTypes); t++) {
+		morph = morph || object == Common::String("OBJ_ARTIFACT_") + kTypes[t];
+		for (uint s = 0; s < 3; s++)
+			piece = piece || object == Common::String::format("OBJ_ARTIFACT_%s_%s", s == 0 ? "09" : s == 1 ? "12" : "15", kTypes[t]);
+	}
+	if (!morph && !piece)
+		return;
+	claim.build = Room::Claim::kSprite;
+	claim.layer = 0;
+	claim.hitType = 1;
+	// The outline shares the pieces' object; enter() gives it depth 0.
+	claim.depth = morph ? 2 : 1;
+	claim.hidden = morph;
+}
+
+void ArtifactRoom::enter(const Common::String &from) {
+	// 0x40E060, after the base entry: the toolbar slides off (0x407CC0, in
+	// the toolbar's rooms), and ICDouble's line.
+	Room &room = *_engine.getRoom();
+	const uint size = levelSize(room.getName());
+	_count = 0;
+	_morph = -1;
+	_dragging = -1;
+	_clicked = false;
+	_lastSound.clear();
+	for (uint s = 0; s < room.getSpriteCount(); s++) {
+		const Common::String &obj = room.getObjectName(s);
+		if (!obj.hasPrefix("OBJ_ARTIFACT_") || obj == "OBJ_ARTIFACT_EXIT")
+			continue;
+		if (obj.size() == strlen("OBJ_ARTIFACT_BOWL")) {
+			_morph = s;
+		} else if (room.getAnim(s).hasSuffix("COMPLETE")) {
+			room.setDepth(s, 0);
+		} else if (_count < kMaxPieces) {
+			// Layer 0 sits at (0, 0): the placement's position is the place.
+			const uint i = _count++;
+			_pieces[i] = s;
+			_anims[i] = room.getAnim(s);
+			_target[i] = Common::Point(room.getX(s), room.getY(s));
+			place(i, _placed[i] ? _target[i] : getStart(size, i), 1);
+		}
+	}
+	play("Artifact.Intro_1_ICDOUBLE");
+	debugC(1, kDebugScript, "%s: %u pieces, %s", room.getName().c_str(), _count, _morph >= 0 ? "the artifact" : "no artifact");
+}
+
+void ArtifactRoom::roomLeft() {
+	// 0x40E0C0, after the base leave.
+	_count = 0;
+	_morph = -1;
+}
+
+bool ArtifactRoom::click(int sprite) {
+	// The tick reads the click (game +0x20 bit 4); the engine still handles
+	// it too (the exit).
+	_clicked = true;
+	return false;
+}
+
+void ArtifactRoom::play(const char *sound) {
+	_lastSound = sound;
+	_engine.getSound()->play(sound);
+}
+
+void ArtifactRoom::place(uint i, const Common::Point &p, int depth) {
+	Room &room = *_engine.getRoom();
+	_pos[i] = p;
+	room.setOffset(_pieces[i], p.x, p.y);
+	room.setDepth(_pieces[i], depth);
+}
+
+bool ArtifactRoom::near(uint i) const {
+	return ABS(_pos[i].x - _target[i].x) < kSnap && ABS(_pos[i].y - _target[i].y) < kSnap;
+}
+
+void ArtifactRoom::pieceIn() {
+	// 0x40D940: a clink (rand() % 3); with every piece in its place, the
+	// artifact shows and morphs once through, ArtifactsBuilt (game +0x270)
+	// is 1, with Artifact.Morph.
+	uint in = 0;
+	for (uint i = 0; i < _count; i++)
+		in += atTarget(i) ? 1 : 0;
+	static const char *const kClinks[] = { "Artifact.Clink1", "Artifact.Clink2", "Artifact.Clink3" };
+	play(kClinks[_engine.getRandomNumber(2)]);
+	if (in != _count)
+		return;
+	Room &room = *_engine.getRoom();
+	if (_morph >= 0) {
+		room.setHidden(_morph, false);
+		room.startAnim(_morph, room.getAnim(_morph), kModeOnce, -1);
+	}
+	_engine.setGameInt("ArtifactsBuilt", 1);
+	_solved = true;
+	play("Artifact.Morph");
+	debugC(1, kDebugScript, "%s: built at tick %u", room.getName().c_str(), _engine.getScript()->getTick());
+}
+
+void ArtifactRoom::tick() {
+	// 0x40DA50; the original runs the base tick (0x40B490) last.
+	Room &room = *_engine.getRoom();
+	const bool clicked = _clicked;
+	_clicked = false;
+	const int hover = _engine.getHover();
+	int hovered = -1;
+	for (uint i = 0; i < _count && hovered < 0; i++) {
+		if (_pieces[i] == hover)
+			hovered = i;
+	}
+
+	// The open hand over a loose piece, else the default cursor.
+	Inventory &inventory = *_engine.getInventory();
+	if (hovered >= 0 && _pos[hovered].x != _target[hovered].x && _pos[hovered].y != _target[hovered].y)
+		inventory.setCursor("ANIM_CURSOROPEN");
+	else
+		inventory.setCursor("ANIM_CURSORARROW");
+
+	const Common::Point mouse = _engine.getMousePos();
+	if (_dragging < 0 && clicked) {
+		// Picked up, unless it is in its place; within 10 of it, it snaps
+		// there instead. Carried, it is at a depth of its y.
+		if (hovered >= 0 && !atTarget(hovered)) {
+			const uint i = hovered;
+			if (near(i)) {
+				place(i, _target[i], 1);
+				_placed[i] = true;
+				pieceIn();
+			} else {
+				_grab = _pos[i] - mouse;
+				place(i, mouse + _grab, _pos[i].y);
+				_dragging = i;
+				debugC(1, kDebugScript, "%s: piece %u picked up at tick %u", room.getName().c_str(), i, _engine.getScript()->getTick());
+			}
+		}
+	} else if (_dragging >= 0 && !clicked) {
+		// Carried: within 10 of its place it goes in; else it follows.
+		const uint i = _dragging;
+		if (!atTarget(i)) {
+			if (near(i)) {
+				place(i, _target[i], 1);
+				_placed[i] = true;
+				_dragging = -1;
+				debugC(1, kDebugScript, "%s: piece %u in at tick %u", room.getName().c_str(), i, _engine.getScript()->getTick());
+				pieceIn();
+			} else {
+				const Common::Point p = mouse + _grab;
+				place(i, p, p.y);
+			}
+		}
+	} else if (_dragging >= 0) {
+		// Dropped anywhere else: back to its start, with Artifact.Wrong.
+		const uint i = _dragging;
+		place(i, getStart(levelSize(room.getName()), i), 1);
+		_dragging = -1;
+		play("Artifact.Wrong");
+		debugC(1, kDebugScript, "%s: piece %u dropped at tick %u", room.getName().c_str(), i, _engine.getScript()->getTick());
+	}
+
+	// The artifact has morphed and its sound is over: back to the close-up,
+	// by the default exit handler.
+	if (_solved && (_morph < 0 || room.getMode(_morph) == 0) && !_engine.getSound()->isClipPlaying("Artifact.Morph")) {
+		_solved = false;
+		debugC(1, kDebugScript, "%s: back to the close-up at tick %u", room.getName().c_str(), _engine.getScript()->getTick());
+		_engine.exitTo(kCloseup);
+	}
+}
+
+void ArtifactRoom::saveKeys(Common::INIFile &profile) {
+	// 0x40E640: the base keys, then PiecePlaced0-14, in the room's section.
+	const Common::String &section = _name;
+	for (uint i = 0; i < kMaxPieces; i++)
+		profile.setKey(Common::String::format("PiecePlaced%u", i), section, _placed[i] ? "Yes" : "No");
+}
+
+void ArtifactRoom::loadKeys(const Common::INIFile &profile) {
+	// 0x40E6F0 -> 0x40C560: a missing key reads as false.
+	const Common::String &section = _name;
+	for (uint i = 0; i < kMaxPieces; i++) {
+		Common::String v;
+		_placed[i] = profile.getKey(Common::String::format("PiecePlaced%u", i), section, v) && v == "Yes";
+	}
+}
+
 RoomClass *createChaseRoom(ScoobyEngine &engine, const Common::String &room) {
 	// Showdown's factory (0x42E0E0); Phantom has no chase.
 	if (room == kCloseup)
 		return new CloseupRoom(engine);
+	if (room.hasPrefix("ROOM_Artifact_") && levelSize(room))
+		return new ArtifactRoom(engine, room);
 	static const char *const kBRooms[] = {
 		"ROOM_P24_Chase_B1", "ROOM_P25_Chase_B2", "ROOM_P26_Chase_B3",
 		"ROOM_P27_Chase_B4", "ROOM_P28_Chase_B5", "ROOM_P29_Chase_B6"

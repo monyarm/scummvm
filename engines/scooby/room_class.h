@@ -72,6 +72,8 @@ public:
 	virtual void loadKeys(const Common::INIFile &profile) {}
 	/** Input is held (game +0x24) and the cursor is hidden. */
 	virtual bool isBusy() const { return false; }
+	/** The cursor is hidden (0x435150 on it) while input stays on: a piece carried. */
+	virtual bool hidesCursor() const { return false; }
 
 protected:
 	ScoobyEngine &_engine;
