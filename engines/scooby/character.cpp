@@ -202,11 +202,13 @@ void Character::act(Room &room, Sound &sound, const Common::String &action) {
 
 void Character::walkIn(Room &room, Sound &sound, const Common::String &direction) {
 	// 0x405E60 to 0x405FE0: keep the depth (+0x9C), go 50 behind it from
-	// U, UL or UR, 50 in front from DL or DR, then state 1.
+	// U, UL or UR, 50 in front from DL or DR, at its depth from L or R
+	// (0x405F60, 0x405FA0), then state 1.
 	_inFrom = direction;
 	if (_sprite >= 0) {
 		_depth = room.getDepth(_sprite);
-		room.setDepth(_sprite, _depth + (direction.hasPrefix("D") ? kWalkDepth : -kWalkDepth));
+		const int offset = direction == "L" || direction == "R" ? 0 : direction.hasPrefix("D") ? kWalkDepth : -kWalkDepth;
+		room.setDepth(_sprite, _depth + offset);
 	}
 	setState(room, sound, kStateEndWalk);
 }

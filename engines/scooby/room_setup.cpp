@@ -204,6 +204,19 @@ void Music::setGroup(int group) {
 	debugC(1, kDebugAudio, "music group %d: %s", group, clip.c_str());
 }
 
+void Music::setGroup(int group, int volume) {
+	// 0x40AA10: the group already playing only takes the volume (0x434B60);
+	// a new one starts, then takes it.
+	if (group == _group) {
+		if (group > 0 && volume != 100)
+			_sound.setMusicPercent(volume);
+		return;
+	}
+	setGroup(group);
+	if (group >= 0 && volume != 100)
+		_sound.setMusicPercent(volume);
+}
+
 void Music::tick() {
 	// 0x409CB3: with a group playing, its clip over picks the next variant.
 	if (_group < 0 || _sound.isClipPlaying(_clip))

@@ -28,6 +28,7 @@
 #include "scooby/character.h"
 #include "scooby/chase_rooms.h"
 #include "scooby/detection.h"
+#include "scooby/hotel_rooms.h"
 #include "scooby/inventory.h"
 #include "scooby/room.h"
 #include "scooby/room_class.h"
@@ -1647,6 +1648,239 @@ void ScoobyEngine::checkChases() {
 			       "BootHillCommentPlayed=%s reads %d, reset %d", first.c_str(), played ? 1 : 0, second.c_str(), viaPost.c_str(), thenHill.c_str(), v.c_str(),
 			       reads ? 1 : 0, c->isCommentPlayed() ? 1 : 0);
 			delete c;
+		}
+	}
+	newGameForCheck();
+
+	// The hotel (WP-042).
+	{
+		const char *const kHall = "ROOM_P17_Hotel_Hall";
+		const char *const kHRoom = "ROOM_P20_Hotel_Room";
+		const char *const kNickelItem = "OBJ_INV_NICKEL";
+		{
+			RoomClass *a = createRoomClass(*this, kHall);
+			RoomClass *b = createRoomClass(*this, kHRoom);
+			debugC(3, kDebugScript, "hotel check classes: P17_Hotel_Hall %s; P20_Hotel_Room %s", dynamic_cast<HotelHallRoom *>(a) ? "hall" : a ? "other" : "-",
+			       dynamic_cast<HotelRoomRoom *>(b) ? "room" : b ? "other" : "-");
+			delete a;
+			delete b;
+		}
+		auto hall = [&]() { return dynamic_cast<HotelHallRoom *>(_roomClass); };
+		auto hroom = [&]() { return dynamic_cast<HotelRoomRoom *>(_roomClass); };
+		auto placed = [&](const char *object, bool depth) {
+			const int s = Find::sprite(*this, object);
+			if (s < 0)
+				return Common::String::format("%s none", object + 4);
+			return Common::String::format("%s %s mode %d step %u%s%s%s%s", object + 4, _currentRoom->getAnim(s).c_str(), _currentRoom->getMode(s), _currentRoom->getStep(s),
+			                              depth ? Common::String::format(" depth %d", _currentRoom->getDepth(s)).c_str() : "", _currentRoom->isHidden(s) ? " hidden" : "",
+			                              _currentRoom->isRequiresObject(s) ? " requires" : "", _currentRoom->isClickable(s) ? " clickable" : "");
+		};
+		auto opening = [&](const char *room) {
+			return Common::String::format("'%s'%s", _script->getOpening().c_str(), _script->getMemory(room).openingPlayed ? " played" : "");
+		};
+
+		// The hall: the placements; the openings over three visits; the
+		// walk-ins; the music.
+		newGameForCheck();
+		{
+			fresh.room(kHRoom);
+			fresh.room(kHall);
+			const Common::String places = placed("OBJ_P17_HOTEL_HALL_DOOR", true) + "; " + placed("OBJ_P17_HOTEL_HALL_HOTSPOT2", true) + "; " +
+			                              placed("OBJ_P17_HOTEL_HALL_CHAND", true) + "; " + placed("OBJ_P17_HOTEL_HALL_HOTSPOT1", false);
+			const Common::String first = opening(kHall);
+			const uint music = _sound->getMusicPercent();
+			_script->skip();
+			showRoom(kHRoom);
+			showRoom(kHall);
+			const Common::String second = opening(kHall) + Common::String::format(" SecondEntrance %d", hall()->hasSecondEntrance() ? 1 : 0);
+			_script->skip();
+			showRoom(kHRoom);
+			showRoom(kHall);
+			const Common::String third = opening(kHall);
+			debugC(3, kDebugScript, "hotel check hall: %s; openings %s, %s, %s; music %u%%", places.c_str(), first.c_str(), second.c_str(), third.c_str(), music);
+		}
+		{
+			// Each walk-in against the same character's depth when it doesn't
+			// walk in (from the other room).
+			Common::String out;
+			auto depthOf = [&](const char *from, const char *who) {
+				newGameForCheck();
+				fresh.room(from);
+				fresh.room(kHall);
+				Character *c = _script->getCharacter(who);
+				return c ? Common::String::format("%d %d", c->getState(), _currentRoom->getDepth(c->getSprite())) : Common::String("-");
+			};
+			static const char *const kFrom[] = { "ROOM_P12_Saloon", "ROOM_P20_Hotel_Room" };
+			static const char *const kWho[] = { "DAPHNE", "FRED" };
+			for (uint i = 0; i < 2; i++) {
+				const Common::String walks = depthOf(kFrom[i], kWho[i]), stays = depthOf(kFrom[1 - i], kWho[i]);
+				int sw = 0, dw = 0, ss = 0, ds = 0;
+				sscanf(walks.c_str(), "%d %d", &sw, &dw);
+				sscanf(stays.c_str(), "%d %d", &ss, &ds);
+				out += Common::String::format("from %s: %s state %d (else %d), depth %+d; ", kFrom[i] + 5, kWho[i], sw, ss, dw - ds);
+			}
+			newGameForCheck();
+			_inventory->addItem(kNickelItem);
+			_inventory->removeItem(kNickelItem);
+			fresh.room(kHRoom);
+			fresh.room(kHall);
+			debugC(3, kDebugScript, "hotel check hall walking in: %sthe nickel used: %s", out.c_str(), placed("OBJ_P17_HOTEL_HALL_CHAND", true).c_str());
+		}
+		// The door: Fred opens it; back, it stays open. The chandelier's
+		// lines. Hotspot 1 on A's step 6, B's step 4, A's step 5.
+		newGameForCheck();
+		fresh.room(kHRoom);
+		fresh.room(kHall);
+		_script->skip();
+		// One tick: Fred's walk-in from the right has no sequence, so it
+		// stops and he goes idle.
+		tick1();
+		{
+			_script->sendEvent("OBJ_P17_HOTEL_HALL_DOOR", false);
+			Character *fred = _script->getCharacter("FRED");
+			const Common::String door = placed("OBJ_P17_HOTEL_HALL_DOOR", false) + Common::String::format(", HotelHallDoor %d, Fred state %d %s",
+			                                                                                              getGameFlag("HotelHallDoor") ? 1 : 0, fred ? fred->getState() : -1,
+			                                                                                              fred ? _currentRoom->getAnim(fred->getSprite()).c_str() : "-");
+			Common::String chand;
+			for (uint k = 0; k < 4; k++) {
+				_script->sendEvent("OBJ_P17_HOTEL_HALL_CHAND", true);
+				chand += hall()->getLastScene() + Common::String::format(" held %d; ", _script->isBusy() ? 1 : 0);
+				_script->skip();
+			}
+			Common::String hot;
+			static const struct {
+				const char *anim;
+				uint step;
+			} kSteps[] = { { "ANIM_P17_HOTEL_HALL_HOTSPOT1A", 6 }, { "ANIM_P17_HOTEL_HALL_HOTSPOT1B", 4 }, { "ANIM_P17_HOTEL_HALL_HOTSPOT1A", 5 } };
+			for (uint k = 0; k < ARRAYSIZE(kSteps); k++) {
+				fresh.room(kHRoom);
+				fresh.room(kHall);
+				_script->skip();
+				const int h = hall()->getHotspot1();
+				if (h >= 0)
+					_currentRoom->startAnim(h, kSteps[k].anim, 0, kSteps[k].step);
+				tick1();
+				Character *d = _script->getCharacter("DAPHNE");
+				hot += Common::String::format("%s step %u: Daphne state %d, scene '%s'; ", kSteps[k].anim + 20, kSteps[k].step, d ? d->getState() : -1,
+				                              _script->isScenePlaying() ? _script->getScene().c_str() : "");
+			}
+			showRoom(kHRoom);
+			showRoom(kHall);
+			debugC(3, kDebugScript, "hotel check hall door: %s; back: %s; chandelier: %shotspot 1: %s", door.c_str(), placed("OBJ_P17_HOTEL_HALL_DOOR", false).c_str(),
+			       chand.c_str(), hot.c_str());
+		}
+
+		// The room: the first visit's opening, then the window by itself
+		// (movie 15 + GraveLocation); back, the comments in turn; with the
+		// brick, none.
+		newGameForCheck();
+		setGameInt("GraveLocation", 4);
+		fresh.room(kHall);
+		fresh.room(kHRoom);
+		{
+			const Common::String first = opening(kHRoom) + Common::String::format(" LookedOutAuto %d, music %u%%", hroom()->hasLookedOutAuto() ? 1 : 0,
+			                                                                      _sound->getMusicPercent());
+			_script->skip();
+			const int t = run.change(kMax);
+			const Common::String autoLook = Common::String::format("%s movie %d scene '%s'; next %s movie %d at tick %d", hroom()->getLastExit().destination.c_str(),
+			                                                       hroom()->getLastExit().movie, hroom()->getLastExit().scene.c_str(), run.next.c_str(), run.movie, t);
+			Common::String back;
+			for (uint k = 0; k < 3; k++) {
+				showRoom(kHRoom);
+				back += opening(kHRoom) + Common::String::format(" (window count %d); ", hroom()->getWindowCount());
+				_script->skip();
+				_script->takeExit(_script->readExit("OBJ_P20_HOTEL_WINDOW"));
+				back += Common::String::format("window: movie %d scene '%s'; ", hroom()->getLastExit().movie, hroom()->getLastExit().scene.c_str());
+				_script->skip();
+			}
+			_inventory->addItem("OBJ_INV_BRICK");
+			showRoom(kHRoom);
+			debugC(3, kDebugScript, "hotel check room: first %s; the window by itself: %s; back: %swith the brick: %s", first.c_str(), autoLook.c_str(), back.c_str(),
+			       opening(kHRoom).c_str());
+		}
+		// The nickel: Daphne picks it up; the hotspots. Each starts after the
+		// first visit's look out of the window.
+		auto settled = [&]() {
+			newGameForCheck();
+			fresh.room(kHall);
+			fresh.room(kHRoom);
+			_script->skip();
+			run.change(kMax);
+			showRoom(kHRoom);
+			_script->skip();
+		};
+		settled();
+		{
+			const Common::String nickel = placed(kNickelItem, false);
+			_script->sendEvent(kNickelItem, false);
+			const bool held = hroom()->isBusy();
+			Character *d = _script->getCharacter("DAPHNE");
+			int grabs = -1, gone = -1, got = -1;
+			Common::String anim, after;
+			for (uint k = 1; k <= kMax && got < 0; k++) {
+				tick1();
+				if (grabs < 0 && d && d->getState() == Character::kStateSpecial) {
+					grabs = k;
+					anim = Common::String::format("%s steps %u", _currentRoom->getAnim(d->getSprite()).c_str(), _currentRoom->getStepCount(d->getSprite()));
+				}
+				if (gone < 0 && hroom()->getNickelSprite() >= 0 && _currentRoom->isHidden(hroom()->getNickelSprite()))
+					gone = k;
+				if (got < 0 && _inventory->hasItem(kNickelItem)) {
+					got = k;
+					after = Common::String::format("%s held %d, class held %d", hroom()->getLastScene().c_str(), _script->isBusy() ? 1 : 0, hroom()->isBusy() ? 1 : 0);
+				}
+			}
+			_script->skip();
+			showRoom(kHall);
+			showRoom(kHRoom);
+			const Common::String again = placed(kNickelItem, false);
+			// Left during the pick-up: it goes in the toolbar.
+			settled();
+			_script->sendEvent(kNickelItem, false);
+			tick1();
+			showRoom(kHall);
+			const bool leftWith = _inventory->hasItem(kNickelItem);
+			debugC(3, kDebugScript, "hotel check nickel: %s; clicked: held %d; Daphne at tick %d (%s); gone at tick %d; in the toolbar at tick %d, %s; back: %s; left during it: %d",
+			       nickel.c_str(), held ? 1 : 0, grabs, anim.c_str(), gone, got, after.c_str(), again.c_str(), leftWith ? 1 : 0);
+		}
+		{
+			settled();
+			_script->setGhostChance(nullptr, 0);
+			const int h4 = Find::sprite(*this, "OBJ_P20_HOTEL_HOTSPOT4");
+			const int h2 = Find::sprite(*this, "OBJ_P20_HOTEL_HOTSPOT2");
+			Common::String out;
+			if (h4 >= 0) {
+				_currentRoom->startAnim(h4, _currentRoom->getAnim(h4), 0, 11);
+				tick1();
+				out += Common::String::format("hotspot 4 on step 11: scene '%s'; ", _script->isScenePlaying() ? _script->getScene().c_str() : "");
+				_script->skip();
+				_currentRoom->startAnim(h4, _currentRoom->getAnim(h4), 0, 0);
+			}
+			if (h2 >= 0) {
+				_currentRoom->startAnim(h2, "ANIM_P20_HOTEL_HOTSPOT2C", 0, 18);
+				tick1();
+				Character *d = _script->getCharacter("DAPHNE");
+				out += Common::String::format("hotspot 2 on C's step 18: Daphne state %d; ", d ? d->getState() : -1);
+				_script->setClickable(h2, "ANIM_P20_HOTEL_HOTSPOT2C");
+				_script->sendEvent("OBJ_P20_HOTEL_HOTSPOT2", true);
+				out += Common::String::format("clicked with its state C: scene '%s'", hroom()->getLastScene().c_str());
+			}
+			_script->setGhostChance(&_randomSource, ConfMan.hasKey("ghost_chance") ? (uint)ConfMan.getInt("ghost_chance") : 30);
+			// The keys.
+			HotelHallRoom *a = dynamic_cast<HotelHallRoom *>(createRoomClass(*this, kHall));
+			HotelRoomRoom *b = dynamic_cast<HotelRoomRoom *>(createRoomClass(*this, kHRoom));
+			Common::INIFile ini;
+			ini.setKey("SecondEntrance", kHall, "Yes");
+			ini.setKey("LookedOutAuto", kHRoom, "Yes");
+			a->loadKeys(ini);
+			b->loadKeys(ini);
+			const bool ra = a->hasSecondEntrance(), rb = b->hasLookedOutAuto();
+			a->reset();
+			b->reset();
+			debugC(3, kDebugScript, "hotel check hotspots: %s; keys: SecondEntrance reads %d, LookedOutAuto reads %d, reset %d %d", out.c_str(), ra ? 1 : 0, rb ? 1 : 0,
+			       a->hasSecondEntrance() ? 1 : 0, b->hasLookedOutAuto() ? 1 : 0);
+			delete a;
+			delete b;
 		}
 	}
 	newGameForCheck();

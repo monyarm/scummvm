@@ -66,6 +66,12 @@ public:
 	 * (Street 3's hotspot).
 	 */
 	void setGroup(int group);
+	/**
+	 * 0x40AA10 with a volume: as setGroup(), then the music at @p volume
+	 * percent unless 100. With @p group already playing, only the volume
+	 * (the hotel's rooms).
+	 */
+	void setGroup(int group, int volume);
 
 private:
 	Sound &_sound;

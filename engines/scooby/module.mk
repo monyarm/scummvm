@@ -9,6 +9,7 @@ MODULE_OBJS = \
 	chase_rooms.o \
 	character.o \
 	clues.o \
+	hotel_rooms.o \
 	inventory.o \
 	menu_rooms.o \
 	options_rooms.o \

@@ -98,6 +98,11 @@ public:
 	/** 0x434C00, once a game tick: the fade's next step. */
 	void tickMusicFade();
 	uint getMusicPercent() const { return _musicPercent; }
+	/** 0x434B60 -> 0x43C940 on the music: its volume, as a percent of the clip's. */
+	void setMusicPercent(uint percent) {
+		_musicPercent = percent;
+		applyMusicPercent();
+	}
 	bool isMusicFading() const { return _fadeDown || _fadeUp; }
 	/** The fade as "up 100/4", "down 90/2" or "-", for the checks. */
 	Common::String describeMusicFade() const;
