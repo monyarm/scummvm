@@ -33,6 +33,7 @@
 #include "scooby/signin_room.h"
 #include "scooby/sound.h"
 #include "scooby/story_rooms.h"
+#include "scooby/tunnel_rooms.h"
 #include "scooby/vault_rooms.h"
 
 namespace Scooby {
@@ -159,6 +160,8 @@ static RoomClass *buildRoomClass(ScoobyEngine &engine, const Common::String &roo
 		return vault;
 	if (RoomClass *hill = createBootHillRoom(engine, room))
 		return hill;
+	if (RoomClass *tunnel = createTunnelRoom(engine, room))
+		return tunnel;
 	// The story rooms (story_rooms.cpp); every other room gets the base
 	// class for now.
 	return createStoryRoom(engine, room);

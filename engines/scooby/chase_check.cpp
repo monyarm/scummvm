@@ -34,6 +34,7 @@
 #include "scooby/room_script.h"
 #include "scooby/scooby.h"
 #include "scooby/sound.h"
+#include "scooby/tunnel_rooms.h"
 #include "scooby/vault_rooms.h"
 
 namespace Scooby {
@@ -1511,6 +1512,140 @@ void ScoobyEngine::checkChases() {
 			out.getKey("DigScenePlayed", kHills[0], v);
 			c->reset();
 			debugC(3, kDebugScript, "boot hill check keys: DigScenePlayed=Yes reads %d, writes %s, reset %d", yes ? 1 : 0, v.c_str(), c->hasDigScenePlayed() ? 1 : 0);
+			delete c;
+		}
+	}
+	newGameForCheck();
+
+	// The tunnel (WP-041).
+	{
+		const char *const kDark = "ROOM_P14_Tunnel_Dark";
+		const char *const kLit = "ROOM_P18_Tunnel_Lit";
+		const char *const kPost = "ROOM_P08_Post_Office";
+		{
+			RoomClass *a = createRoomClass(*this, kDark);
+			RoomClass *b = createRoomClass(*this, kLit);
+			debugC(3, kDebugScript, "tunnel check classes: P14_Tunnel_Dark %s; P18_Tunnel_Lit %s", dynamic_cast<TunnelDarkRoom *>(a) ? "dark" : a ? "other" : "-",
+			       dynamic_cast<TunnelLitRoom *>(b) ? "lit" : b ? "other" : "-");
+			delete a;
+			delete b;
+		}
+		auto dark = [&]() { return dynamic_cast<TunnelDarkRoom *>(_roomClass); };
+		// The crate and the opening; the way out's lines, the gang staying.
+		newGameForCheck();
+		fresh.room(kPost);
+		fresh.room(kDark);
+		{
+			const int s = dark()->getCrateSprite();
+			const Common::String crate = s < 0 ? Common::String("crate none")
+			                                   : Common::String::format("crate %s mode %d step %u hidden %d%s", _currentRoom->getAnim(s).c_str(), _currentRoom->getMode(s),
+			                                                            _currentRoom->getStep(s), _currentRoom->isHidden(s) ? 1 : 0, _currentRoom->isRequiresObject(s) ? " requires" : "");
+			const Common::String opening = _script->getOpening();
+			_script->skip();
+			Common::String lines;
+			for (uint k = 0; k < 3; k++) {
+				_script->takeExit(_script->readExit("OBJ_P14_TO_P08"));
+				lines += Common::String::format("%s held %d; ", dark()->getLastScene().c_str(), _script->isBusy() ? 1 : 0);
+				_script->skip();
+			}
+			const int t = run.change(30);
+			debugC(3, kDebugScript, "tunnel check dark: %s, opening '%s'; the way out: %sroom change at tick %d", crate.c_str(), opening.c_str(), lines.c_str(), t);
+			// Where the live run clicks (not compared).
+			auto at = [&](const char *object) {
+				const int sp = Find::sprite(*this, object);
+				for (int y = 60; y < 420 && sp >= 0; y += 4) {
+					for (int x = 4; x < 640; x += 4) {
+						if (_currentRoom->hitTest(x, y) == sp)
+							return Common::String::format("%d %d", x + 4, y + 4);
+					}
+				}
+				return Common::String("-");
+			};
+			const Common::String crateAt = at("OBJ_P14_TUNNEL_DARK_CRATE"), wayOut = at("OBJ_P14_TO_P08");
+			fresh.room(kPost);
+			fresh.room(kLit);
+			debugC(3, kDebugScript, "tunnel points: CRATE=%s DARK_OUT=%s LIT_TO_P22=%s", crateAt.c_str(), wayOut.c_str(), at("OBJ_P18_TO_P22").c_str());
+			fresh.room(kPost);
+			fresh.room(kDark);
+			_script->skip();
+		}
+		// The crate: the first try, Shaggy alone can't; the next, he and
+		// Scooby push it, and the post office. A new visit starts again.
+		{
+			Common::String out;
+			for (uint attempt = 0; attempt < 2; attempt++) {
+				_script->sendEvent("OBJ_P14_TUNNEL_DARK_CRATE", true);
+				const bool held = dark()->isBusy();
+				Character *shaggy = _script->getCharacter("SHAGGY");
+				Character *scooby = _script->getCharacter("SCOOBY");
+				int tries = -1, done = -1, t = -1;
+				Common::String at;
+				for (uint k = 1; k <= kMax && t < 0 && done < 0; k++) {
+					const bool changed = tick1();
+					if (tries < 0 && shaggy && shaggy->getState() == Character::kStateSpecial) {
+						tries = k;
+						const int s = dark()->getCrateSprite();
+						at = Common::String::format("%s steps %u, %s, crate hidden %d, Scooby hidden %d, held %d", _currentRoom->getAnim(shaggy->getSprite()).c_str(),
+						                            _currentRoom->getStepCount(shaggy->getSprite()), dark()->getLastSound().c_str(),
+						                            s >= 0 && _currentRoom->isHidden(s) ? 1 : 0, scooby && _currentRoom->isHidden(scooby->getSprite()) ? 1 : 0,
+						                            dark()->isBusy() ? 1 : 0);
+					}
+					if (changed)
+						t = k;
+					else if (tries > 0 && !dark()->isCrateClicked())
+						done = k;
+				}
+				if (t > 0)
+					out += Common::String::format("try %u: held %d; Shaggy at tick %d (%s); %s next at tick %d; ", attempt + 1, held ? 1 : 0, tries, at.c_str(),
+					                              run.next.c_str(), t);
+				else
+					out += Common::String::format("try %u: held %d; Shaggy at tick %d (%s); held %d at tick %d; ", attempt + 1, held ? 1 : 0, tries, at.c_str(),
+					                              dark()->isBusy() ? 1 : 0, done);
+			}
+			fresh.room(kPost);
+			fresh.room(kDark);
+			_script->skip();
+			_script->sendEvent("OBJ_P14_TUNNEL_DARK_CRATE", true);
+			for (uint k = 0; k < 3; k++)
+				tick1();
+			debugC(3, kDebugScript, "tunnel check crate: %sa new visit: %s", out.c_str(), dark()->getLastSound().c_str());
+		}
+
+		// The lit tunnel: the first way out keeps its scene, later ones lose
+		// it; going out first by a way with no scene uses the first up too.
+		{
+			auto leave = [&](const char *object) {
+				_script->takeExit(_script->readExit(object));
+				const Common::String s = _script->isScenePlaying() ? _script->getScene() : Common::String("none");
+				_script->skip();
+				return s;
+			};
+			newGameForCheck();
+			fresh.room(kPost);
+			fresh.room(kLit);
+			const Common::String first = leave("OBJ_P18_TO_P22");
+			const bool played = dynamic_cast<TunnelLitRoom *>(_roomClass)->isCommentPlayed();
+			showRoom(kPost);
+			showRoom(kLit);
+			const Common::String second = leave("OBJ_P18_TO_P22");
+			newGameForCheck();
+			fresh.room(kPost);
+			fresh.room(kLit);
+			const Common::String viaPost = leave("OBJ_P18_TO_P08");
+			showRoom(kPost);
+			showRoom(kLit);
+			const Common::String thenHill = leave("OBJ_P18_TO_P22");
+			Common::INIFile ini;
+			_roomClass->saveKeys(ini);
+			Common::String v;
+			ini.getKey("BootHillCommentPlayed", kLit, v);
+			TunnelLitRoom *c = dynamic_cast<TunnelLitRoom *>(createRoomClass(*this, kLit));
+			c->loadKeys(ini);
+			const bool reads = c->isCommentPlayed();
+			c->reset();
+			debugC(3, kDebugScript, "tunnel check lit: to Boot Hill first %s, played %d; again %s; to the post office first %s, then to Boot Hill %s; "
+			       "BootHillCommentPlayed=%s reads %d, reset %d", first.c_str(), played ? 1 : 0, second.c_str(), viaPost.c_str(), thenHill.c_str(), v.c_str(),
+			       reads ? 1 : 0, c->isCommentPlayed() ? 1 : 0);
 			delete c;
 		}
 	}
