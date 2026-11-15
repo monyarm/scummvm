@@ -132,7 +132,7 @@ bool Sound::isClipPlaying(const Common::String &name) const {
 	return findChannel(name) != nullptr;
 }
 
-bool Sound::getLipShape(const Common::String &name, uint &shape, uint32 *index) const {
+bool Sound::getLipShape(const Common::String &name, uint &shape, uint32 *index, uint *high) const {
 	// The original divides the play cursor by the bytes per second; the
 	// mixer's elapsed time is the same position.
 	const Channel *c = findChannel(name);
@@ -144,6 +144,9 @@ bool Sound::getLipShape(const Common::String &name, uint &shape, uint32 *index) 
 	shape = c->lipSync[i] & 0x0F;
 	if (index)
 		*index = i;
+	// 0x442DD0 gives the high nibble too: Big Head shows that clue picture.
+	if (high)
+		*high = c->lipSync[i] >> 4;
 	return true;
 }
 

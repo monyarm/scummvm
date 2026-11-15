@@ -82,7 +82,7 @@ public:
 	 * lip-sync byte at trunc(fps x seconds played). False if the clip isn't
 	 * playing, has no lip sync, or has played past its last byte.
 	 */
-	bool getLipShape(const Common::String &name, uint &shape, uint32 *index = nullptr) const;
+	bool getLipShape(const Common::String &name, uint &shape, uint32 *index = nullptr, uint *high = nullptr) const;
 
 	/** Read every clip's PCM and log its MD5 on the audio channel. */
 	void checkAllClips() const;

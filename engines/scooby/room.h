@@ -100,6 +100,8 @@ public:
 	const Common::String &getLabel(int sprite) const { return _sprites[sprite].label; }
 	/** The sprite's rollover cursor ANIM name, or empty for the default. */
 	const Common::String &getRollover(int sprite) const { return _sprites[sprite].rollover; }
+	/** Set a sprite's rollover cursor (an object's +0x70). */
+	void setRollover(uint sprite, const Common::String &anim) { _sprites[sprite].rollover = anim; }
 	/** An exit's destinationroom=, or empty. */
 	const Common::String &getDestination(int sprite) const { return _sprites[sprite].destination; }
 

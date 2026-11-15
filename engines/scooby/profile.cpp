@@ -198,6 +198,7 @@ void ScoobyEngine::newGame() {
 	// 0x435780) and the inventory's (+0x50). The rooms' exits and
 	// clickables start again with them, and the movies seen (0x42DBC0).
 	_difficulty = 0;
+	_newClue = false;
 	_playerName.clear();
 	_playerSlot = -1;
 	_startRoom = "ROOM_Difficulty";

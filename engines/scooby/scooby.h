@@ -66,6 +66,7 @@ private:
 	void checkMenus();
 	void checkSignIn();
 	void checkOptionsCredits();
+	void checkAccusation();
 	// Each room's profile section (room_setup.cpp).
 	void saveRoomKeys(Common::INIFile &profile);
 	void loadRoomKeys(const Common::INIFile &profile);
@@ -99,6 +100,10 @@ private:
 	int _requestedMovie = -1;
 	int _requestedLoad = -1;        // a player's save slot to load (game +0x58)
 	int _lastMovie = -1;            // game +0x90, set by the main loop (0x4362E0)
+	// Big Head's scene, background and the room after (game +0x220, +0x228,
+	// +0x230), and a clue found and not yet named (+0x109).
+	Common::String _bigHeadScene, _bigHeadBackground, _bigHeadNext;
+	bool _newClue = false;
 	// The signed-in player (game +0x16C) and the save slot that holds their
 	// profile, or -1.
 	Common::String _playerName;
@@ -199,6 +204,24 @@ public:
 	void requestLoad(int slot) { _requestedLoad = slot; }
 	/** Delete the profile in @p slot. */
 	void deletePlayer(int slot);
+	/**
+	 * Play @p scene in ROOM_Big_Head over @p background (BIG_HEAD_BG_...),
+	 * then go to @p next: game +0x220, +0x228 and +0x230, then game vtable
+	 * +0x04. An empty scene leaves the last one, as the original does.
+	 */
+	void startBigHead(const Common::String &scene, const Common::String &background, const Common::String &next) {
+		if (!scene.empty())
+			_bigHeadScene = scene;
+		_bigHeadBackground = background;
+		_bigHeadNext = next;
+		requestRoom("ROOM_Big_Head");
+	}
+	const Common::String &getBigHeadScene() const { return _bigHeadScene; }
+	const Common::String &getBigHeadBackground() const { return _bigHeadBackground; }
+	const Common::String &getBigHeadNext() const { return _bigHeadNext; }
+	/** A clue just found (game +0x109): Scrappy names it when the suspects and clues next open. */
+	void setNewClue(bool found) { _newClue = found; }
+	bool hasNewClue() const { return _newClue; }
 	/** The last movie played (game +0x90), or -1. */
 	int getLastMovie() const { return _lastMovie; }
 	/** Every movie in the history counts as seen (0x40B0D0, after the credits). */

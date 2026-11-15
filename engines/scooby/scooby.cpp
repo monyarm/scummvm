@@ -27,6 +27,7 @@
 #include "scooby/room.h"
 #include "scooby/menu_rooms.h"
 #include "scooby/options_rooms.h"
+#include "scooby/accusation_rooms.h"
 #include "scooby/room_class.h"
 #include "scooby/room_script.h"
 #include "scooby/room_setup.h"
@@ -141,6 +142,7 @@ Common::Error ScoobyEngine::run() {
 		checkMenus();
 		checkSignIn();
 		checkOptionsCredits();
+		checkAccusation();
 		checkAllMovies();
 	}
 
@@ -159,6 +161,16 @@ Common::Error ScoobyEngine::run() {
 	// A save picked in the launcher (kSupportsLoadingDuringStartup).
 	if (ConfMan.hasKey("save_slot"))
 		loadGameState(ConfMan.getInt("save_slot"));
+	// "start_profile" reads a profile in the original's INI form, for
+	// testing; it goes to its StartRoom.
+	if (ConfMan.hasKey("start_profile")) {
+		Common::FSNode node(ConfMan.getPath("start_profile"));
+		Common::SeekableReadStream *in = node.createReadStream();
+		Common::INIFile profile;
+		if (!in || !profile.loadFromStream(*in) || !loadProfile(profile))
+			warning("Cannot start from the profile %s", node.getPath().toString().c_str());
+		delete in;
+	}
 	// Likewise "start_sound" plays one clip, for testing; the console's
 	// sound_play does the same.
 	if (ConfMan.hasKey("start_sound"))
@@ -1127,6 +1139,222 @@ void ScoobyEngine::checkOptionsCredits() {
 	_seenMovies.clear();
 	_checking = false;
 	debugC(3, kDebugScript, "options and credits check: done");
+}
+
+void ScoobyEngine::checkAccusation() {
+	// The suspects and clues, and Big Head, driven through the engine: the
+	// clues' buttons and hotspots, the pictures for met suspects, the clue
+	// cards under the mouse, what Scrappy says, the idle line, the final
+	// clue, each accusation's movie and reveal, and Big Head's lines.
+	_checking = true;
+	const bool showdown = getGameId() == "showdown";
+	Common::String next;
+	int movie;
+	auto freshClass = [&](const char *name) {
+		RoomClass *c;
+		if (_roomClasses.tryGetVal(name, c)) {
+			if (_roomClass == c)
+				_roomClass = nullptr;
+			delete c;
+			_roomClasses.erase(name);
+		}
+	};
+	const Common::String game = getFirstGameRoom();
+	// A game with three clues, in slots 0, 1 and 3, and three suspects met.
+	static const char *const kClues[2][3] = { { "ARTIE_MAP", "JENNY_COMPACT", "SHERIFF_SPURS" },
+		{ "EWAN_FILM", "BRAD_COAT", "WIZARD_WAND" } };
+	static const uint kSlots[] = { 0, 1, 3 };
+	auto setup = [&](bool final) {
+		newGame();
+		setGameString("Whodunit", SuspectChooserRoom::getSuspect(getGameId(), 3));
+		for (uint i = 0; i < 3; i++)
+			setGameString(Common::String::format("CluesFound%u", kSlots[i]), kClues[showdown ? 0 : 1][i]);
+		setGameFlag("FinalClue", final);
+		_inventory->meetSuspect(SuspectChooserRoom::getSuspect(getGameId(), 0));
+		_inventory->meetSuspect(SuspectChooserRoom::getSuspect(getGameId(), 2));
+		_inventory->meetSuspect(SuspectChooserRoom::getSuspect(getGameId(), 3));
+	};
+	auto open = [&]() {
+		freshClass("ROOM_Suspect_Chooser");
+		_sound->stop();
+		showRoom(game);
+		showRoom("ROOM_Suspect_Chooser");
+		_hover = -1;
+		_mouseDown = false;
+		return static_cast<SuspectChooserRoom *>(_roomClass);
+	};
+	auto heard = [&](const Common::String &line) {
+		return line.empty() ? Common::String("-") : _sound->isClipPlaying(line) ? line : line + " (missing)";
+	};
+
+	for (int final = 0; final <= 1; final++) {
+		setup(final);
+		SuspectChooserRoom *sc = open();
+		Room &room = *_currentRoom;
+		const char *tag = final ? "final" : "clues";
+		Common::String out;
+		for (uint i = 0; i < sc->getClueCount(); i++) {
+			const int b = sc->getButtonSprite(sc->getClueButton(i)), h = sc->getButtonSprite(sc->getHotspotButton(i));
+			out += Common::String::format(" [%s at %d,%d; %s hit %d]", room.getAnim(b).c_str(), room.getX(b), room.getY(b), room.getAnim(h).c_str(),
+			                              room.hasStepPolygon(h) ? 2 : 1);
+		}
+		Common::String pictures;
+		for (uint p = 0; p < 5; p++)
+			pictures += sc->getPictureButton(p) >= 0 ? Common::String::format(" %u:%s", p + 1, SuspectChooserRoom::getSuspect(getGameId(), p)) : "";
+		int exitShown = -1;
+		for (uint s = 0; s < room.getSpriteCount(); s++) {
+			if (!room.isEngineSprite(s) && room.getAnim(s).hasSuffix("EXITICON"))
+				exitShown = !room.isHidden(s);
+		}
+		debugC(3, kDebugScript, "accusation check %s: back to %s, says %s, %u clues:%s; pictures:%s; final %s, final hotspot %s; info %s; exit %d",
+		       tag, sc->getReturnRoom().c_str(), heard(sc->getIntroLine()).c_str(), sc->getClueCount(), out.c_str(), pictures.c_str(),
+		       sc->getFinalButton() >= 0 ? "yes" : "no", sc->getFinalHotspot() >= 0 ? room.getAnim(sc->getButtonSprite(sc->getFinalHotspot())).c_str() : "-",
+		       sc->getInfoSprite() >= 0 ? (room.isHidden(sc->getInfoSprite()) ? "hidden" : "shown") : "none", exitShown);
+
+		// The clue cards: each clue and each hotspot under the mouse, the
+		// final clue's, and nothing.
+		Common::String cards;
+		auto card = [&](int sprite) {
+			_hover = sprite;
+			tickOnce(next, movie);
+			const int info = sc->getInfoSprite();
+			cards += Common::String::format(" %s:%s", sprite >= 0 ? room.getLabel(sprite).c_str() : "-",
+			                                info >= 0 && !room.isHidden(info) ? room.getAnim(info).c_str() : "-");
+		};
+		for (uint i = 0; i < sc->getClueCount(); i++) {
+			card(sc->getButtonSprite(sc->getClueButton(i)));
+			card(sc->getButtonSprite(sc->getHotspotButton(i)));
+		}
+		if (final) {
+			card(sc->getButtonSprite(sc->getFinalButton()));
+			card(sc->getButtonSprite(sc->getFinalHotspot()));
+		}
+		card(-1);
+		debugC(3, kDebugScript, "accusation check %s cards:%s", tag, cards.c_str());
+
+		// Scrappy: each clue, each hotspot, the final clue's, and the met
+		// suspects (before the final clue).
+		Common::String lines;
+		auto click = [&](int sprite) {
+			_sound->stop();
+			_hover = sprite;
+			sc->click(sprite);
+			lines += " " + heard(sc->getLastLine());
+		};
+		for (uint i = 0; i < sc->getClueCount(); i++) {
+			click(sc->getButtonSprite(sc->getClueButton(i)));
+			click(sc->getButtonSprite(sc->getHotspotButton(i)));
+		}
+		if (final) {
+			click(sc->getButtonSprite(sc->getFinalButton()));
+			click(sc->getButtonSprite(sc->getFinalHotspot()));
+		} else {
+			for (uint p = 0; p < 5; p++) {
+				if (sc->getPictureButton(p) >= 0)
+					click(sc->getButtonSprite(sc->getPictureButton(p)));
+			}
+		}
+		_hover = -1;
+		debugC(3, kDebugScript, "accusation check %s scrappy:%s", tag, lines.c_str());
+
+		// The idle line.
+		sc = open();
+		_sound->stop();
+		int idleAt = -1;
+		for (int t = 1; t <= 800 && idleAt < 0; t++) {
+			tickOnce(next, movie);
+			if (sc->getLastLine() == "Suspect_and_Clues.SHAGGY.Click_On_Back_Button")
+				idleAt = t;
+		}
+		debugC(3, kDebugScript, "accusation check %s idle: %d", tag, idleAt);
+	}
+
+	// A clue just found: input held until Scrappy names the newest.
+	setup(false);
+	setNewClue(true);
+	SuspectChooserRoom *sc = open();
+	const bool busy = sc->isBusy();
+	_sound->stop();
+	tickOnce(next, movie);
+	debugC(3, kDebugScript, "accusation check new clue: busy %d, then %s, busy %d", busy, sc->getLastLine().c_str(), sc->isBusy());
+
+	// The way back.
+	setup(false);
+	sc = open();
+	next.clear();
+	sc->leaveBy("OBJ_SUSPECT_CLUES_EXIT");
+	uint t = 0;
+	while (t < 100 && !tickOnce(next, movie))
+		t++;
+	debugC(3, kDebugScript, "accusation check exit: to %s", next.c_str());
+
+	// Each suspect accused: the movie, then the reveal.
+	Common::String accused;
+	for (uint p = 0; p < 5; p++) {
+		setup(true);
+		for (uint q = 0; q < 5; q++)
+			_inventory->meetSuspect(SuspectChooserRoom::getSuspect(getGameId(), q));
+		sc = open();
+		_requestedRoom.clear();
+		sc->click(sc->getButtonSprite(sc->getPictureButton(p)));
+		const Common::String asked = Common::String::format("%s/%d", _requestedRoom.empty() ? "-" : _requestedRoom.c_str(), _requestedMovie);
+		_requestedRoom.clear();
+		showRoom("ROOM_Suspect_Chooser");
+		// The real loop ticks the room once more before it changes.
+		next.clear();
+		tickOnce(next, movie);
+		accused += Common::String::format(" [%s: %s, then %s %s on %s, then %s]", SuspectChooserRoom::getSuspect(getGameId(), p), asked.c_str(),
+		                                  next.c_str(), _bigHeadScene.c_str(), _bigHeadBackground.c_str(), _bigHeadNext.c_str());
+		_requestedRoom.clear();
+	}
+	debugC(3, kDebugScript, "accusation check accused:%s", accused.c_str());
+
+	// Big Head: the right reveal, line by line, each line ended at once.
+	setup(true);
+	startBigHead(SuspectChooserRoom::getRevealScene(getGameId(), getGameString("Whodunit"), true), showdown ? "BIG_HEAD_BG_P03" : "BIG_HEAD_BG_P16",
+	             "ROOM_Credits");
+	_requestedRoom.clear();
+	freshClass("ROOM_Big_Head");
+	showRoom("ROOM_Big_Head");
+	BigHeadRoom *bh = static_cast<BigHeadRoom *>(_roomClass);
+	Room &room = *_currentRoom;
+	auto sprite = [&](int s) {
+		return Common::String::format("%s/%s%s%s", room.getObjectName(s).c_str(), room.getAnim(s).c_str(),
+		                              room.getDepth(s) ? Common::String::format(" depth %d", room.getDepth(s)).c_str() : "",
+		                              room.isHidden(s) ? " hidden" : "");
+	};
+	debugC(3, kDebugScript, "accusation check big head: %s first; mouth %s, body %s, partner %s %s, background %s/%s; busy %d",
+	       bh->getSpeaker().c_str(), sprite(bh->getMouth()).c_str(), sprite(bh->getBody()).c_str(), sprite(bh->getPartnerMouth()).c_str(),
+	       sprite(bh->getPartnerBody()).c_str(), room.getObjectName(bh->getBackground()).c_str(), room.getAnim(bh->getBackground()).c_str(),
+	       bh->isBusy());
+	Common::String said;
+	next.clear();
+	movie = -1;
+	t = 0;
+	int line = 0;
+	while (t < 400) {
+		t++;
+		const bool asks = tickOnce(next, movie);
+		if (bh->getLine() != line && !bh->getLineClip().empty()) {
+			line = bh->getLine();
+			said += Common::String::format(" [%d %s%s%s; %s]", line, bh->getSpeaker().c_str(),
+			                               bh->getPartner().empty() ? "" : " with ", bh->getPartner().c_str(), bh->getBackgroundAnim().c_str());
+			_sound->stop();
+		}
+		if (asks)
+			break;
+	}
+	debugC(3, kDebugScript, "accusation check big head lines:%s; then %s", said.c_str(), next.c_str());
+
+	_sound->stop();
+	newGame();
+	_startRoom.clear();
+	_profile = Common::INIFile();
+	_bigHeadScene.clear();
+	_bigHeadBackground.clear();
+	_bigHeadNext.clear();
+	_checking = false;
+	debugC(3, kDebugScript, "accusation check: done");
 }
 
 Common::String ScoobyEngine::getFirstGameRoom() const {

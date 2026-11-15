@@ -1,6 +1,7 @@
 MODULE := engines/scooby
 
 MODULE_OBJS = \
+	accusation_rooms.o \
 	art_archive.o \
 	cel.o \
 	character.o \
