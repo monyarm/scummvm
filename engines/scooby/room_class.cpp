@@ -26,6 +26,7 @@
 #include "scooby/room.h"
 #include "scooby/room_class.h"
 #include "scooby/scooby.h"
+#include "scooby/signin_room.h"
 #include "scooby/sound.h"
 
 namespace Scooby {
@@ -130,6 +131,8 @@ RoomClass *createRoomClass(ScoobyEngine &engine, const Common::String &room) {
 		return new DifficultyRoom(engine);
 	if (room == "ROOM_Quit")
 		return new QuitRoom(engine);
+	if (room == "ROOM_Sign_In")
+		return new SignInRoom(engine);
 	return nullptr;
 }
 

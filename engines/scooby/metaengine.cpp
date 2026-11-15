@@ -34,10 +34,12 @@ Common::Error ScoobyMetaEngine::createInstance(OSystem *syst, Engine **engine, c
 
 bool ScoobyMetaEngine::hasFeature(MetaEngineFeature f) const {
 	// Saves hold the player profile (engines/scooby/profile.cpp), in the
-	// extended format with thumbnails.
+	// extended format with thumbnails, named <target>.NNN as the engine
+	// writes them (Engine::getSaveStateName); without kSimpleSavesNames the
+	// list would look for <target>.sNN and find none.
 	return f == kSupportsListSaves || f == kSupportsDeleteSave || f == kSupportsLoadingDuringStartup ||
 	       f == kSavesSupportMetaInfo || f == kSavesSupportThumbnail || f == kSavesSupportCreationDate ||
-	       f == kSavesSupportPlayTime || f == kSavesUseExtendedFormat;
+	       f == kSavesSupportPlayTime || f == kSavesUseExtendedFormat || f == kSimpleSavesNames;
 }
 
 #if PLUGIN_ENABLED_DYNAMIC(SCOOBY)

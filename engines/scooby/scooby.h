@@ -63,6 +63,7 @@ private:
 	void checkAllHints();
 	void checkProfile();
 	void checkMenus();
+	void checkSignIn();
 	bool _checking = false;
 	/** One game tick as run() does it; true if it asks for another room. */
 	bool tickOnce(Common::String &nextRoom, int &movie);
@@ -88,6 +89,12 @@ private:
 	int _difficulty = 0;            // game +0x160
 	Common::String _requestedRoom;  // game vtable +0x04 / +0x08
 	int _requestedMovie = -1;
+	int _requestedLoad = -1;        // a player's save slot to load (game +0x58)
+	// The signed-in player (game +0x16C) and the save slot that holds their
+	// profile, or -1.
+	Common::String _playerName;
+	int _playerSlot = -1;
+	void setStoryValues();
 	bool runTestScript();
 	Common::Array<Common::String> _testSteps;
 	uint _testStep = 0;
@@ -162,6 +169,25 @@ public:
 	Common::String getFirstGameRoom() const;
 	/** The class of @p room, built on first use, or nullptr for the base class. */
 	RoomClass *getRoomClass(const Common::String &room);
+	Common::Point getMousePos() const { return _mousePos; }
+
+	/**
+	 * A new game (game vtable +0x4C): the level, the story's state, the
+	 * player, the movies seen, every room's class (0x435780) and the
+	 * inventory (+0x50) back to the start, StartRoom the level select.
+	 * Showdown's also sets its story's values (0x42DBC0).
+	 */
+	void newGame();
+	/** The saved players: the saves whose description is a player's name, by name. */
+	void listPlayers(Common::Array<Common::String> &names, Common::Array<int> &slots);
+	/** Sign in as @p name, whose profile is in @p slot, or in a free slot if -1. */
+	void signIn(const Common::String &name, int slot);
+	const Common::String &getPlayerName() const { return _playerName; }
+	int getPlayerSlot() const { return _playerSlot; }
+	/** Load the profile in @p slot after the current tick (game +0x58). */
+	void requestLoad(int slot) { _requestedLoad = slot; }
+	/** Delete the profile in @p slot. */
+	void deletePlayer(int slot);
 
 	/**
 	 * Draws a room as it is set up on entry: its layers and every placement
@@ -188,6 +214,9 @@ public:
 		return f == kSupportsReturnToLauncher || f == kSupportsLoadingDuringRuntime || f == kSupportsSavingDuringRuntime;
 	}
 
+	Common::Error loadGameState(int slot) override;
+	/** Not from the menus: Sign In's new game isn't worth the autosave slot. */
+	bool canSaveAutosaveCurrently() override;
 	bool canSaveGameStateCurrently(Common::U32String *msg = nullptr) override;
 	bool canLoadGameStateCurrently(Common::U32String *msg = nullptr) override;
 	Common::Error saveGameStream(Common::WriteStream *stream, bool isAutosave = false) override;

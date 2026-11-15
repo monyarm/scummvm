@@ -32,13 +32,16 @@
 #include "common/fs.h"
 #include "common/memstream.h"
 #include "common/textconsole.h"
+#include "engines/metaengine.h"
 
 #include "scooby/art_archive.h"
 #include "scooby/detection.h"
 #include "scooby/inventory.h"
 #include "scooby/room.h"
+#include "scooby/room_class.h"
 #include "scooby/room_script.h"
 #include "scooby/scooby.h"
+#include "scooby/signin_room.h"
 #include "scooby/sound.h"
 
 namespace Scooby {
@@ -138,6 +141,12 @@ bool ScoobyEngine::canSaveGameStateCurrently(Common::U32String *msg) {
 	return _currentRoom && _script && _inventory && !_startRoom.empty() && !_script->isBusy() && !_inventory->isInputBlocked();
 }
 
+bool ScoobyEngine::canSaveAutosaveCurrently() {
+	// ScummVM autosaves before every load; from Sign In that would put a
+	// blank new game over the last autosave.
+	return canSaveGameStateCurrently() && !isMenuRoom(_currentRoom->getName());
+}
+
 bool ScoobyEngine::canLoadGameStateCurrently(Common::U32String *msg) {
 	return _currentRoom && _script && _inventory && !_script->isBusy() && !_inventory->isInputBlocked();
 }
@@ -165,6 +174,143 @@ Common::Error ScoobyEngine::loadGameStream(Common::SeekableReadStream *stream) {
 	if (stream->err() || !readProfileText(text, profile))
 		return Common::kReadingFailed;
 	return loadProfile(profile) ? Common::kNoError : Common::kReadingFailed;
+}
+
+// ---------------------------------------------------------------------------
+// Players and new games
+
+void ScoobyEngine::newGame() {
+	// 0x4087B0, through Showdown's game vtable +0x4C (0x42DBC0): the level,
+	// the speech lock, the suspects and the clues, the player, and StartRoom
+	// ROOM_Difficulty. Then every room object's reset (vtable +0x08,
+	// 0x435780) and the inventory's (+0x50). The rooms' exits and
+	// clickables start again with them, and the movies seen (0x42DBC0).
+	_difficulty = 0;
+	_playerName.clear();
+	_playerSlot = -1;
+	_startRoom = "ROOM_Difficulty";
+	_profile = Common::INIFile();
+	_seenMovies.clear();
+	_takenExits.clear();
+	_script->resetClickableStates();
+	for (Common::HashMap<Common::String, RoomClass *>::iterator it = _roomClasses.begin(); it != _roomClasses.end(); ++it) {
+		if (it->_value)
+			it->_value->reset();
+	}
+	_inventory->reset();
+	// Phantom's +0x4C, its story's values, isn't traced.
+	if (getGameId() == "showdown")
+		setStoryValues();
+	debugC(1, kDebugScript, "new game");
+}
+
+void ScoobyEngine::setStoryValues() {
+	// 0x42DBC0, written to the profile's Game section as 0x42F3A0 names
+	// them: the puzzles' flags, the clock at 12:00, the grave (0-8), the
+	// strong box (0-3), the four levers' aliases (0-3, each once), the
+	// villain and the artifact.
+	static const char *const kYes[] = { "MoaningActive", "SheriffWaiting" };
+	static const char *const kNo[] = { "HotelHallDoor", "SheriffPuzzle", "GummyPuzzle", "TunnelLit", "VaultOpen", "BagsRandomized" };
+	static const char *const kVillains[] = { "ARTIE", "ICDOUBLE", "JENNY", "SHERIFF", "GUMMY" };
+	static const char *const kArtifacts[] = { "Bowl", "Deer", "Vase" };
+	for (uint i = 0; i < ARRAYSIZE(kYes); i++)
+		_profile.setKey(kYes[i], "Game", "Yes");
+	for (uint i = 0; i < ARRAYSIZE(kNo); i++)
+		_profile.setKey(kNo[i], "Game", "No");
+	_profile.setKey("ClockHour", "Game", "12");
+	_profile.setKey("ClockMinute", "Game", "0");
+	_profile.setKey("GraveLocation", "Game", Common::String::format("%u", _randomSource.getRandomNumber(8)));
+	_profile.setKey("StrongBox", "Game", Common::String::format("%u", _randomSource.getRandomNumber(3)));
+	// Each lever draws until it differs from those before it.
+	uint levers[4];
+	for (uint i = 0; i < 4; i++) {
+		bool again;
+		do {
+			levers[i] = _randomSource.getRandomNumber(3);
+			again = false;
+			for (uint k = 0; k < i; k++)
+				again = again || levers[k] == levers[i];
+		} while (again);
+		_profile.setKey(Common::String::format("LeverAlias%u", i), "Game", Common::String::format("%u", levers[i]));
+	}
+	_profile.setKey("Whodunit", "Game", kVillains[_randomSource.getRandomNumber(4)]);
+	_profile.setKey("ArtifactType", "Game", kArtifacts[_randomSource.getRandomNumber(2)]);
+}
+
+void ScoobyEngine::listPlayers(Common::Array<Common::String> &names, Common::Array<int> &slots) {
+	// The saves named as Sign In can show them, by name (the original's
+	// file listing); the autosave and other saves aren't players. A name
+	// saved twice is the lower slot.
+	names.clear();
+	slots.clear();
+	if (!getMetaEngine())
+		return;
+	SaveStateList saves = getMetaEngine()->listSaves(_targetName.c_str());
+	Common::Array<Common::String> sorted;
+	Common::HashMap<Common::String, int> slotOf;
+	for (SaveStateList::const_iterator it = saves.begin(); it != saves.end(); ++it) {
+		const Common::String name = it->getDescription();
+		const int slot = it->getSaveSlot();
+		if (slot == getAutosaveSlot() || !SignInRoom::isPlayerName(name))
+			continue;
+		int known;
+		if (slotOf.tryGetVal(name, known)) {
+			slotOf[name] = MIN(known, slot);
+			continue;
+		}
+		slotOf[name] = slot;
+		sorted.push_back(name);
+	}
+	Common::sort(sorted.begin(), sorted.end());
+	for (uint i = 0; i < sorted.size(); i++) {
+		names.push_back(sorted[i]);
+		slots.push_back(slotOf[sorted[i]]);
+	}
+}
+
+void ScoobyEngine::signIn(const Common::String &name, int slot) {
+	// Game +0x16C. A new player takes the first free slot after the
+	// autosave's.
+	_playerName = name;
+	if (slot < 0 && getMetaEngine()) {
+		SaveStateList saves = getMetaEngine()->listSaves(_targetName.c_str());
+		const int last = getMetaEngine()->getMaximumSaveSlot();
+		for (slot = 0; slot <= last; slot++) {
+			bool used = slot == getAutosaveSlot();
+			for (SaveStateList::const_iterator it = saves.begin(); it != saves.end() && !used; ++it)
+				used = it->getSaveSlot() == slot;
+			if (!used)
+				break;
+		}
+		if (slot > last)
+			slot = -1;
+	}
+	_playerSlot = slot;
+	debugC(1, kDebugScript, "signed in as %s, slot %d", name.c_str(), slot);
+}
+
+void ScoobyEngine::deletePlayer(int slot) {
+	if (getMetaEngine() && !_checking)
+		getMetaEngine()->removeSaveState(_targetName.c_str(), slot);
+	if (slot == _playerSlot) {
+		_playerSlot = -1;
+		_playerName.clear();
+	}
+}
+
+Common::Error ScoobyEngine::loadGameState(int slot) {
+	// A player's save signs them in; another save signs nobody in, so
+	// nothing is written for it.
+	_playerName.clear();
+	_playerSlot = -1;
+	if (getMetaEngine()) {
+		const Common::String name = getMetaEngine()->querySaveMetaInfos(_targetName.c_str(), slot).getDescription();
+		if (slot != getAutosaveSlot() && SignInRoom::isPlayerName(name)) {
+			_playerName = name;
+			_playerSlot = slot;
+		}
+	}
+	return Engine::loadGameState(slot);
 }
 
 bool ScoobyEngine::loadProfile(const Common::INIFile &profile) {

@@ -12,6 +12,7 @@ MODULE_OBJS = \
 	room_script.o \
 	scooby.o \
 	sound.o \
+	signin_room.o \
 	sound_archive.o \
 	toolbar_rooms.o \
 	console.o \

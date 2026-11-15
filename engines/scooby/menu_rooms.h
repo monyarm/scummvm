@@ -37,6 +37,7 @@ public:
 	void enter(const Common::String &from) override;
 	void tick() override;
 	bool skip() override;
+	void reset() override { _state = 2; _countdown = 0; }
 	bool isBusy() const override { return _state > 3; }
 	/** The step the entry is at (+0xBC): 1-3 ask for a title movie, then the title shows. */
 	uint getState() const { return _state; }

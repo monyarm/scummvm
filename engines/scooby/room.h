@@ -145,6 +145,12 @@ public:
 	 */
 	uint addEngineSprite(int parent, const Common::String &obj, const Common::String &anim, int depth,
 	                     int x, int y, int hitType, const Common::String &label);
+	/**
+	 * Add an empty sprite under @p parent (-1 for the root) at (x, y) from
+	 * it, to hold others: the original's buffer sprites (0x4370D0), which
+	 * draw only their children. Returns its index.
+	 */
+	uint addGroupSprite(int parent, int depth, int x, int y, const Common::String &label);
 	/** Move a sprite to (x, y) from its parent; its children follow. */
 	void setOffset(uint sprite, int x, int y);
 	/** 0x430C00: the widest and the tallest cel over the current sequence's steps. */
@@ -163,6 +169,8 @@ public:
 	 * carry no polygon).
 	 */
 	void setFirstStepHit(uint sprite) { _sprites[sprite].firstStepHit = true; }
+	/** 0x430BA0: the width of the first cel of the step the sprite shows, or 0. */
+	int getFirstCelWidth(uint sprite);
 
 	/** Show the OBJ_CURSOR sprite playing @p anim at (x, y); an empty name hides it. */
 	bool setCursor(const Common::String &anim);

@@ -49,6 +49,10 @@ public:
 	virtual bool click(int sprite) { return false; }
 	/** A key that skips (the original's input slots 4 and 5). Returns true if taken. */
 	virtual bool skip() { return false; }
+	/** A typed key (ASCII, or a keycode with no character). Returns true if taken. */
+	virtual bool key(uint16 ascii, int keycode) { return false; }
+	/** Room vtable +0x08: back to how the factory built it, for a new game (0x435780). */
+	virtual void reset() {}
 	/** Input is held (game +0x24) and the cursor is hidden. */
 	virtual bool isBusy() const { return false; }
 

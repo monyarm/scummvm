@@ -28,6 +28,7 @@
 #include "scooby/menu_rooms.h"
 #include "scooby/room_class.h"
 #include "scooby/room_script.h"
+#include "scooby/signin_room.h"
 #include "scooby/sound.h"
 #include "scooby/toolbar_rooms.h"
 #include "common/algorithm.h"
@@ -131,6 +132,7 @@ Common::Error ScoobyEngine::run() {
 		checkAllHints();
 		checkProfile();
 		checkMenus();
+		checkSignIn();
 		checkAllMovies();
 	}
 
@@ -203,8 +205,8 @@ Common::Error ScoobyEngine::run() {
 				_mouseDown = true;
 			else if (e.type == Common::EVENT_LBUTTONUP)
 				_mouseDown = false;
-			else if (e.type == Common::EVENT_KEYDOWN && (e.kbd.keycode == Common::KEYCODE_ESCAPE || e.kbd.keycode == Common::KEYCODE_SPACE) &&
-			         _roomClass)
+			else if (e.type == Common::EVENT_KEYDOWN && _roomClass && !_roomClass->key(e.kbd.ascii, e.kbd.keycode) &&
+			         (e.kbd.keycode == Common::KEYCODE_ESCAPE || e.kbd.keycode == Common::KEYCODE_SPACE))
 				_roomClass->skip();
 		}
 
@@ -232,10 +234,24 @@ Common::Error ScoobyEngine::run() {
 				_requestedRoom.clear();
 				break;
 			}
+			if (_requestedLoad >= 0)
+				break;
 			if (_script->getNextRoom(nextRoom, movie) || _inventory->getNextRoom(nextRoom, movie))
 				break;
 		}
 		_ticksDone += owed;
+		// Sign In loads a saved player's profile (game +0x58), which goes to
+		// its StartRoom.
+		if (_requestedLoad >= 0) {
+			const int slot = _requestedLoad;
+			_requestedLoad = -1;
+			const Common::Error err = loadGameState(slot);
+			if (err.getCode() != Common::kNoError)
+				warning("Cannot load the player in slot %d: %s", slot, err.getDesc().c_str());
+			updateHover(_mousePos.x, _mousePos.y);
+			nextRoom.clear();
+			changed = false;
+		}
 		// The cursor follows the game's (0x4098B0).
 		if (owed && nextRoom.empty() && !_script->isBusy())
 			updateHover(_mousePos.x, _mousePos.y);
@@ -328,7 +344,8 @@ bool ScoobyEngine::runTestScript() {
 	// A "test_script" key in the game's config domain plays input for a live
 	// test without the host's mouse: steps separated by ';', each "move x y",
 	// "click x y", "wait ms", "shot name" (the screen as name.bmp in the
-	// "test_shots" folder) or "quit".
+	// "test_shots" folder), "type word" (its letters as key presses, '_' for
+	// a space), "key code" (one keycode: 8, 13, 27, 127...) or "quit".
 	if (_testSteps.empty() && !_testLoaded) {
 		_testLoaded = true;
 		if (!ConfMan.hasKey("test_script"))
@@ -375,6 +392,19 @@ bool ScoobyEngine::runTestScript() {
 			const Common::Error err = loadGameState(a);
 			debugC(1, kDebugInput, "test load %d: %s", a, err.getDesc().c_str());
 			changed = true;
+		} else if (!strcmp(verb, "type") && sscanf(step.c_str(), "%*s %63s", name) == 1) {
+			for (const char *c = name; *c; c++) {
+				Common::Event k;
+				k.type = Common::EVENT_KEYDOWN;
+				const char ch = *c == '_' ? ' ' : *c;
+				k.kbd = Common::KeyState((Common::KeyCode)tolower((byte)ch), (byte)ch);
+				g_system->getEventManager()->pushEvent(k);
+			}
+		} else if (!strcmp(verb, "key")) {
+			Common::Event k;
+			k.type = Common::EVENT_KEYDOWN;
+			k.kbd = Common::KeyState((Common::KeyCode)a, a < 0x80 ? a : 0);
+			g_system->getEventManager()->pushEvent(k);
 		} else if (!strcmp(verb, "quit")) {
 			quitGame();
 		}
@@ -471,6 +501,8 @@ bool ScoobyEngine::tickOnce(Common::String &nextRoom, int &movie) {
 		_requestedRoom.clear();
 		return true;
 	}
+	if (_requestedLoad >= 0)
+		return true;
 	return _script->getNextRoom(nextRoom, movie) || _inventory->getNextRoom(nextRoom, movie);
 }
 
@@ -599,6 +631,305 @@ void ScoobyEngine::checkMenus() {
 	debugC(3, kDebugScript, "menu check: done");
 }
 
+void ScoobyEngine::checkSignIn() {
+	// Sign In, driven through the engine: where its fields and buttons are,
+	// how a name lays out, what keys and buttons type, the prompt's and the
+	// idle line's ticks, the list's rows, hover, arrows and delete, and
+	// where Play and Quit go, with the new game's values.
+	_checking = true;
+	const uint kMaxTicks = 3000;
+	Common::String next;
+	int movie;
+	SignInRoom *si = nullptr;
+	const Common::Array<Common::String> none;
+	const Common::Array<int> noSlots;
+	auto fresh = [&]() {
+		RoomClass *c;
+		if (_roomClasses.tryGetVal("ROOM_Sign_In", c)) {
+			if (_roomClass == c)
+				_roomClass = nullptr;
+			delete c;
+			_roomClasses.erase("ROOM_Sign_In");
+		}
+		_sound->stop();
+		showRoom("ROOM_Sign_In");
+		si = static_cast<SignInRoom *>(_roomClass);
+		si->setPlayers(none, noSlots);
+		_hover = -1;
+		_mouseDown = false;
+		_mousePos = Common::Point(0, 0);
+	};
+	auto typeKeys = [&](const char *keys) {
+		for (const char *k = keys; *k; k++)
+			si->key((byte)*k, 0);
+		tickOnce(next, movie);
+	};
+	auto shown = [&](const char *keys) {
+		Common::String s;
+		for (const char *k = keys; *k; k++)
+			s += *k == '\b' ? Common::String("<BS>") : *k == '\r' ? Common::String("<CR>") : Common::String(*k);
+		return s;
+	};
+	auto clear = [&]() {
+		typeKeys("\b\b\b\b\b\b\b\b\b\b\b");
+	};
+	auto hidden = [&](int sprite) { return sprite < 0 || _currentRoom->isHidden(sprite); };
+
+	// The room as it starts.
+	fresh();
+	static const char *const kButtons[] = { "OBJ_SIGN_IN_PLAY", "OBJ_SIGN_IN_QUIT", "OBJ_SIGN_IN_U_ARROW", "OBJ_SIGN_IN_D_ARROW",
+		"OBJ_SIGN_IN_R_ARROW", "OBJ_SIGN_IN_L_ARROW" };
+	Common::String found;
+	for (uint i = 0; i < ARRAYSIZE(kButtons); i++)
+		found += si->findButtonFor(kButtons[i], "") >= 0 ? "y" : "n";
+	debugC(3, kDebugScript, "sign in check entry: list %d,%d, name %d,%d, letters %s, buttons %s, countdown %d, idle %d",
+	       si->getListX(), si->getListY(), si->getFieldX(), si->getFieldY(), si->getLetters().c_str(), found.c_str(),
+	       si->getCountdown(), si->getIdle());
+
+	// The prompt, typing and the idle line, with no input.
+	int typingAt = -1, promptAt = -1, idleAt = -1;
+	Common::String idleLine = "-";
+	for (int t = 1; t <= 1100; t++) {
+		const int idle = si->getIdle();
+		tickOnce(next, movie);
+		if (typingAt < 0 && si->isTyping())
+			typingAt = t;
+		if (promptAt < 0 && si->getCountdown() == 0)
+			promptAt = t;
+		if (idleAt < 0 && si->getIdle() > idle) {
+			idleAt = t;
+			if (_sound->isClipPlaying("Sign_In.SHAGGY.Type_Name_Idle"))
+				idleLine = "Sign_In.SHAGGY.Type_Name_Idle";
+		}
+	}
+	debugC(3, kDebugScript, "sign in check timers: typing at %d, prompt at %d, idle at %d says %s", typingAt, promptAt, idleAt,
+	       idleLine.c_str());
+
+	// Names laid out in the typed field: each letter's step and place.
+	static const char *const kTexts[] = { "A", "SCOOBY DOO", "W1 M", "0123456789", "IIIII" };
+	for (uint i = 0; i < ARRAYSIZE(kTexts); i++) {
+		fresh();
+		si->skip();
+		clear();
+		typeKeys(kTexts[i]);
+		Common::String out;
+		const int box = si->getFieldBox(-1);
+		for (uint c = 0; c < si->getName().size(); c++) {
+			const int s = si->getFieldChar(-1, c);
+			if (_currentRoom->isHidden(s))
+				out += " -";
+			else
+				out += Common::String::format(" %u@%d,%d", _currentRoom->getStep(s), _currentRoom->getX(s) - _currentRoom->getX(box),
+				                              _currentRoom->getY(s) - _currentRoom->getY(box));
+		}
+		debugC(3, kDebugScript, "sign in check text '%s':%s", si->getName().c_str(), out.c_str());
+	}
+
+	// What keys type.
+	static const char *const kKeys[] = { "scooby", " a  b ", "abcdefghijkl", "ab\bc", "a!?-z", "doo\r" };
+	for (uint i = 0; i < ARRAYSIZE(kKeys); i++) {
+		fresh();
+		si->skip();
+		typeKeys(kKeys[i]);
+		debugC(3, kDebugScript, "sign in check keys '%s': name '%s', leaving %s", shown(kKeys[i]).c_str(), si->getName().c_str(),
+		       si->getLeavingLine().empty() ? "-" : si->getLeavingLine().c_str());
+	}
+	// Keys before typing starts are lost.
+	fresh();
+	typeKeys("abc");
+	debugC(3, kDebugScript, "sign in check keys before the prompt: name '%s'", si->getName().c_str());
+
+	// The buttons: a letter, space twice, another letter, back three times;
+	// then every letter in turn.
+	fresh();
+	si->skip();
+	const Common::String letters = si->getLetters();
+	const int right = si->findButtonFor("OBJ_SIGN_IN_R_ARROW", ""), left = si->findButtonFor("OBJ_SIGN_IN_L_ARROW", "");
+	Common::String names;
+	if (letters.size() >= 2) {
+		const int b0 = si->findButtonFor("OBJ_SIGN_IN_CHARACTERS", Common::String());
+		int b1 = -1;
+		for (uint s = 0; s < _currentRoom->getSpriteCount(); s++) {
+			if (_currentRoom->getObjectName(s) == "OBJ_SIGN_IN_CHARACTERS" && (int)s != b0) {
+				b1 = s;
+				break;
+			}
+		}
+		const int seq[] = { b0, right, right, b1, left, left, left };
+		for (uint i = 0; i < ARRAYSIZE(seq); i++) {
+			si->click(seq[i]);
+			tickOnce(next, movie);
+			names += Common::String::format(" '%s'", si->getName().c_str());
+		}
+	}
+	debugC(3, kDebugScript, "sign in check buttons:%s", names.c_str());
+	clear();
+	for (uint s = 0; s < _currentRoom->getSpriteCount(); s++) {
+		if (_currentRoom->getObjectName(s) == "OBJ_SIGN_IN_CHARACTERS")
+			si->click(s);
+	}
+	tickOnce(next, movie);
+	debugC(3, kDebugScript, "sign in check every letter: name '%s'", si->getName().c_str());
+
+	// The list: six players.
+	static const char *const kPlayers[] = { "ALPHA", "BRAVO", "CHARLIE", "DELTA", "ECHO", "FOXTROT" };
+	Common::Array<Common::String> players;
+	Common::Array<int> slots;
+	for (uint i = 0; i < ARRAYSIZE(kPlayers); i++) {
+		players.push_back(kPlayers[i]);
+		slots.push_back(i + 1);
+	}
+	auto rows = [&]() {
+		Common::String r;
+		for (int i = 0; i < (int)SignInRoom::kRows; i++)
+			r += Common::String::format("%s%s", i ? "|" : "", si->getFieldText(i).c_str());
+		return Common::String::format("rows [%s] selected %d scroll %d up %d down %d", r.c_str(), si->getSelected(), si->getScroll(),
+		                              !hidden(si->getArrowSprite(true)), !hidden(si->getArrowSprite(false)));
+	};
+	fresh();
+	si->setPlayers(players, slots);
+	tickOnce(next, movie);
+	debugC(3, kDebugScript, "sign in check list: %s", rows().c_str());
+	const int lx = si->getListX(), ly = si->getListY();
+	static const int kPoints[][2] = { { 5, 0 }, { 5, 1 }, { 5, 29 }, { 5, 30 }, { 5, 31 }, { 239, 119 }, { 240, 50 }, { -1, 50 }, { 5, 120 } };
+	Common::String hovers;
+	for (uint i = 0; i < ARRAYSIZE(kPoints); i++) {
+		si->mouseOnList(lx + kPoints[i][0], ly + kPoints[i][1], false);
+		hovers += Common::String::format(" %d,%d:%d", kPoints[i][0], kPoints[i][1], si->getHovered());
+	}
+	debugC(3, kDebugScript, "sign in check hover:%s", hovers.c_str());
+	// The arrows, from the first row selected; a hidden arrow can't be
+	// clicked.
+	si->mouseOnList(lx + 5, ly + 15, true);
+	tickOnce(next, movie);
+	debugC(3, kDebugScript, "sign in check select row 0: %s", rows().c_str());
+	static const char kArrows[] = "DDDDDDUUUUUUUU";
+	for (const char *a = kArrows; *a; a++) {
+		const int arrow = si->getArrowSprite(*a == 'U');
+		const bool shut = hidden(arrow);
+		if (!shut)
+			si->click(arrow);
+		tickOnce(next, movie);
+		debugC(3, kDebugScript, "sign in check %s: %s%s", *a == 'U' ? "up" : "down", shut ? "hidden, " : "", rows().c_str());
+	}
+	// Scrolled to the end, the last row deleted.
+	fresh();
+	si->setPlayers(players, slots);
+	tickOnce(next, movie);
+	si->mouseOnList(lx + 5, ly + 15, true);
+	for (int i = 0; i < 5; i++) {
+		si->click(si->getArrowSprite(false));
+		tickOnce(next, movie);
+	}
+	debugC(3, kDebugScript, "sign in check scrolled: %s", rows().c_str());
+	si->key(0, Common::KEYCODE_DELETE);
+	tickOnce(next, movie);
+	// The rows show it on the next tick: the delete comes after them.
+	tickOnce(next, movie);
+	Common::String left5;
+	for (uint i = 0; i < si->getPlayers().size(); i++)
+		left5 += " " + si->getPlayers()[i];
+	debugC(3, kDebugScript, "sign in check delete: players%s, %s", left5.c_str(), rows().c_str());
+
+	// A saved player, clicked twice: their profile loads.
+	fresh();
+	si->setPlayers(players, slots);
+	tickOnce(next, movie);
+	si->mouseOnList(lx + 5, ly + 45, true);
+	si->mouseOnList(lx + 5, ly + 45, true);
+	const Common::String leaving = si->getLeavingLine();
+	si->skip();
+	next.clear();
+	uint t = 0;
+	while (t < kMaxTicks && _requestedLoad < 0 && !tickOnce(next, movie))
+		t++;
+	debugC(3, kDebugScript, "sign in check saved player: name %s, says %s, loads slot %d, signed in as %s slot %d, StartRoom %s",
+	       si->getName().c_str(), leaving.empty() ? "-" : leaving.c_str(), _requestedLoad, _playerName.c_str(), _playerSlot,
+	       _startRoom.c_str());
+	_requestedLoad = -1;
+
+	// A new player: a new game, then the level select.
+	fresh();
+	si->setPlayers(players, slots);
+	si->skip();
+	typeKeys("newbie\r");
+	si->skip();
+	next.clear();
+	movie = -1;
+	t = 0;
+	while (t < kMaxTicks && !tickOnce(next, movie))
+		t++;
+	debugC(3, kDebugScript, "sign in check new player: to %s movie %d, signed in as %s, slot %s, StartRoom %s, level %d, movies %u",
+	       next.c_str(), movie, _playerName.c_str(), _playerSlot >= 0 && _playerSlot != getAutosaveSlot() ? "free" : "NONE",
+	       _startRoom.c_str(), _difficulty, _seenMovies.size());
+	// The story's values: the fixed ones, and whether the random ones are
+	// in range.
+	static const char *const kFixed[] = { "MoaningActive", "SheriffWaiting", "HotelHallDoor", "SheriffPuzzle", "GummyPuzzle",
+		"TunnelLit", "VaultOpen", "BagsRandomized", "ClockHour", "ClockMinute" };
+	Common::String story;
+	Common::String v;
+	for (uint i = 0; i < ARRAYSIZE(kFixed); i++)
+		story += Common::String::format(" %s=%s", kFixed[i], _profile.getKey(kFixed[i], "Game", v) ? v.c_str() : "-");
+	auto inRange = [&](const char *key, int hi) {
+		return _profile.getKey(key, "Game", v) && !v.empty() && atoi(v.c_str()) >= 0 && atoi(v.c_str()) <= hi &&
+		       Common::String::format("%d", atoi(v.c_str())) == v;
+	};
+	story += Common::String::format(" GraveLocation %s StrongBox %s", inRange("GraveLocation", 8) ? "ok" : "BAD", inRange("StrongBox", 3) ? "ok" : "BAD");
+	uint mask = 0;
+	bool levers = true;
+	for (uint i = 0; i < 4; i++) {
+		const Common::String key = Common::String::format("LeverAlias%u", i);
+		levers = levers && inRange(key.c_str(), 3);
+		if (levers)
+			mask |= 1 << atoi(v.c_str());
+	}
+	story += Common::String::format(" levers %s", levers && mask == 15 ? "ok" : "BAD");
+	static const char *const kVillains[] = { "ARTIE", "ICDOUBLE", "JENNY", "SHERIFF", "GUMMY" };
+	static const char *const kArtifacts[] = { "Bowl", "Deer", "Vase" };
+	bool villain = false, artifact = false;
+	if (_profile.getKey("Whodunit", "Game", v)) {
+		for (uint i = 0; i < ARRAYSIZE(kVillains); i++)
+			villain = villain || v == kVillains[i];
+	}
+	if (_profile.getKey("ArtifactType", "Game", v)) {
+		for (uint i = 0; i < ARRAYSIZE(kArtifacts); i++)
+			artifact = artifact || v == kArtifacts[i];
+	}
+	story += Common::String::format(" Whodunit %s ArtifactType %s", villain ? "ok" : "-", artifact ? "ok" : "-");
+	if (!_profile.hasKey("Whodunit", "Game"))
+		story = " none";
+	debugC(3, kDebugScript, "sign in check story:%s", story.c_str());
+
+	// Play with no name: Shaggy asks for one.
+	fresh();
+	si->skip();
+	_sound->stop();
+	si->click(si->findButtonFor("OBJ_SIGN_IN_PLAY", ""));
+	debugC(3, kDebugScript, "sign in check empty play: leaving %s, hears %s", si->getLeavingLine().empty() ? "-" : si->getLeavingLine().c_str(),
+	       _sound->isClipPlaying("Sign_In.SHAGGY.Type_Name_Idle") ? "Sign_In.SHAGGY.Type_Name_Idle" : "-");
+
+	// Quit.
+	fresh();
+	si->click(si->findButtonFor("OBJ_SIGN_IN_QUIT", ""));
+	const Common::String quitLine = si->getLeavingLine();
+	si->skip();
+	next.clear();
+	t = 0;
+	while (t < kMaxTicks && !tickOnce(next, movie))
+		t++;
+	debugC(3, kDebugScript, "sign in check quit: says %s, to %s, signed in as '%s'", quitLine.empty() ? "-" : quitLine.c_str(),
+	       next.c_str(), _playerName.c_str());
+
+	// Back to no game and no player.
+	_sound->stop();
+	newGame();
+	_startRoom.clear();
+	_profile = Common::INIFile();
+	_requestedLoad = -1;
+	_checking = false;
+	debugC(3, kDebugScript, "sign in check: done");
+}
+
 Common::String ScoobyEngine::getFirstGameRoom() const {
 	// The level select's rooms: Showdown's ROOM_P01_Town_Center, Phantom's
 	// ROOM_P01_Drawbridge.
@@ -639,6 +970,14 @@ bool ScoobyEngine::showRoom(const Common::String &name) {
 
 	if (debugChannelSet(1, kDebugGraphics))
 		debugC(1, kDebugGraphics, "room %s drawn, %dx%d md5 %s", name.c_str(), _room.w, _room.h, hashSurface(_room).c_str());
+
+	// The signed-in player's profile is written as each game room starts.
+	// (When the original writes <name>.sav, game vtable +0x54, isn't
+	// traced.)
+	if (!isMenuRoom(name) && _playerSlot >= 0 && !_checking && _inventory) {
+		const Common::Error err = saveGameState(_playerSlot, _playerName);
+		debugC(1, kDebugScript, "player %s saved in slot %d: %s", _playerName.c_str(), _playerSlot, err.getDesc().c_str());
+	}
 	return true;
 }
 

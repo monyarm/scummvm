@@ -714,6 +714,27 @@ uint Room::addEngineSprite(int parent, const Common::String &obj, const Common::
 	return index;
 }
 
+uint Room::addGroupSprite(int parent, int depth, int x, int y, const Common::String &label) {
+	Sprite s;
+	s.depth = depth;
+	s.frame = 0;
+	s.animated = false;
+	s.offsetX = x;
+	s.offsetY = y;
+	s.hidden = false;
+	s.hitType = 1;
+	s.kind = kKindEngine;
+	s.label = label;
+	s.player.mode = 0;
+	s.player.step = s.player.steps = 0;
+	const uint p = parent < 0 ? 0 : parent;
+	s.x = _sprites[p].x + x;
+	s.y = _sprites[p].y + y;
+	const uint index = addSprite(p, s);
+	buildDrawList();
+	return index;
+}
+
 void Room::setOffset(uint sprite, int x, int y) {
 	_sprites[sprite].offsetX = x;
 	_sprites[sprite].offsetY = y;
@@ -753,6 +774,17 @@ void Room::getSize(uint sprite, int &width, int &height) {
 			height = MAX<int>(height, cel->getHeight());
 		}
 	}
+}
+
+int Room::getFirstCelWidth(uint sprite) {
+	Sprite &s = _sprites[sprite];
+	if (!s.block)
+		return 0;
+	const uint32 frame = getFrame(s);
+	if (!frame || !READ_LE_UINT16(&s.block->data[frame + 4]))
+		return 0;
+	const Cel *cel = getCel(*s.block, READ_LE_UINT32(&s.block->data[frame + kFrameHeaderSize + 4]));
+	return cel ? cel->getWidth() : 0;
 }
 
 bool Room::hasStepPolygon(uint sprite) const {
