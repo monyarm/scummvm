@@ -355,6 +355,8 @@ void RoomScript::tickClickable(Clickable &c) {
 			// The room's handler (vtable +0x14, through game +0x40) does
 			// nothing in the default room; story rooms override it.
 			sendEvent(c.object, true);
+			if (_hooks)
+				_hooks->clicked(c.sprite);
 		}
 	}
 

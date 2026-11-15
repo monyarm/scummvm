@@ -29,6 +29,7 @@
 #include "scooby/chase_rooms.h"
 #include "scooby/detection.h"
 #include "scooby/hotel_rooms.h"
+#include "scooby/stage_rooms.h"
 #include "scooby/inventory.h"
 #include "scooby/room.h"
 #include "scooby/room_class.h"
@@ -1882,6 +1883,263 @@ void ScoobyEngine::checkChases() {
 			delete a;
 			delete b;
 		}
+	}
+
+	// The stage (WP-043).
+	{
+		const char *const kStage = "ROOM_P05_Stage";
+		const char *const kTrap = "ROOM_P06_Stage_Trapdoor";
+		const char *const kSaloon = "ROOM_P12_Saloon";
+		const int levelBefore = getDifficulty();
+		_script->setGhostChance(nullptr, 0);
+		{
+			RoomClass *a = createRoomClass(*this, kStage);
+			RoomClass *b = createRoomClass(*this, kTrap);
+			debugC(3, kDebugScript, "stage check classes: P05_Stage %s; P06_Stage_Trapdoor %s", dynamic_cast<StageRoom *>(a) ? "stage" : a ? "other" : "-",
+			       dynamic_cast<StageTrapdoorRoom *>(b) ? "trapdoor" : b ? "other" : "-");
+			delete a;
+			delete b;
+		}
+		auto stage = [&]() { return dynamic_cast<StageRoom *>(_roomClass); };
+		auto trap = [&]() { return dynamic_cast<StageTrapdoorRoom *>(_roomClass); };
+		auto bags = [&]() {
+			Common::String b;
+			for (uint i = 0; i < 4; i++)
+				b += getGameFlag(Common::String::format("BagDown%u", i)) ? "1" : "0";
+			return b;
+		};
+		auto setBags = [&](const char *b) {
+			for (uint i = 0; i < 4; i++)
+				setGameFlag(Common::String::format("BagDown%u", i), b[i] == '1');
+			setGameFlag("BagsRandomized", true);
+		};
+		auto setAliases = [&](const char *a) {
+			for (uint i = 0; i < 4; i++)
+				setGameInt(Common::String::format("LeverAlias%u", i), a[i] - '0');
+		};
+		auto sprite = [&](int s) {
+			if (s < 0)
+				return Common::String("none");
+			return Common::String::format("%s mode %d step %u of %u depth %d hit %d%s%s", _currentRoom->getAnim(s).c_str(), _currentRoom->getMode(s),
+			                              _currentRoom->getStep(s), _currentRoom->getStepCount(s), _currentRoom->getDepth(s), _currentRoom->getHitType(s),
+			                              _currentRoom->isHidden(s) ? " hidden" : "", _currentRoom->isClickable(s) ? " clickable" : "");
+		};
+		auto hits = [&]() {
+			Common::String h;
+			for (uint i = 0; i < 4; i++)
+				h += trap() && trap()->getLever(i) >= 0 ? Common::String::format("%d", _currentRoom->getHitType(trap()->getLever(i))) : Common::String("-");
+			return h;
+		};
+		auto opening = [&](const char *room) {
+			return Common::String::format("'%s'%s", _script->getOpening().c_str(), _script->getMemory(room).openingPlayed ? " played" : "");
+		};
+
+		// The stage: the sandbags hung by the level, once; Jenny and the way
+		// down by whether she has been met; Shaggy's walk-ins.
+		{
+			Common::String out;
+			for (int level = 0; level < 3; level++) {
+				newGameForCheck();
+				setDifficulty(level);
+				fresh.room(kSaloon);
+				fresh.room(kStage);
+				out += Common::String::format("level %d: bags down %s, BagsRandomized %d; ", level, bags().c_str(), getGameFlag("BagsRandomized") ? 1 : 0);
+				if (level == 0) {
+					for (uint i = 0; i < 4; i++)
+						out += Common::String::format("SANDBAG%u %s; ", i + 1, sprite(stage()->getSandbag(i)).c_str());
+					Character *shaggy = _script->getCharacter("SHAGGY");
+					out += Common::String::format("JENNY %s, way down %s; Shaggy from the saloon state %d %s; ", Find::sprite(*this, "OBJ_JENNY") >= 0 ? "placed" : "none",
+					                              Find::sprite(*this, "OBJ_P05_T0_P06") >= 0 ? "placed" : "none", shaggy ? shaggy->getState() : -1,
+					                              shaggy ? _currentRoom->getAnim(shaggy->getSprite()).c_str() : "-");
+					setBags("1111");
+					showRoom(kSaloon);
+					showRoom(kStage);
+					out += Common::String::format("again with 1111: %s; ", bags().c_str());
+					showRoom(kTrap);
+					showRoom(kStage);
+					shaggy = _script->getCharacter("SHAGGY");
+					out += Common::String::format("Shaggy from under the stage state %d %s; ", shaggy ? shaggy->getState() : -1,
+					                              shaggy ? _currentRoom->getAnim(shaggy->getSprite()).c_str() : "-");
+				}
+			}
+			debugC(3, kDebugScript, "stage check stage: %s", out.c_str());
+		}
+
+		// Under the stage: the placements, the openings by level, the knocks.
+		{
+			newGameForCheck();
+			setDifficulty(0);
+			setBags("0111");
+			fresh.room(kStage);
+			fresh.room(kTrap);
+			Common::String out;
+			for (uint i = 0; i < 4; i++)
+				out += Common::String::format("LEVER%u %s; ", i + 1, sprite(trap()->getLever(i)).c_str());
+			for (uint i = 0; i < 4; i++)
+				out += Common::String::format("SANDBAG%u %s; ", i + 1, sprite(trap()->getSandbag(i)).c_str());
+			out += Common::String::format("DOOR %s; EXIT %s; knock countdown %d", sprite(trap()->getDoor()).c_str(), sprite(trap()->getExit()).c_str(),
+			                              trap()->getKnockCountdown());
+			tick1();
+			out += Common::String::format("; after tick 1: %d, levers hit %s", trap()->getKnockCountdown(), hits().c_str());
+			for (uint t = 2; t <= 75; t++) {
+				tick1();
+				if (t == 74 || t == 75)
+					out += Common::String::format(", after tick %u: %d", t, trap()->getKnockCountdown());
+			}
+			debugC(3, kDebugScript, "stage check trapdoor: %s", out.c_str());
+			out.clear();
+			for (int level = 0; level < 3; level++) {
+				newGameForCheck();
+				setDifficulty(level);
+				setBags("1111");
+				fresh.room(kStage);
+				out += Common::String::format("level %d:", level);
+				for (uint k = 0; k < 4; k++) {
+					if (k == 0)
+						fresh.room(kTrap);
+					else
+						showRoom(kTrap);
+					out += " " + opening(kTrap);
+					_script->skip();
+					showRoom(kStage);
+				}
+				out += "; ";
+			}
+			debugC(3, kDebugScript, "stage check trapdoor openings: %s", out.c_str());
+		}
+
+		// The levers: each from four bags down, by level, with the aliases in
+		// order; then other aliases; a lever twice; the levers held while
+		// the bags move.
+		auto pull = [&](int level, const char *aliases, const char *from, uint lever) {
+			newGameForCheck();
+			setDifficulty(level);
+			setAliases(aliases);
+			setBags(from);
+			fresh.room(kStage);
+			fresh.room(kTrap);
+			_script->skip();
+			tick1();
+			_script->clickClickable(trap()->getLever(lever));
+			tick1();
+		};
+		{
+			Common::String out;
+			for (int level = 0; level < 3; level++) {
+				out += Common::String::format("level %d:", level);
+				for (uint n = 0; n < 4; n++) {
+					pull(level, "0123", "1111", n);
+					out += Common::String::format(" %u %s", n + 1, bags().c_str());
+				}
+				out += "; ";
+			}
+			pull(0, "2031", "1111", 0);
+			out += Common::String::format("aliases 2031, lever 1: %s; ", bags().c_str());
+			pull(3, "0123", "1111", 0);
+			out += Common::String::format("level 3, lever 1: %s", bags().c_str());
+			debugC(3, kDebugScript, "stage check levers: %s", out.c_str());
+		}
+		{
+			pull(0, "0123", "1111", 0);
+			Common::String out = Common::String::format("lever 1: %s, SANDBAG1 %s, sound %s, levers hit %s", bags().c_str(),
+			                                            sprite(trap()->getSandbag(0)).c_str(), trap()->getLastSound().c_str(), hits().c_str());
+			int back = -1;
+			for (uint t = 2; t <= kMax && back < 0; t++) {
+				tick1();
+				if (hits() == "2222")
+					back = t;
+			}
+			out += Common::String::format("; levers back at tick %d, SANDBAG1 %s", back, sprite(trap()->getSandbag(0)).c_str());
+			_script->clickClickable(trap()->getLever(0));
+			tick1();
+			out += Common::String::format("; again: %s, SANDBAG1 %s, sound %s", bags().c_str(), sprite(trap()->getSandbag(0)).c_str(),
+			                              trap()->getLastSound().c_str());
+			debugC(3, kDebugScript, "stage check lever moves: %s", out.c_str());
+		}
+
+		// The trapdoor opens: the last bag up. Jenny met; up onto the stage
+		// through movie 4.
+		{
+			pull(0, "0123", "1000", 0);
+			Common::String out = Common::String::format("bags %s, DOOR %s, opening %d, Jenny met %d, sound %s, EXIT hit %d, levers hit %s",
+			                                            bags().c_str(), sprite(trap()->getDoor()).c_str(), trap()->isDoorOpening() ? 1 : 0,
+			                                            _inventory->hasMetSuspect("JENNY") ? 1 : 0, trap()->getLastSound().c_str(),
+			                                            _currentRoom->getHitType(trap()->getExit()), hits().c_str());
+			int out1 = -1, change = -1;
+			RoomScript::Exit last;
+			Common::String held;
+			for (uint t = 2; t <= kMax && change < 0; t++) {
+				if (tick1()) {
+					change = t;
+				} else if (out1 < 0 && trap() && trap()->getLastExit().destination == kStage) {
+					out1 = t;
+					last = trap()->getLastExit();
+					held = hits();
+				}
+			}
+			out += Common::String::format("; out at tick %d (levers hit %s) to %s movie %d; next %s movie %d at tick %d", out1, held.c_str(),
+			                              last.destination.c_str(), last.movie, run.next.c_str(), run.movie, change);
+			debugC(3, kDebugScript, "stage check trapdoor opens: %s", out.c_str());
+		}
+
+		// Jenny on the stage: the hammer, her scene and clue; she gives, the
+		// thanks, the suspects. Clicked: a line, with the arrow only.
+		{
+			newGameForCheck();
+			setDifficulty(0);
+			setBags("0000");
+			_inventory->meetSuspect("JENNY");
+			fresh.room(kTrap);
+			fresh.room(kStage);
+			Character *jenny = _script->getCharacter("JENNY");
+			Character *shaggy = _script->getCharacter("SHAGGY");
+			Common::String out = Common::String::format("JENNY %s, way down %s, hammer %d, scene '%s' held %d, clue owner %d, gives %d; Shaggy %s; ",
+			                                            jenny ? "placed" : "none", Find::sprite(*this, "OBJ_P05_T0_P06") >= 0 ? "placed" : "none",
+			                                            _inventory->hasItem("OBJ_INV_HAMMER") ? 1 : 0, stage()->getLastScene().c_str(), _script->isBusy() ? 1 : 0,
+			                                            isClueOwner("JENNY") ? 1 : 0, stage()->isGiving() ? 1 : 0,
+			                                            shaggy ? _currentRoom->getAnim(shaggy->getSprite()).c_str() : "-");
+			_script->skip();
+			int gives = -1, thanks = -1, change = -1;
+			Common::String anim;
+			for (uint t = 1; t <= kMax && change < 0; t++) {
+				if (tick1()) {
+					change = t;
+					break;
+				}
+				jenny = _script->getCharacter("JENNY");
+				if (gives < 0 && jenny && jenny->getState() == Character::kStateAct) {
+					gives = t;
+					anim = Common::String::format("%s steps %u, held %d", _currentRoom->getAnim(jenny->getSprite()).c_str(),
+					                              _currentRoom->getStepCount(jenny->getSprite()), stage()->isBusy() ? 1 : 0);
+				}
+				if (thanks < 0 && _script->isScenePlaying() && _script->getScene() == "Global.Thank_You_")
+					thanks = t;
+				if (_script->isScenePlaying())
+					_script->skip();
+			}
+			out += Common::String::format("gives at tick %d (%s); thanks at tick %d; next %s", gives, anim.c_str(), thanks, run.next.c_str());
+			// Back with her clue given: no scene; clicked, a line.
+			showRoom(kStage);
+			out += Common::String::format("; back: scene '%s', gives %d", stage()->getLastScene().c_str(), stage()->isGiving() ? 1 : 0);
+			jenny = _script->getCharacter("JENNY");
+			if (jenny) {
+				_roomClass->click(jenny->getSprite());
+				tick1();
+				const Common::String line = stage()->getLastScene();
+				out += Common::String::format("; clicked: %s", line.hasPrefix("Stage.180") && line.hasSuffix("_") ? "a Stage.180n_ line" : line.c_str());
+				out += Common::String::format(", held %d", _script->isBusy() ? 1 : 0);
+				_script->skip();
+				showRoom(kStage);
+				_inventory->setCursor("ANIM_CURSORRUSTY_HAMMER");
+				_roomClass->click(jenny->getSprite());
+				tick1();
+				out += Common::String::format("; with the hammer: '%s'", stage()->getLastScene().c_str());
+				_inventory->setCursor("ANIM_CURSORARROW");
+			}
+			debugC(3, kDebugScript, "stage check jenny: %s", out.c_str());
+		}
+		_script->setGhostChance(&_randomSource, ConfMan.hasKey("ghost_chance") ? (uint)ConfMan.getInt("ghost_chance") : 30);
+		setDifficulty(levelBefore);
 	}
 	newGameForCheck();
 	_checking = false;

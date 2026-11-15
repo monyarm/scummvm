@@ -71,6 +71,11 @@ public:
 	 * gang came from.
 	 */
 	virtual void arrive(const Common::String &from) {}
+	/**
+	 * A clickable's callback (+0x78, set by 0x401740), right after its
+	 * click's event: @p sprite is the clickable.
+	 */
+	virtual void clicked(uint sprite) {}
 };
 
 /**

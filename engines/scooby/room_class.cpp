@@ -23,6 +23,7 @@
 
 #include "scooby/detection.h"
 #include "scooby/hotel_rooms.h"
+#include "scooby/stage_rooms.h"
 #include "scooby/menu_rooms.h"
 #include "scooby/options_rooms.h"
 #include "scooby/accusation_rooms.h"
@@ -165,6 +166,8 @@ static RoomClass *buildRoomClass(ScoobyEngine &engine, const Common::String &roo
 		return tunnel;
 	if (RoomClass *hotel = createHotelRoom(engine, room))
 		return hotel;
+	if (RoomClass *stage = createStageRoom(engine, room))
+		return stage;
 	// The story rooms (story_rooms.cpp); every other room gets the base
 	// class for now.
 	return createStoryRoom(engine, room);
