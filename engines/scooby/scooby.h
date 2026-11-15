@@ -39,6 +39,7 @@ namespace Scooby {
 
 class ArtArchive;
 class Inventory;
+class RoomClass;
 class Room;
 class RoomScript;
 class Sound;
@@ -61,6 +62,10 @@ private:
 	void checkAllInventory();
 	void checkAllHints();
 	void checkProfile();
+	void checkMenus();
+	bool _checking = false;
+	/** One game tick as run() does it; true if it asks for another room. */
+	bool tickOnce(Common::String &nextRoom, int &movie);
 	void logProfile(const char *what, const Common::String &text);
 
 	// The player profile (profile.cpp): the original's <name>.sav, which a
@@ -74,6 +79,15 @@ private:
 	void drawRoom();
 	void updateHover(int x, int y);
 	bool handleMouse(bool click, const Common::Point &p);
+
+	// Room classes (room_class.h), built once per room name and kept, as the
+	// original's factory builds them when the game starts.
+	Common::HashMap<Common::String, RoomClass *> _roomClasses;
+	RoomClass *_roomClass = nullptr;
+	bool _mouseDown = false;
+	int _difficulty = 0;            // game +0x160
+	Common::String _requestedRoom;  // game vtable +0x04 / +0x08
+	int _requestedMovie = -1;
 	bool runTestScript();
 	Common::Array<Common::String> _testSteps;
 	uint _testStep = 0;
@@ -130,6 +144,25 @@ public:
 	/** The INI file of the game's objects */
 	const Common::INIFile &getObjectIni() const { return _objectIni; }
 
+	// For room classes.
+	Room *getRoom() const { return _currentRoom; }
+	RoomScript *getScript() const { return _script; }
+	/** The sprite under the mouse, or -1. */
+	int getHover() const { return _hover; }
+	bool isMouseDown() const { return _mouseDown; }
+	/** Go to @p room after the current tick, after @p movie if 0-74 (game vtable +0x04, +0x08). */
+	void requestRoom(const Common::String &room, int movie = -1);
+	/** Leave by a room's exit (vtable +0x24) for @p room: no scene, no walk. */
+	void exitTo(const Common::String &room);
+	/** Quit the game (game +0x110), or only log it during the checks. */
+	void requestQuit();
+	int getDifficulty() const { return _difficulty; }
+	void setDifficulty(int level) { _difficulty = level; }
+	/** The story's first room: ROOM_P01_Town_Center, ROOM_P01_Drawbridge. */
+	Common::String getFirstGameRoom() const;
+	/** The class of @p room, built on first use, or nullptr for the base class. */
+	RoomClass *getRoomClass(const Common::String &room);
+
 	/**
 	 * Draws a room as it is set up on entry: its layers and every placement
 	 * at step 0, in the original's draw order
@@ -141,6 +174,8 @@ public:
 	 * seen. Returns false, after a warning, if the file can't be played.
 	 */
 	bool playMovie(int id);
+	/** Ids 0 and 25-28 (0x42DE10). */
+	static bool isTitleMovie(int id) { return id == 0 || (id >= 25 && id <= 28); }
 
 	/**
 	 * Gets a random number

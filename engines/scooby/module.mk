@@ -5,7 +5,9 @@ MODULE_OBJS = \
 	cel.o \
 	character.o \
 	inventory.o \
+	menu_rooms.o \
 	profile.o \
+	room_class.o \
 	room.o \
 	room_script.o \
 	scooby.o \

@@ -117,6 +117,8 @@ Room::Room(const ArtArchive &art, const Common::INIFile &objectIni) :
 	_cursor.x = _cursor.y = 0;
 	_cursor.hidden = false;
 	_cursor.hitType = 1;
+	for (uint slot = 0; slot < kRoomLayerCount; slot++)
+		_layerSprites[slot] = -1;
 }
 
 Room::~Room() {
@@ -355,6 +357,8 @@ bool Room::load(const Common::String &name) {
 		s.label = Common::String::format("layer %u", slot);
 		layers[slot] = addSprite(0, s);
 	}
+	for (uint slot = 0; slot < kRoomLayerCount; slot++)
+		_layerSprites[slot] = layers[slot];
 
 	// One sprite per placement, started as its kind's constructor starts it.
 	const uint32 count = READ_LE_UINT32(&b[kRoomPlacementCount]);
@@ -574,7 +578,10 @@ uint32 Room::getFrame(const Sprite &s) const {
 uint32 Room::getPolygon(const Sprite &s) const {
 	if (!s.animated)
 		return 0;
-	return READ_LE_UINT32(&s.block->data[s.player.record + kSequenceHeaderSize + kStepSize * s.player.step + kStepPolygon]);
+	const uint32 polygon = READ_LE_UINT32(&s.block->data[s.player.record + kSequenceHeaderSize + kStepSize * s.player.step + kStepPolygon]);
+	if (!polygon && s.firstStepHit)
+		return READ_LE_UINT32(&s.block->data[s.player.record + kSequenceHeaderSize + kStepPolygon]);
+	return polygon;
 }
 
 const Cel *Room::getCel(Block &block, uint32 offset) {
@@ -746,6 +753,17 @@ void Room::getSize(uint sprite, int &width, int &height) {
 			height = MAX<int>(height, cel->getHeight());
 		}
 	}
+}
+
+bool Room::hasStepPolygon(uint sprite) const {
+	const Sprite &s = _sprites[sprite];
+	if (!s.animated || !s.block)
+		return false;
+	for (uint32 k = 0; k < s.player.steps; k++) {
+		if (READ_LE_UINT32(&s.block->data[s.player.record + kSequenceHeaderSize + kStepSize * k + kStepPolygon]))
+			return true;
+	}
+	return false;
 }
 
 void Room::setPlayer(uint sprite, int mode, int startStep) {

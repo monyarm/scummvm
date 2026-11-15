@@ -68,6 +68,7 @@ void ScoobyEngine::buildProfile(Common::INIFile &profile) {
 	// its room is left, and 0x407780 the Inventory section.
 	if (!_startRoom.empty())
 		profile.setKey("StartRoom", "Game", _startRoom);
+	profile.setKey("Difficulty", "Game", Common::String::format("%d", _difficulty));
 	for (int id = 0; id < kMovieIds; id++)
 		profile.setKey(Common::String::format("MovieHistory%d", id), "Game", _seenMovies.contains(id) ? "Yes" : "No");
 	for (Common::HashMap<Common::String, bool, Common::IgnoreCase_Hash, Common::IgnoreCase_EqualTo>::const_iterator it = _takenExits.begin();
@@ -86,6 +87,9 @@ bool ScoobyEngine::applyProfile(const Common::INIFile &profile) {
 	Common::String v;
 	if (profile.getKey("StartRoom", "Game", v) && !v.empty())
 		_startRoom = v;
+	// 0x40A540: atoi.
+	if (profile.getKey("Difficulty", "Game", v) && !v.empty())
+		_difficulty = atoi(v.c_str());
 	_seenMovies.clear();
 	for (int id = 0; id < kMovieIds; id++) {
 		// 0x40A170: only "Yes" is true.

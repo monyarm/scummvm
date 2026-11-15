@@ -121,6 +121,12 @@ const Sound::Channel *Sound::findChannel(const Common::String &name) const {
 	return nullptr;
 }
 
+void Sound::stopClip(const Common::String &name) {
+	const Channel *c = findChannel(name);
+	if (c)
+		_mixer->stopHandle(c->handle);
+}
+
 bool Sound::isClipPlaying(const Common::String &name) const {
 	return findChannel(name) != nullptr;
 }

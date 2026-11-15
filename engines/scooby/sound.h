@@ -64,6 +64,8 @@ public:
 	bool play(const Common::String &name);
 	/** Stop every file's clip. */
 	void stop();
+	/** Stop @p name if it is playing (0x434CB0, by id). */
+	void stopClip(const Common::String &name);
 
 	// The clip played last, from any file.
 	bool isPlaying() const;

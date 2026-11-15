@@ -25,6 +25,8 @@
 #include "scooby/console.h"
 #include "scooby/inventory.h"
 #include "scooby/room.h"
+#include "scooby/menu_rooms.h"
+#include "scooby/room_class.h"
 #include "scooby/room_script.h"
 #include "scooby/sound.h"
 #include "scooby/toolbar_rooms.h"
@@ -58,6 +60,8 @@ ScoobyEngine::ScoobyEngine(OSystem *syst, const ScoobyGameDescription *gameDesc)
 }
 
 ScoobyEngine::~ScoobyEngine() {
+	for (Common::HashMap<Common::String, RoomClass *>::iterator it = _roomClasses.begin(); it != _roomClasses.end(); ++it)
+		delete it->_value;
 	delete _inventory;
 	delete _script;
 	delete _sound;
@@ -126,14 +130,19 @@ Common::Error ScoobyEngine::run() {
 		checkAllInventory();
 		checkAllHints();
 		checkProfile();
+		checkMenus();
 		checkAllMovies();
 	}
 
-	// No game logic yet: show a room as it is set up on entry and let its
-	// sprites play. The console's "room" command switches rooms. A
-	// "start_room" key in the game's config domain picks the first one, for
-	// testing.
+	// The game starts in Scooby.ini's WesternStartRoom (Phantom:
+	// MedievalStartRoom), ROOM_Title_Screen by default. A "start_room" key in
+	// the game's config domain picks another, for testing; the console's
+	// "room" command switches rooms.
 	Common::String room = _art->getRoomName(0);
+	for (uint i = 0; i < _art->getRoomCount(); i++) {
+		if (_art->getRoomName(i) == "ROOM_Title_Screen")
+			room = _art->getRoomName(i);
+	}
 	if (ConfMan.hasKey("start_room"))
 		room = ConfMan.get("start_room");
 	showRoom(room);
@@ -190,6 +199,13 @@ Common::Error ScoobyEngine::run() {
 		while (g_system->getEventManager()->pollEvent(e)) {
 			if (e.type == Common::EVENT_MOUSEMOVE || e.type == Common::EVENT_LBUTTONDOWN)
 				changed = handleMouse(e.type == Common::EVENT_LBUTTONDOWN, e.mouse) || changed;
+			if (e.type == Common::EVENT_LBUTTONDOWN)
+				_mouseDown = true;
+			else if (e.type == Common::EVENT_LBUTTONUP)
+				_mouseDown = false;
+			else if (e.type == Common::EVENT_KEYDOWN && (e.kbd.keycode == Common::KEYCODE_ESCAPE || e.kbd.keycode == Common::KEYCODE_SPACE) &&
+			         _roomClass)
+				_roomClass->skip();
 		}
 
 		// 0x435BC0: the game owes elapsed_ms * 36 / 1000 ticks since the
@@ -204,8 +220,18 @@ Common::Error ScoobyEngine::run() {
 			_inventory->tickObjects();
 			_script->tick();
 			_inventory->tickGame();
+			if (_roomClass) {
+				_roomClass->tick();
+				changed = true;
+			}
 			changed = changed || _script->isBusy() || _inventory->getState() != Inventory::kStateParked ||
 			          _inventory->isScrappyTalking();
+			if (!_requestedRoom.empty()) {
+				nextRoom = _requestedRoom;
+				movie = _requestedMovie;
+				_requestedRoom.clear();
+				break;
+			}
 			if (_script->getNextRoom(nextRoom, movie) || _inventory->getNextRoom(nextRoom, movie))
 				break;
 		}
@@ -269,8 +295,16 @@ bool ScoobyEngine::handleMouse(bool click, const Common::Point &p) {
 	}
 	if (_script->isBusy() || _inventory->isInputBlocked())
 		return false;
+	// A room class holding input takes a click as its skip key (the title).
+	if (_roomClass && _roomClass->isBusy()) {
+		_roomClass->skip();
+		return false;
+	}
 	updateHover(p.x, p.y);
 	debugC(1, kDebugInput, "click at %d,%d on %s", p.x, p.y, _hover >= 0 ? _currentRoom->getLabel(_hover).c_str() : "-");
+	// A room class's own objects (the menus' buttons) first.
+	if (_roomClass && _roomClass->click(_hover))
+		return true;
 	// The toolbar, inventory and requires objects take the click on the next
 	// tick, and so does the game's update (0x4098B0).
 	_inventory->click(_hover);
@@ -359,6 +393,12 @@ void ScoobyEngine::updateHover(int x, int y) {
 	// The cursor shows the hovered object's rollover (vtable +0x18), or the
 	// default arrow.
 	_hover = _currentRoom->hitTest(x, y);
+	_currentRoom->setCursorPosition(x, y);
+	// A room class holding input hides the cursor (0x435150).
+	if (_roomClass && _roomClass->isBusy()) {
+		_currentRoom->setCursor("");
+		return;
+	}
 	// The hovered object's rollover for the game's cursor (vtable +0x18),
 	// else the game's cursor (0x4098B0).
 	const Common::String cursorName = _inventory->getCursorFor(_hover);
@@ -385,7 +425,192 @@ void ScoobyEngine::clickExit(int sprite) {
 	_script->startExit(exit);
 }
 
+RoomClass *ScoobyEngine::getRoomClass(const Common::String &room) {
+	RoomClass *c;
+	if (!_roomClasses.tryGetVal(room, c)) {
+		c = createRoomClass(*this, room);
+		_roomClasses[room] = c;
+	}
+	return c;
+}
+
+void ScoobyEngine::requestRoom(const Common::String &room, int movie) {
+	_requestedRoom = room;
+	_requestedMovie = movie;
+}
+
+void ScoobyEngine::exitTo(const Common::String &room) {
+	// The base exit handler (0x40C1E0) with an exit that names only its
+	// room: the cursor fades, input stops, and with no scene and no gang to
+	// walk off, the room changes.
+	RoomScript::Exit exit;
+	exit.destination = room;
+	exit.movie = -1;
+	_currentRoom->setCursor("");
+	_script->startExit(exit);
+}
+
+void ScoobyEngine::requestQuit() {
+	if (_checking) {
+		debugC(1, kDebugScript, "quit asked for (not during the checks)");
+		return;
+	}
+	quitGame();
+}
+
+bool ScoobyEngine::tickOnce(Common::String &nextRoom, int &movie) {
+	_currentRoom->tick();
+	_inventory->tickObjects();
+	_script->tick();
+	_inventory->tickGame();
+	if (_roomClass)
+		_roomClass->tick();
+	if (!_requestedRoom.empty()) {
+		nextRoom = _requestedRoom;
+		movie = _requestedMovie;
+		_requestedRoom.clear();
+		return true;
+	}
+	return _script->getNextRoom(nextRoom, movie) || _inventory->getNextRoom(nextRoom, movie);
+}
+
+void ScoobyEngine::checkMenus() {
+	// The front end, driven through the engine: the title's steps, pan and
+	// countdown; each menu button's frames, hit test, sound and room; both
+	// answers on the quit screen. Hover and the mouse button are set
+	// directly.
+	_checking = true;
+	const uint kMaxTicks = 2000;
+	Common::String next;
+	int movie;
+	// A game room to open the menus from.
+	const Common::String game = getFirstGameRoom();
+	struct Fresh {
+		ScoobyEngine &e;
+		void room(const Common::String &name) {
+			RoomClass *c;
+			if (e._roomClasses.tryGetVal(name, c)) {
+				if (e._roomClass == c)
+					e._roomClass = nullptr;
+				delete c;
+				e._roomClasses.erase(name);
+			}
+		}
+	} fresh = { *this };
+
+	// The title from the start of a game: its steps ask for movies, then it
+	// shows.
+	fresh.room("ROOM_Title_Screen");
+	for (int visit = 1; visit <= 4; visit++) {
+		showRoom("ROOM_Title_Screen");
+		debugC(3, kDebugScript, "menu check title visit %d: asks for %s, movie %d", visit,
+		       _requestedRoom.empty() ? "-" : _requestedRoom.c_str(), _requestedRoom.empty() ? -1 : _requestedMovie);
+		if (_requestedRoom.empty())
+			break;
+	}
+	const int layer = _currentRoom->getLayerSprite(0);
+	Common::String pans;
+	uint t = 0;
+	while (t < kMaxTicks) {
+		t++;
+		next.clear();
+		const bool asks = tickOnce(next, movie);
+		if (t <= 3 || (t >= 318 && t <= 324))
+			pans += Common::String::format("%u:%d ", t, layer >= 0 ? _currentRoom->getX(layer) : 0);
+		if (asks)
+			break;
+	}
+	debugC(3, kDebugScript, "menu check title: busy %d, layer 0 x [%s], to %s after %u ticks", _roomClass && _roomClass->isBusy(),
+	       pans.c_str(), next.c_str(), t);
+
+	// Each menu's buttons, one fresh visit per button: the frames under the
+	// mouse and pressed, the sound, and where the click goes.
+	static const char *const kMenus[] = { "ROOM_Main_Menu", "ROOM_Difficulty" };
+	for (uint m = 0; m < ARRAYSIZE(kMenus); m++) {
+		for (uint b = 0;; b++) {
+			fresh.room(kMenus[m]);
+			showRoom(game);
+			showRoom(kMenus[m]);
+			ButtonRoom *menu = static_cast<ButtonRoom *>(_roomClass);
+			if (!menu || b >= menu->getButtonCount())
+				break;
+			const int s = menu->getButtonSprite(b);
+			_mouseDown = false;
+			_hover = -1;
+			tickOnce(next, movie);
+			const uint32 rest = _currentRoom->getStep(s);
+			_sound->stop();
+			_hover = s;
+			tickOnce(next, movie);
+			const uint32 over = _currentRoom->getStep(s);
+			const Common::String heard = _sound->isPlaying() ? _sound->getPlayingName() : Common::String("-");
+			_mouseDown = true;
+			tickOnce(next, movie);
+			const uint32 pressed = _currentRoom->getStep(s);
+			_mouseDown = false;
+			menu->click(s);
+			next.clear();
+			movie = -1;
+			t = 0;
+			while (t < kMaxTicks && !tickOnce(next, movie))
+				t++;
+			debugC(3, kDebugScript, "menu check %s %s: hit %d, steps %u, frames %u %u %u, hears %s, to %s movie %d after %u ticks%s",
+			       kMenus[m], _currentRoom->getObjectName(s).c_str(), _currentRoom->hasStepPolygon(s) ? 2 : 1, _currentRoom->getStepCount(s),
+			       rest, over, pressed, heard.c_str(), next.c_str(), movie, t,
+			       m == 1 ? Common::String::format(", level %d", _difficulty).c_str() : "");
+			_sound->stop();
+		}
+	}
+
+	// Play from the title goes to Sign In.
+	fresh.room("ROOM_Main_Menu");
+	fresh.room("ROOM_Title_Screen");
+	showRoom("ROOM_Title_Screen");
+	showRoom("ROOM_Main_Menu");
+	debugC(3, kDebugScript, "menu check main menu from the title: Play goes to %s",
+	       static_cast<MainMenuRoom *>(_roomClass)->getReturnRoom() == "ROOM_Title_Screen" ? "ROOM_Sign_In" : "?");
+
+	// The quit screen, opened from the menu: the eyes follow, then each
+	// answer's line and where it ends.
+	for (int yes = 0; yes <= 1; yes++) {
+		fresh.room("ROOM_Main_Menu");
+		fresh.room("ROOM_Quit");
+		showRoom(game);
+		showRoom("ROOM_Main_Menu");
+		showRoom("ROOM_Quit");
+		QuitRoom *quit = static_cast<QuitRoom *>(_roomClass);
+		const int button = quit->getButtonSprite(yes ? 0 : 1);
+		_hover = button;
+		tickOnce(next, movie);
+		const int eyes = _currentRoom->getStep(quit->getEyesSprite());
+		_hover = -1;
+		quit->click(button);
+		const Common::String line = _sound->isPlaying() ? _sound->getPlayingName() : Common::String("-");
+		_sound->stop();
+		next.clear();
+		t = 0;
+		while (t < kMaxTicks && !tickOnce(next, movie) && !(quit->isQuitting() && quit->isDone()))
+			t++;
+		debugC(3, kDebugScript, "menu check quit %s: eyes step %d, Scooby says %s, then %s", yes ? "yes" : "no", eyes, line.c_str(),
+		       quit->isQuitting() ? "quit" : next.c_str());
+	}
+	_sound->stop();
+	_checking = false;
+	debugC(3, kDebugScript, "menu check: done");
+}
+
+Common::String ScoobyEngine::getFirstGameRoom() const {
+	// The level select's rooms: Showdown's ROOM_P01_Town_Center, Phantom's
+	// ROOM_P01_Drawbridge.
+	for (uint i = 0; i < _art->getRoomCount(); i++) {
+		if (_art->getRoomName(i).hasPrefix("ROOM_P01_"))
+			return _art->getRoomName(i);
+	}
+	return _art->getRoomName(0);
+}
+
 bool ScoobyEngine::showRoom(const Common::String &name) {
+	const Common::String from = _currentRoom ? _currentRoom->getName() : Common::String();
 	if (!_currentRoom || !_currentRoom->load(name))
 		return false;
 	// 0x40B920 (game +0x48): the profile's StartRoom is the last room that
@@ -398,9 +623,17 @@ bool ScoobyEngine::showRoom(const Common::String &name) {
 		_inventory->enterRoom();
 	_hover = _lastHover = -1;
 	_currentRoom->setCursor("ANIM_CURSORARROW");
+	// The room's own class, after the base entry.
+	_requestedRoom.clear();
+	_roomClass = _inventory ? getRoomClass(name) : nullptr;
+	if (_roomClass)
+		_roomClass->enter(from);
 
 	_system->fillScreen(0);
-	drawRoom();
+	// A class that asks for another room at once (the title's movies) isn't
+	// shown first.
+	if (_requestedRoom.empty())
+		drawRoom();
 	_tickBase = _system->getMillis();
 	_ticksDone = 0;
 

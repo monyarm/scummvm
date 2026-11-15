@@ -151,6 +151,18 @@ public:
 	void getSize(uint sprite, int &width, int &height);
 	/** 0x430AA0 on the current sequence: set the mode and the step. */
 	void setPlayer(uint sprite, int mode, int startStep);
+	/** The sprite of layer @p slot (0-9), or -1 if the room has none there. */
+	int getLayerSprite(uint slot) const { return slot < 10 ? _layerSprites[slot] : -1; }
+	/** Set the hit test: 1 for cels and masks, 2 for the step polygon. */
+	void setHitType(uint sprite, int type) { _sprites[sprite].hitType = type; }
+	/** Whether any step of the sprite's sequence has a polygon (0x436FC0). */
+	bool hasStepPolygon(uint sprite) const;
+	/**
+	 * Hit-test a step without a polygon with the sequence's first step's
+	 * (an inference for the menus' buttons: their hover and pressed steps
+	 * carry no polygon).
+	 */
+	void setFirstStepHit(uint sprite) { _sprites[sprite].firstStepHit = true; }
 
 	/** Show the OBJ_CURSOR sprite playing @p anim at (x, y); an empty name hides it. */
 	bool setCursor(const Common::String &anim);
@@ -194,6 +206,7 @@ private:
 		Player player;
 		int x, y;                     // on the room's surface
 		int offsetX = 0, offsetY = 0; // from the parent (+0xC, +0x10)
+		bool firstStepHit = false;    // a button: see setFirstStepHit()
 		bool hidden;                  // +0x14: neither drawn nor hit
 		int hitType;                  // +4: 1 = cel pixels and masks, 2 = step polygon
 		uint parent;                  // index into _sprites; the root is its own parent
@@ -235,6 +248,7 @@ private:
 	Common::Array<Sprite> _sprites;
 	Common::Array<uint> _drawList; // front to back
 	Common::Array<uint> _characters;
+	int _layerSprites[10];
 	Common::String _order;
 	Common::HashMap<Common::String, BlockPtr, Common::IgnoreCase_Hash, Common::IgnoreCase_EqualTo> _objects;
 };

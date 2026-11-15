@@ -45,9 +45,17 @@ static Common::Path getMovieName(int id) {
 
 bool ScoobyEngine::playMovie(int id) {
 	// 0x42DE10: the first viewing can't be skipped unless Scooby.ini's
-	// AbortMovies is on; later ones can.
-	const bool skippable = _seenMovies.contains(id) || (ConfMan.hasKey("abort_movies") && ConfMan.getBool("abort_movies"));
-	_seenMovies[id] = true;
+	// AbortMovies is on; later ones can. The title movies (0, 25-28) aren't
+	// in the history: they can be skipped once the title room has set the
+	// machine's GBHTitleMovies (Phantom: FBFTitleMovies) to Yes, kept here as
+	// the "title_movies_seen" config key.
+	bool skippable;
+	if (isTitleMovie(id)) {
+		skippable = ConfMan.hasKey("title_movies_seen") && ConfMan.getBool("title_movies_seen");
+	} else {
+		skippable = _seenMovies.contains(id) || (ConfMan.hasKey("abort_movies") && ConfMan.getBool("abort_movies"));
+		_seenMovies[id] = true;
+	}
 
 	// The Bink header holds the file's size less 8 at offset 4; it matches
 	// on every movie of both discs. A truncated file can hang the decoder
