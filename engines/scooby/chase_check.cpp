@@ -24,6 +24,7 @@
 #include "common/debug.h"
 
 #include "scooby/art_archive.h"
+#include "scooby/boot_hill_rooms.h"
 #include "scooby/character.h"
 #include "scooby/chase_rooms.h"
 #include "scooby/detection.h"
@@ -1311,6 +1312,206 @@ void ScoobyEngine::checkChases() {
 			const Common::String next = run.next;
 			debugC(3, kDebugScript, "clock check set: minute %s, %d clicks, vault open %d; hour %s, %d clicks; vault open %d, next %s", m.c_str(), clicksMinute,
 			       openAfterMinute ? 1 : 0, h.c_str(), clicks - clicksMinute, getGameFlag("VaultOpen") ? 1 : 0, next.c_str());
+		}
+	}
+	newGameForCheck();
+
+	// Boot Hill (WP-040).
+	{
+		static const char *const kHills[] = { "ROOM_P21_Boot_Hill1", "ROOM_P22_Boot_Hill2", "ROOM_P23_Boot_Hill3" };
+		const char *const kTunnel = "ROOM_P18_Tunnel_Lit";
+		auto hill = [&]() { return dynamic_cast<BootHillRoom *>(_roomClass); };
+		{
+			Common::String hillClasses, graves;
+			for (uint i = 0; i < 3; i++) {
+				RoomClass *c = createRoomClass(*this, kHills[i]);
+				hillClasses += Common::String::format("%s %s; ", kHills[i] + 5, dynamic_cast<BootHillRoom *>(c) ? "boot hill" : c ? "other" : "-");
+				delete c;
+			}
+			for (int g = 0; g < 9; g++)
+				graves += Common::String::format("%d %s; ", g, BootHillRoom::getGraveObject(g).c_str() + 4);
+			debugC(3, kDebugScript, "boot hill check classes: %sgraves: %s", hillClasses.c_str(), graves.c_str());
+		}
+		// The graves, the openings and the snacks needed, on a new game; the
+		// snacks needed counted by snacks eaten, per level.
+		auto graves = [&]() {
+			Common::String out;
+			for (uint s = 0; s < _currentRoom->getSpriteCount(); s++) {
+				if (_currentRoom->getObjectName(s).contains("_GRAVE"))
+					out += Common::String::format("%s%s ", _currentRoom->getObjectName(s).c_str() + 4, _currentRoom->isClickable(s) ? " clickable" : "");
+			}
+			return out.empty() ? Common::String("no graves ") : out;
+		};
+		auto needed = [&]() {
+			uint n = 1;
+			while (n < 10 && !_script->snackEaten())
+				n++;
+			return n;
+		};
+		{
+			Common::String out;
+			for (int level = 0; level < 3; level++) {
+				newGameForCheck();
+				setDifficulty(level);
+				for (uint i = 0; i < 3; i++) {
+					fresh.room(kTunnel);
+					fresh.room(kHills[i]);
+					const Common::String opening = _script->getOpening();
+					if (level == 0)
+						out += Common::String::format("%s: %sopening '%s'; ", kHills[i] + 5, graves().c_str(), opening.c_str());
+					out += Common::String::format("%s level %d needs %u; ", kHills[i] + 5, level, needed());
+				}
+			}
+			setDifficulty(0);
+			debugC(3, kDebugScript, "boot hill check rooms: %s", out.c_str());
+		}
+		{
+			// Where the live run clicks (not compared).
+			auto at = [&](const char *object) {
+				const int s = Find::sprite(*this, object);
+				for (int y = 100; y < 420 && s >= 0; y += 4) {
+					for (int x = 4; x < 640; x += 4) {
+						if (_currentRoom->hitTest(x, y) == s)
+							return Common::String::format("%d %d", x + 4, y + 4);
+					}
+				}
+				return Common::String("-");
+			};
+			newGameForCheck();
+			fresh.room(kTunnel);
+			fresh.room(kHills[0]);
+			const Common::String g1 = at("OBJ_P21_BOOT_HILL1_GRAVE1"), g2 = at("OBJ_P21_BOOT_HILL1_GRAVE2");
+			fresh.room(kTunnel);
+			fresh.room(kHills[1]);
+			debugC(3, kDebugScript, "boot hill points: P21 GRAVE1=%s GRAVE2=%s; P22 TO_P21=%s", g1.c_str(), g2.c_str(), at("OBJ_P22_TO_P21").c_str());
+		}
+
+		// A wrong grave: the ghost. The brick's grave: a dig scene
+		// (rand() % 3), held; over, the room again through movie 3; there, its
+		// opening, the brick, no graves; again, no opening.
+		for (int location = 0; location < 9; location += 4) {
+			const char *room = kHills[location / 3];
+			const Common::String grave = BootHillRoom::getGraveObject(location);
+			const Common::String wrong = BootHillRoom::getGraveObject(location / 3 * 3 + (location % 3 + 1) % 3);
+			newGameForCheck();
+			setGameInt("GraveLocation", location);
+			_script->setGhostChance(nullptr, 0);
+			fresh.room(kTunnel);
+			fresh.room(room);
+			_script->skip();
+			_script->sendEvent(wrong, true);
+			const int ghost = _currentRoom->findGhost();
+			const Common::String ghostLine = Common::String::format("%s: ghost shown %d, held %d", wrong.c_str() + 4,
+			                                                        ghost >= 0 && !_currentRoom->isHidden(ghost) ? 1 : 0, _script->isBusy() ? 1 : 0);
+			Common::Array<Common::String> seen;
+			for (uint k = 0; k < 40; k++) {
+				newGameForCheck();
+				setGameInt("GraveLocation", location);
+				fresh.room(kTunnel);
+				fresh.room(room);
+				_script->skip();
+				_script->sendEvent(grave, true);
+				const Common::String s = hill()->getLastScene();
+				bool known = false;
+				for (uint i = 0; i < seen.size(); i++)
+					known = known || seen[i] == s;
+				if (!known)
+					seen.push_back(s);
+			}
+			Common::sort(seen.begin(), seen.end());
+			Common::String digs;
+			for (uint i = 0; i < seen.size(); i++)
+				digs += "'" + seen[i] + "' ";
+			const bool held = _script->isBusy();
+			_script->skip();
+			const int t = run.change(5);
+			const Common::String next = Common::String::format("next %s movie %d at tick %d", run.next.c_str(), run.movie, t);
+			showRoom(room);
+			const Common::String back = Common::String::format("opening '%s'%s, brick %d, %s", _script->getOpening().c_str(),
+			                                                   _script->getMemory(room).openingPlayed ? " played" : "",
+			                                                   _inventory->hasItem("OBJ_INV_BRICK") && _inventory->getSlot(0) == "OBJ_INV_BRICK" ? 1 : 0,
+			                                                   graves().c_str());
+			const bool dsp = hill()->hasDigScenePlayed();
+			_script->skip();
+			showRoom(kTunnel);
+			showRoom(room);
+			const Common::String again = Common::String::format("opening '%s'", _script->getOpening().c_str());
+			// With the brick: the grave does nothing.
+			_script->sendEvent(grave, true);
+			debugC(3, kDebugScript, "boot hill check grave %d: %s; digs %sheld %d, %s; back: %s, DigScenePlayed %d; again %s; the grave again: scene '%s'",
+			       location, ghostLine.c_str(), digs.c_str(), held ? 1 : 0, next.c_str(), back.c_str(), dsp ? 1 : 0, again.c_str(),
+			       _script->isScenePlaying() ? _script->getScene().c_str() : "");
+			_script->setGhostChance(&_randomSource, ConfMan.hasKey("ghost_chance") ? (uint)ConfMan.getInt("ghost_chance") : 30);
+		}
+
+		// Boot Hill 2's way out waits for the snacks, by level; the tunnel's
+		// doesn't.
+		{
+			Common::String out;
+			for (int level = 0; level < 3; level++) {
+				newGameForCheck();
+				setDifficulty(level);
+				fresh.room(kTunnel);
+				fresh.room(kHills[1]);
+				_script->skip();
+				const bool kept = _roomClass->leaveBy("OBJ_P22_TO_P21");
+				const Common::String line = hill()->getLastScene();
+				_script->skip();
+				for (uint k = 0; k < 5; k++)
+					tick1();
+				const bool opens = _inventory->getState() != Inventory::kStateParked;
+				out += Common::String::format("level %d: kept %d, %s, toolbar opening %d; ", level, kept ? 1 : 0, line.c_str(), opens ? 1 : 0);
+			}
+			setDifficulty(0);
+			newGameForCheck();
+			fresh.room(kTunnel);
+			fresh.room(kHills[1]);
+			const bool tunnel = _roomClass->leaveBy("OBJ_P22_TO_P18");
+			for (uint k = 0; k < 2; k++)
+				_script->snackEaten();
+			const bool fed = _roomClass->leaveBy("OBJ_P22_TO_P21");
+			debugC(3, kDebugScript, "boot hill check snacks: %sto the tunnel kept %d; with 2 snacks kept %d", out.c_str(), tunnel ? 1 : 0, fed ? 1 : 0);
+			setDifficulty(0);
+		}
+
+		// Walking in.
+		{
+			static const struct {
+				const char *from, *to;
+			} kWalks[] = {
+				{ "ROOM_P21_Boot_Hill1", "ROOM_P22_Boot_Hill2" }, { "ROOM_P21_Boot_Hill1", "ROOM_P23_Boot_Hill3" },
+				{ "ROOM_P22_Boot_Hill2", "ROOM_P21_Boot_Hill1" }, { "ROOM_P23_Boot_Hill3", "ROOM_P21_Boot_Hill1" },
+				{ "ROOM_P18_Tunnel_Lit", "ROOM_P22_Boot_Hill2" }
+			};
+			Common::String out;
+			for (uint i = 0; i < ARRAYSIZE(kWalks); i++) {
+				newGameForCheck();
+				fresh.room(kWalks[i].from);
+				fresh.room(kWalks[i].to);
+				Common::String moving;
+				for (uint c = 0; c < _script->getCharacters().size(); c++) {
+					if (_script->getCharacters()[c].getState() == Character::kStateEndWalk)
+						moving += _script->getCharacters()[c].getName() + " ";
+				}
+				out += Common::String::format("%s to %s: %s; ", kWalks[i].from + 5, kWalks[i].to + 5, moving.c_str());
+			}
+			debugC(3, kDebugScript, "boot hill check walking in: %s", out.c_str());
+		}
+
+		// The keys, and a new game's reset.
+		{
+			BootHillRoom *c = dynamic_cast<BootHillRoom *>(createRoomClass(*this, kHills[0]));
+			Common::INIFile ini;
+			ini.setKey("DigScenePlayed", kHills[0], "Yes");
+			c->loadKeys(ini);
+			const bool yes = c->hasDigScenePlayed();
+			Common::INIFile out;
+			c->saveKeys(out);
+			Common::String v;
+			out.getKey("DigScenePlayed", kHills[0], v);
+			c->reset();
+			debugC(3, kDebugScript, "boot hill check keys: DigScenePlayed=Yes reads %d, writes %s, reset %d", yes ? 1 : 0, v.c_str(), c->hasDigScenePlayed() ? 1 : 0);
+			delete c;
 		}
 	}
 	newGameForCheck();

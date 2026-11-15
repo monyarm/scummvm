@@ -119,6 +119,10 @@ public:
 	 * (+0x24), and the timers. Call after enter().
 	 */
 	void setup(const Common::String &opening, uint snacksNeeded, const Common::String &from);
+	/** A room's class setting the snacks it needs (+0x24) after setup(). */
+	void setSnacksNeeded(uint snacks) { _snacksNeeded = snacks; }
+	/** The ghost appears now, if the room has one (0x40A990, as a room's class calls it). */
+	bool showGhost() { return startGhost(); }
 	/** The room's class, or nullptr for the base class. */
 	void setHooks(RoomHooks *hooks) { _hooks = hooks; }
 	RoomHooks *getHooks() const { return _hooks; }

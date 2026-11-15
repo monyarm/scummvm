@@ -25,6 +25,7 @@
 #include "scooby/menu_rooms.h"
 #include "scooby/options_rooms.h"
 #include "scooby/accusation_rooms.h"
+#include "scooby/boot_hill_rooms.h"
 #include "scooby/chase_rooms.h"
 #include "scooby/room.h"
 #include "scooby/room_class.h"
@@ -156,6 +157,8 @@ static RoomClass *buildRoomClass(ScoobyEngine &engine, const Common::String &roo
 		return chase;
 	if (RoomClass *vault = createVaultRoom(engine, room))
 		return vault;
+	if (RoomClass *hill = createBootHillRoom(engine, room))
+		return hill;
 	// The story rooms (story_rooms.cpp); every other room gets the base
 	// class for now.
 	return createStoryRoom(engine, room);
