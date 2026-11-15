@@ -33,16 +33,19 @@ class Sound;
  * A Gen 1 character (Scooby.exe 0x4048E0): a placement such as OBJ_FRED_A,
  * named FRED with the set _A, or the room's invisible narrator. Its state
  * picks the sequence it plays and, when that changes, the object holding it
- * (0x405190). Only the states the exit transition and the ghost need are here.
+ * (0x405190). Only the states the exit transition, the ghost and the story
+ * rooms need are here.
  */
 class Character {
 public:
 	enum State {
 		kStateWalk = 0, // walk off, or turn in place: once, then stay
+		kStateEndWalk = 1, // ENDWALK_<direction>: walk in, once, then idle
 		kStateIdle = 6, // IDLE_MASTER, looping
 		kStateStay = 7, // keep the last step
 		kStateTalk = 8, // TALKS, its step set by lip sync
 		kStateAct = 0xF, // ANIM_<NAME><set><action> once, then idle (0x4061F0)
+		kStateScared = 0x11, // SCARED once, with Global.Scared.<NAME>, then idle
 		kStateStayScared = 0x12 // STAY_SCARED once, with Global.Scared.<NAME>: the ghost appears
 	};
 
@@ -66,6 +69,8 @@ public:
 
 	/** Talking, or with a line waiting (0x406060). */
 	bool isBusy() const;
+	/** The line being spoken, or last spoken (+0x7C). */
+	const Common::String &getClipName() const { return _clip; }
 
 	/** Play ANIM_<NAME><set>@p action once, then go idle (0x4061F0, state 0xF). */
 	void act(Room &room, Sound &sound, const Common::String &action);
@@ -82,6 +87,12 @@ public:
 	/** Start the walk or turn for @p direction (0x405D90). */
 	void walk(Room &room, Sound &sound, const Common::String &direction);
 
+	/**
+	 * Walk in from @p direction (0x405E60, 0x405EE0, 0x405FE0): ENDWALK, 50
+	 * behind the character's depth until the next state.
+	 */
+	void walkIn(Room &room, Sound &sound, const Common::String &direction);
+
 private:
 	Common::String _name;
 	Common::String _set;
@@ -93,6 +104,8 @@ private:
 	Common::String _waiting; // +0x84: a line to speak when next idle
 	Common::String _direction; // +0xA4
 	Common::String _action;    // +0x8C
+	Common::String _inFrom;    // +0xAC: the walk-in's direction
+	int _depth = 0;            // +0x9C: the depth to go back to after it
 };
 
 } // End of namespace Scooby

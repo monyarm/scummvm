@@ -23,11 +23,11 @@
 #define SCOOBY_ROOM_CLASS_H
 
 #include "common/array.h"
+#include "common/formats/ini-file.h"
 #include "common/str.h"
 
-namespace Common {
-class INIFile;
-}
+#include "scooby/room.h"
+#include "scooby/room_script.h"
 
 namespace Scooby {
 
@@ -40,10 +40,11 @@ class ScoobyEngine;
  * their own get the base class (vtable 0x45E5FC), which is the engine's
  * default behaviour. A class runs after the base behaviour it extends.
  */
-class RoomClass {
+class RoomClass : public RoomHooks, public Room::PlacementHook {
 public:
 	explicit RoomClass(ScoobyEngine &engine) : _engine(engine) {}
-	virtual ~RoomClass() {}
+	/** A class the checks delete stops hearing from the base room. */
+	virtual ~RoomClass();
 
 	/** Room vtable +0x0C, after the base entry (0x40B920): @p from is the room left. */
 	virtual void enter(const Common::String &from) {}
@@ -58,9 +59,12 @@ public:
 	/** Room vtable +0x08: back to how the factory built it, for a new game (0x435780). */
 	virtual void reset() {}
 	/**
-	 * Room vtable +0x1C / +0x20: write or read the class's own keys, in the
-	 * profile's Game section after the game's (0x42F3A0, 0x42F640). Every
-	 * class is called, built or not. A missing key should leave its value.
+	 * Room vtable +0x1C / +0x20: write or read the class's own keys, after
+	 * the game's (0x42F3A0, 0x42F640). Every class is called, built or not.
+	 * They go in the room's own section, named for the room (0x4376E0 and
+	 * 0x437720 pass the object's name, +0x8), after the base room's
+	 * OpeningPlayed and SnacksGiven. A flag read with 0x40C560 is false when
+	 * its key is missing.
 	 */
 	virtual void saveKeys(Common::INIFile &profile) {}
 	virtual void loadKeys(const Common::INIFile &profile) {}

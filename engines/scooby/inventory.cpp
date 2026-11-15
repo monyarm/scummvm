@@ -179,6 +179,8 @@ void Inventory::enterRoom() {
 	_shownCursor.clear();
 	_roles.clear();
 	_indexes.clear();
+	// A new snack box (0x40D020) has no flash asked for.
+	_snackFlash = false;
 	_pickups.clear();
 	_clickSprite = -1;
 	_clicked = false;
@@ -532,8 +534,8 @@ void Inventory::roomEvent(const Common::String &object, bool success) {
 	// Game vtable +0x40 -> the room's vtable +0x14, which the base room
 	// class leaves empty (0x404440). Rooms with classes of their own act on
 	// it.
-	debugC(1, kDebugScript, "room event %s %d", object.c_str(), success ? 1 : 0);
 	_log += Common::String::format("event %s %d; ", object.c_str(), success ? 1 : 0);
+	_script.sendEvent(object, success);
 }
 
 void Inventory::updatePickup(int sprite, Pickup &p, bool clicked) {
@@ -701,8 +703,26 @@ void Inventory::clickSnackBox() {
 }
 
 void Inventory::updateSnackBox() {
+	if (_snackBox < 0)
+		return;
+	// 0x40D130: a flash asked for (+0x70, 0x40D4D0) waits for no scene and
+	// the opening done. With the toolbar open, the box plays once with its
+	// sound; else the toolbar opens first.
+	if (_snackFlash && !_script.isScenePlaying() && _script.isOpeningDone()) {
+		if (getState() == kStateOpen) {
+			_snackFlash = false;
+			_room.startAnim(_snackBox, kSnackBoxAnim, 3, -1);
+			playSound("Global.Snack_Box");
+			_room.setOffset(_tens, kDigitsAway, 0);
+			_room.setOffset(_units, kDigitsAway, 0);
+			debugC(1, kDebugScript, "toolbar: the snack box flashes");
+			_log += "snack box flashes; ";
+		} else if (getState() != kStateMovingIn) {
+			openToolbar();
+		}
+	}
 	// 0x40D130's tail: with the box's sequence stopped, the digits show.
-	if (_snackBox < 0 || _room.getMode(_snackBox) != 0)
+	if (_room.getMode(_snackBox) != 0)
 		return;
 	int w, h;
 	_room.getSize(_tens, w, h);
@@ -848,6 +868,7 @@ void Inventory::feed(int sprite) {
 	// 0x40B490: Scooby or Shaggy, clicked with a snack, eats it unless busy
 	// talking; the snack is gone from the cursor either way.
 	bool fed = false;
+	bool enough = false;
 	static const char *const kEaters[] = { "SCOOBY", "SHAGGY" };
 	for (uint i = 0; i < ARRAYSIZE(kEaters); i++) {
 		Character *c = _script.getCharacter(kEaters[i]);
@@ -863,10 +884,14 @@ void Inventory::feed(int sprite) {
 			playSound("Global.Scooby.Eat_Snack");
 			_log += Common::String::format("%s eats %s; ", kEaters[i], c->getActAnim("EAT_SNACK").c_str());
 			fed = true;
+			// +0x88: one more eaten here.
+			enough = _script.snackEaten();
 		}
 		_cursor = kArrowCursor;
 	}
-	if (!fed)
+	// The line, and the toolbar closing, wait until the room has had the
+	// snacks it needs (+0x24; Town Center needs one, the others none).
+	if (!fed || !enough)
 		return;
 
 	// The room's own line, <room without ROOM_>_Snack_Given, if a character

@@ -29,6 +29,7 @@
 #include "scooby/scooby.h"
 #include "scooby/signin_room.h"
 #include "scooby/sound.h"
+#include "scooby/story_rooms.h"
 
 namespace Scooby {
 
@@ -121,9 +122,14 @@ void ButtonRoom::tick() {
 	}
 }
 
-RoomClass *createRoomClass(ScoobyEngine &engine, const Common::String &room) {
-	// The factory's classes for the menus, in both Gen 1 titles; every other
-	// room gets the base class for now.
+RoomClass::~RoomClass() {
+	RoomScript *script = _engine.getScript();
+	if (script && script->getHooks() == this)
+		script->setHooks(nullptr);
+}
+
+static RoomClass *buildRoomClass(ScoobyEngine &engine, const Common::String &room) {
+	// The factory's classes for the menus, in both Gen 1 titles.
 	if (room == "ROOM_Title_Screen")
 		return new TitleRoom(engine);
 	if (room == "ROOM_Main_Menu")
@@ -138,7 +144,17 @@ RoomClass *createRoomClass(ScoobyEngine &engine, const Common::String &room) {
 		return new OptionsRoom(engine);
 	if (room == "ROOM_Credits")
 		return new CreditsRoom(engine);
-	return nullptr;
+	// The story rooms (story_rooms.cpp); every other room gets the base
+	// class for now.
+	return createStoryRoom(engine, room);
+}
+
+RoomClass *createRoomClass(ScoobyEngine &engine, const Common::String &room) {
+	// The game resets each room it builds (vtable +0x08).
+	RoomClass *c = buildRoomClass(engine, room);
+	if (c)
+		c->reset();
+	return c;
 }
 
 } // End of namespace Scooby

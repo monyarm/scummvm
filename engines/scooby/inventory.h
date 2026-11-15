@@ -119,6 +119,8 @@ public:
 	void setSnacks(uint snacks) { _snacks = MIN<uint>(snacks, 99); if (_tens >= 0) showSnacks(); }
 	int getScrappySprite() const { return _scrappy; }
 	int getSnackBoxSprite() const { return _snackBox; }
+	/** Ask the snack box to flash (0x40D4D0): Town Center's exits before a snack. */
+	void flashSnackBox() { _snackFlash = true; }
 
 	/**
 	 * Whether @p sprite is one of the toolbar's, or a room's inventory or
@@ -237,6 +239,7 @@ private:
 
 	int _van, _vanWidth, _vanY, _blockMoving, _blockOpen;
 	int _tens, _units, _snackBox, _scrappy;
+	bool _snackFlash = false;     // the snack box's +0x70
 	bool _scrappyTalking;         // +0x68 of Scrappy
 	Common::String _scrappyClip;  // +0x6C
 	Common::String _shownCursor;  // the cursor sprite's ANIM (game +0x18 +0x60)

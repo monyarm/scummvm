@@ -74,6 +74,8 @@ void ScoobyEngine::buildProfile(Common::INIFile &profile) {
 	profile.setKey("Difficulty", "Game", Common::String::format("%d", _difficulty));
 	for (int id = 0; id < kMovieIds; id++)
 		profile.setKey(Common::String::format("MovieHistory%d", id), "Game", _seenMovies.contains(id) ? "Yes" : "No");
+	// Each room's section (room_setup.cpp).
+	saveRoomKeys(profile);
 	for (Common::HashMap<Common::String, bool, Common::IgnoreCase_Hash, Common::IgnoreCase_EqualTo>::const_iterator it = _takenExits.begin();
 	     it != _takenExits.end(); ++it)
 		profile.setKey(it->_key, "Exits", "1");
@@ -103,6 +105,8 @@ bool ScoobyEngine::applyProfile(const Common::INIFile &profile) {
 		if (profile.getKey(Common::String::format("MovieHistory%d", id), "Game", v) && v == "Yes")
 			_seenMovies[id] = true;
 	}
+	// Each room's keys (room_setup.cpp).
+	loadRoomKeys(profile);
 	_takenExits.clear();
 	_script->resetClickableStates();
 	const Common::INIFile::SectionList &sections = profile.getSections();
@@ -201,6 +205,8 @@ void ScoobyEngine::newGame() {
 	_seenMovies.clear();
 	_takenExits.clear();
 	_script->resetClickableStates();
+	// The base room's reset (0x40CD20): no opening played, no snacks eaten.
+	_script->resetMemories();
 	Common::Array<RoomClass *> classes = getAllRoomClasses();
 	for (uint i = 0; i < classes.size(); i++)
 		classes[i]->reset();

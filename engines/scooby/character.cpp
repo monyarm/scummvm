@@ -67,6 +67,15 @@ void Character::setState(Room &room, Sound &sound, int state) {
 		state = kStateTalk;
 	}
 
+	// Scared again while the fright is still in its first two steps: no
+	// change (0x405190 state 0x11).
+	if (state == kStateScared && _sprite >= 0 &&
+	    (_state == kStateStayScared || (_state == kStateScared && room.getStep(_sprite) < 2)))
+		return;
+	// Leaving the walk-in puts the character back at its depth.
+	if (_state == kStateEndWalk && _sprite >= 0)
+		room.setDepth(_sprite, _depth);
+
 	Common::String obj = Common::String::format("OBJ_%s%s", _name.c_str(), _set.c_str());
 	Common::String anim;
 	int mode = kModeOnce;
@@ -74,6 +83,21 @@ void Character::setState(Room &room, Sound &sound, int state) {
 	case kStateWalk:
 		getWalk(_direction, obj, anim);
 		_next = kStateStay;
+		break;
+	case kStateEndWalk:
+		obj = Common::String::format("OBJ_%s_ENDWALK_%s%s", _name.c_str(), _inFrom.c_str(), _set.c_str());
+		anim = Common::String::format("ANIM_%s_ENDWALK_%s%s1", _name.c_str(), _inFrom.c_str(), _set.c_str());
+		_next = kStateIdle;
+		break;
+	case kStateScared:
+		// The line being spoken stops, and Global.Scared.<NAME> plays.
+		anim = Common::String::format("ANIM_%s%sSCARED", _name.c_str(), _set.c_str());
+		if (!_clip.empty())
+			sound.stopClip(_clip);
+		_clip = Common::String::format("Global.Scared.%s", _name.c_str());
+		sound.stopClip(_clip);
+		sound.play(_clip);
+		_next = kStateIdle;
 		break;
 	case kStateIdle:
 		anim = Common::String::format("ANIM_%s%sIDLE_MASTER", _name.c_str(), _set.c_str());
@@ -149,6 +173,17 @@ Common::String Character::getActAnim(const Common::String &action) const {
 void Character::act(Room &room, Sound &sound, const Common::String &action) {
 	_action = action;
 	setState(room, sound, kStateAct);
+}
+
+void Character::walkIn(Room &room, Sound &sound, const Common::String &direction) {
+	// 0x405EE0 and its siblings: keep the depth (+0x9C), go 50 behind it,
+	// then state 1.
+	_inFrom = direction;
+	if (_sprite >= 0) {
+		_depth = room.getDepth(_sprite);
+		room.setDepth(_sprite, _depth - kWalkDepth);
+	}
+	setState(room, sound, kStateEndWalk);
 }
 
 void Character::walk(Room &room, Sound &sound, const Common::String &direction) {

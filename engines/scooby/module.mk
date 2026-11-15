@@ -11,10 +11,13 @@ MODULE_OBJS = \
 	room_class.o \
 	room.o \
 	room_script.o \
+	room_setup.o \
 	scooby.o \
 	sound.o \
 	signin_room.o \
 	sound_archive.o \
+	story_check.o \
+	story_rooms.o \
 	toolbar_rooms.o \
 	console.o \
 	metaengine.o \

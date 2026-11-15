@@ -60,8 +60,10 @@ public:
 	 * at its own volume, looping if its loop flag is set. Each file has one
 	 * handle, so a clip stops the one its file played before, and a voice
 	 * line doesn't stop the music. Returns false if the clip isn't found.
+	 * A @p background clip (the room's music) doesn't become the clip
+	 * played last.
 	 */
-	bool play(const Common::String &name);
+	bool play(const Common::String &name, bool background = false);
 	/** Stop every file's clip. */
 	void stop();
 	/** Stop @p name if it is playing (0x434CB0, by id). */

@@ -40,10 +40,29 @@ class Room;
 class Sound;
 
 /**
+ * What a room's own class hears from the base room. The base class does
+ * nothing with any of it.
+ */
+class RoomHooks {
+public:
+	virtual ~RoomHooks() {}
+	/** An object tells the room (room vtable +0x14, through game +0x40). */
+	virtual void event(const Common::String &object, bool success) {}
+	/** Idle chatter (room vtable +0x34), every 25-54 seconds without a scene. */
+	virtual void idle() {}
+	/**
+	 * An exit clicked (room vtable +0x24). Returns true if the class handled
+	 * it, false for the default handler (0x40C1E0).
+	 */
+	virtual bool leaveBy(const Common::String &exitObject) { return false; }
+};
+
+/**
  * The default room behaviour of Scooby.exe's base room class (vtable
  * 0x45E5FC): the room's characters, the scene player and the exit
- * transition. Rooms with classes of their own (story checks, set pieces)
- * are not implemented.
+ * transition, and the base room's own fields: the opening scene, the snacks
+ * eaten and the idle timer. A room's own class hears of objects, exits and
+ * idle chatter through RoomHooks.
  */
 class RoomScript {
 public:
@@ -66,10 +85,50 @@ public:
 		Common::String directions[kGangCount];
 	};
 
+	/** A room's own base state, kept for the whole game (+0x10, +0x88). */
+	struct Memory {
+		bool openingPlayed = false; // +0x10, saved as OpeningPlayed
+		uint snacksGiven = 0;       // +0x88, saved as SnacksGiven
+	};
+	typedef Common::HashMap<Common::String, Memory> MemoryMap;
+
 	RoomScript(Room &room, Sound &sound, const Common::INIFile &objectIni);
 
 	/** Set up for the room just loaded: its characters, then the narrator. */
 	void enter();
+
+	/**
+	 * The end of the base entry (0x40B920) for the room left @p from: the
+	 * opening scene (+0x78, vtable +0x3C 0x40C7B0), the snacks needed
+	 * (+0x24), and the timers. Call after enter().
+	 */
+	void setup(const Common::String &opening, uint snacksNeeded, const Common::String &from);
+	/** The room's class, or nullptr for the base class. */
+	void setHooks(RoomHooks *hooks) { _hooks = hooks; }
+	RoomHooks *getHooks() const { return _hooks; }
+	/** For the ghost spot's openings and the idle timer (the original's rand()). */
+	void setRandom(Common::RandomSource *random) { _rng = random; }
+	/** An object tells the room's class (game +0x40). */
+	void sendEvent(const Common::String &object, bool success);
+	/** An exit clicked: the room's class first (vtable +0x24), else startExit(). */
+	void takeExit(const Exit &exit);
+	/**
+	 * Input slot 5 (Escape or Space): the scene playing ends, and so does
+	 * the opening's hold (0x40B490, 0x40C810). Returns true if it did.
+	 */
+	bool skip();
+	/**
+	 * A snack eaten here (0x40B490, +0x88). Returns true once the room has
+	 * had the snacks it needs, when the snack-given line plays.
+	 */
+	bool snackEaten();
+	/** The opening scene has played, or there is none. */
+	bool isOpeningDone() const;
+	const Common::String &getOpening() const { return _opening; }
+	/** A room's state, by name; every room has one. */
+	Memory &getMemory(const Common::String &room) { return _memories.getOrCreateVal(room); }
+	const MemoryMap &getMemories() const { return _memories; }
+	void resetMemories() { _memories.clear(); }
 
 	/** Read @p object's exit keys. */
 	Exit readExit(const Common::String &object) const;
@@ -91,6 +150,8 @@ public:
 	bool hasCharacter(const char *name);
 	/** Whether a scene is playing. */
 	bool isScenePlaying() const { return !_scene.empty(); }
+	/** The scene playing, or empty. */
+	const Common::String &getScene() const { return _scene; }
 
 	/**
 	 * The speech lock (game +0x15C): a scene holds it while it plays, and
@@ -172,7 +233,11 @@ private:
 	void advanceClickable(Clickable &c);
 	bool startGhost();
 	void tickScene();
+	void endScene();
 	void tickExit();
+	void tickOpening();
+	void tickIdle();
+	uint32 draw(uint n);
 
 	Room &_room;
 	Sound &_sound;
@@ -203,6 +268,17 @@ private:
 	// The save file's Clickables section: object name -> state ANIM.
 	Common::HashMap<Common::String, Common::String, Common::IgnoreCase_Hash, Common::IgnoreCase_EqualTo> _clickableStates;
 	Common::String _clickLog;
+
+	// The base room's own fields.
+	RoomHooks *_hooks = nullptr;
+	Common::RandomSource *_rng = nullptr;
+	MemoryMap _memories;
+	Memory *_memory = nullptr;       // the current room's
+	Common::String _opening;         // +0x78
+	uint _snacksNeeded = 0;          // +0x24
+	int _openingDelay = 100;         // +0x74
+	int _idleDelay = 0;              // +0xB4
+	bool _sceneIsOpening = false;    // the scene's done flag (+0x80) is +0x10
 
 	// The ghost (game +0x1DC, +0x1E0) and its chance.
 	int _ghost;

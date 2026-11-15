@@ -48,6 +48,29 @@ public:
 	/** Game ticks per second (Scooby.exe 0x435BC0: elapsed ms * 36 / 1000). */
 	static const uint kTicksPerSecond = 36;
 
+	/** How a room's class builds a placement it claims (room vtable +0x18). */
+	struct Claim {
+		enum Build {
+			kDefault,   // not claimed: the default path builds it
+			kSkip,      // claimed, and not built at all
+			kRequires,  // a requiresobject (0x408C80)
+			kClickable  // a clickableobject (0x408DC0)
+		};
+		Build build = kDefault;
+		int layer = -1;     // the parent layer slot; -1 for the default path's
+		int depth = 0;      // among its siblings (0x430EE0)
+		bool hidden = false;
+	};
+
+	/** The room's class, offered each placement before the default path. */
+	class PlacementHook {
+	public:
+		virtual ~PlacementHook() {}
+		virtual void claimPlacement(const Common::String &object, Claim &claim) {}
+	};
+	/** The class offered the placements of the next load(), or nullptr. */
+	void setPlacementHook(PlacementHook *hook) { _hook = hook; }
+
 	Room(const ArtArchive &art, const Common::INIFile &objectIni);
 	~Room();
 
@@ -249,6 +272,7 @@ private:
 	int getIniInt(const Common::String &section, const char *key) const;
 	Common::String getIniString(const Common::String &section, const char *key) const;
 
+	PlacementHook *_hook = nullptr;
 	Sprite _cursor;
 	bool _cursorShown;
 	Common::String _cursorAnim;

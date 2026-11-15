@@ -53,6 +53,14 @@ static const int kModeOnce = 3;
 // When the ghost has appeared, the game goes here (0x409BCA).
 static const char *const kGhostRoom = "ROOM_Ghost_Spot";
 
+// Entering any room from the ghost spot, its opening is one of these
+// (0x40B920, rand() % 3).
+static const char *const kGhostOpenings[] = { "Global.Ghost_Spot_", "Global.Ghost_SpotB_", "Global.Ghost_SpotC_" };
+
+// The opening starts this many ticks after entry (+0x74, from the
+// constructor and the room's leave hook 0x40BB70).
+static const int kOpeningDelay = 100;
+
 static Common::String getIniString(const Common::INIFile &ini, const Common::String &section, const char *key) {
 	Common::String value;
 	if (!ini.getKey(key, section, value))
@@ -96,6 +104,11 @@ void RoomScript::enter() {
 	_done = false;
 	_tick = 0;
 	_walkLog.clear();
+	// setup() fills these in.
+	_memory = nullptr;
+	_opening.clear();
+	_snacksNeeded = 0;
+	_sceneIsOpening = false;
 
 	// The default clickables (0x401000): the state is the placement's ANIM,
 	// or the one the save file holds, shown stopped on step 0.
@@ -124,6 +137,111 @@ void RoomScript::enter() {
 	_ghost = _room.findGhost();
 	_ghostPlaying = false;
 	_ghostDone = false;
+}
+
+uint32 RoomScript::draw(uint n) {
+	return _rng ? _rng->getRandomNumber(n - 1) : 0;
+}
+
+void RoomScript::setup(const Common::String &opening, uint snacksNeeded, const Common::String &from) {
+	_memory = &getMemory(_room.getName());
+	_opening = opening;
+	_snacksNeeded = snacksNeeded;
+	_openingDelay = kOpeningDelay;
+	_sceneIsOpening = false;
+	// 0x40B920: coming from the ghost spot, the gang talks about it first.
+	if (from == kGhostRoom) {
+		_opening = kGhostOpenings[draw(ARRAYSIZE(kGhostOpenings))];
+		_memory->openingPlayed = false;
+	}
+	// 0x40C7B0: an opening someone here has a first line of holds input until
+	// it starts; one nobody can say counts as played.
+	if (!_opening.empty() && !_memory->openingPlayed) {
+		bool lines = false;
+		for (uint i = 0; i < _characters.size() && !lines; i++)
+			lines = _sound.findClip(Common::String::format("%s1_%s", _opening.c_str(), _characters[i].getName().c_str())) != nullptr;
+		if (lines) {
+			_busy = true;
+		} else {
+			_opening.clear();
+			_memory->openingPlayed = true;
+		}
+	}
+	_idleDelay = (draw(30) + 25) * Room::kTicksPerSecond;
+	debugC(1, kDebugScript, "room %s: opening '%s'%s, %u snacks needed, %u given", _room.getName().c_str(), _opening.c_str(),
+	       _memory->openingPlayed ? " (played)" : "", _snacksNeeded, _memory->snacksGiven);
+}
+
+bool RoomScript::isOpeningDone() const {
+	return _opening.empty() || (_memory && _memory->openingPlayed);
+}
+
+void RoomScript::sendEvent(const Common::String &object, bool success) {
+	// Game vtable +0x40 (0x40A850) -> the room's vtable +0x14.
+	debugC(1, kDebugScript, "room event %s %d", object.c_str(), success ? 1 : 0);
+	if (_hooks)
+		_hooks->event(object, success);
+}
+
+void RoomScript::takeExit(const Exit &exit) {
+	// The exit's click (0x402130) hands it to the room's vtable +0x24.
+	if (_hooks && _hooks->leaveBy(exit.object)) {
+		debugC(1, kDebugScript, "exit %s: the room's class keeps the gang here", exit.object.c_str());
+		return;
+	}
+	startExit(exit);
+}
+
+bool RoomScript::skip() {
+	bool skipped = false;
+	// 0x40B490: the opening's hold ends, and it counts as played.
+	if (_memory && !_opening.empty() && !_memory->openingPlayed) {
+		_memory->openingPlayed = true;
+		if (!_exitParked)
+			_busy = false;
+		skipped = true;
+	}
+	// 0x40C810: the line playing stops, and the scene ends.
+	if (!_scene.empty()) {
+		if (_speaker >= 0)
+			_sound.stopClip(_characters[_speaker].getClipName());
+		debugC(1, kDebugScript, "scene %s skipped at line %d", _scene.c_str(), _line);
+		endScene();
+		skipped = true;
+	}
+	return skipped;
+}
+
+bool RoomScript::snackEaten() {
+	// 0x40B490: +0x88 counts the snacks eaten here; the line waits for +0x24.
+	if (!_memory)
+		return true;
+	_memory->snacksGiven++;
+	return _memory->snacksGiven >= _snacksNeeded;
+}
+
+void RoomScript::tickOpening() {
+	// 0x40B490: not played, no exit parked, no scene: the delay runs out, and
+	// the opening starts, blocking. Its end marks it played (+0x80 -> +0x10).
+	if (!_memory || _memory->openingPlayed || _exitParked || !_scene.empty())
+		return;
+	if (_openingDelay-- != 0)
+		return;
+	if (startScene(_opening, true)) {
+		_sceneIsOpening = true;
+		debugC(1, kDebugScript, "room %s: opening %s at tick %u", _room.getName().c_str(), _opening.c_str(), _tick);
+	}
+}
+
+void RoomScript::tickIdle() {
+	// 0x40B490: 25-54 seconds after the last scene, with the opening done,
+	// the room's idle chatter (vtable +0x34).
+	if (_idleDelay-- >= 1 || !_scene.empty() || !isOpeningDone())
+		return;
+	debugC(1, kDebugScript, "room %s: idle chatter at tick %u", _room.getName().c_str(), _tick);
+	if (_hooks)
+		_hooks->idle();
+	_idleDelay = (draw(30) + 25) * Room::kTicksPerSecond;
 }
 
 void RoomScript::setGhostChance(Common::RandomSource *random, uint chance) {
@@ -207,10 +325,10 @@ void RoomScript::tickClickable(Clickable &c) {
 			_clickLog = Common::String::format("anim %s steps %u sound %s next %s", state.c_str(), steps,
 			                                   hasSound ? sound.c_str() : "-", c.state.c_str());
 			debugC(1, kDebugScript, "clickable %s clicked at tick %u: %s", c.object.c_str(), _tick, _clickLog.c_str());
+			c.playing = true;
 			// The room's handler (vtable +0x14, through game +0x40) does
 			// nothing in the default room; story rooms override it.
-			debugC(2, kDebugScript, "room hook: %s clicked", c.object.c_str());
-			c.playing = true;
+			sendEvent(c.object, true);
 		}
 	}
 
@@ -301,11 +419,16 @@ void RoomScript::tick() {
 		_ghostDone = true;
 		debugC(1, kDebugScript, "the ghost is gone at tick %u: going to %s", _tick, kGhostRoom);
 	}
-	if (!_scene.empty())
+	if (!_scene.empty()) {
+		// 0x40C810: the idle timer starts again while a scene plays.
+		_idleDelay = (draw(30) + 25) * Room::kTicksPerSecond;
 		tickScene();
+	}
+	tickOpening();
 	// 0x40B490: the walk-off waits for the speech lock.
 	if (_scene.empty() && _exitParked && !_done && !_speechLock)
 		tickExit();
+	tickIdle();
 	_tick++;
 }
 
@@ -354,6 +477,10 @@ void RoomScript::tickScene() {
 	}
 
 	debugC(1, kDebugScript, "scene %s over after %d lines at tick %u", _scene.c_str(), _line - 1, _tick);
+	endScene();
+}
+
+void RoomScript::endScene() {
 	_scene.clear();
 	_speaker = -1;
 	if (!_exitParked && _sceneBlocks)
@@ -362,6 +489,10 @@ void RoomScript::tickScene() {
 		_sceneHoldsLock = false;
 		releaseSpeechLock();
 	}
+	// The opening's done flag (+0x80 points at +0x10).
+	if (_sceneIsOpening && _memory)
+		_memory->openingPlayed = true;
+	_sceneIsOpening = false;
 }
 
 void RoomScript::tickExit() {

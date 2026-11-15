@@ -39,6 +39,7 @@ namespace Scooby {
 
 class ArtArchive;
 class Inventory;
+class Music;
 class RoomClass;
 class Room;
 class RoomScript;
@@ -65,7 +66,13 @@ private:
 	void checkMenus();
 	void checkSignIn();
 	void checkOptionsCredits();
+	// Each room's profile section (room_setup.cpp).
+	void saveRoomKeys(Common::INIFile &profile);
+	void loadRoomKeys(const Common::INIFile &profile);
+	void checkRoomSetup();   // story_check.cpp
+	void checkTownCenter();  // story_check.cpp
 	bool _checking = false;
+	Music *_music = nullptr;
 	/** One game tick as run() does it; true if it asks for another room. */
 	bool tickOnce(Common::String &nextRoom, int &movie);
 	void logProfile(const char *what, const Common::String &text);

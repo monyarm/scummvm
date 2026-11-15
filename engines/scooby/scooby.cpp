@@ -29,6 +29,7 @@
 #include "scooby/options_rooms.h"
 #include "scooby/room_class.h"
 #include "scooby/room_script.h"
+#include "scooby/room_setup.h"
 #include "scooby/signin_room.h"
 #include "scooby/sound.h"
 #include "scooby/toolbar_rooms.h"
@@ -66,6 +67,7 @@ ScoobyEngine::~ScoobyEngine() {
 		delete it->_value;
 	delete _inventory;
 	delete _script;
+	delete _music;
 	delete _sound;
 	_room.free();
 	delete _currentRoom;
@@ -116,6 +118,8 @@ Common::Error ScoobyEngine::run() {
 	// in the game's config domain changes the odds, for testing; 0 turns
 	// the ghost off.
 	_script->setGhostChance(&_randomSource, ConfMan.hasKey("ghost_chance") ? (uint)ConfMan.getInt("ghost_chance") : 30);
+	_script->setRandom(&_randomSource);
+	_music = new Music(*_sound);
 	// The inventory lasts the whole game; the toolbar is built in each room.
 	_inventory = new Inventory(*_currentRoom, *_sound, *_script, _objectIni);
 	_inventory->setRandom(&_randomSource);
@@ -127,6 +131,8 @@ Common::Error ScoobyEngine::run() {
 	if (debugChannelSet(3, kDebugAudio))
 		_sound->checkAllClips();
 	if (debugChannelSet(3, kDebugScript)) {
+		checkRoomSetup();
+		checkTownCenter();
 		checkAllExits();
 		checkAllClickables();
 		checkAllInventory();
@@ -207,9 +213,13 @@ Common::Error ScoobyEngine::run() {
 				_mouseDown = true;
 			else if (e.type == Common::EVENT_LBUTTONUP)
 				_mouseDown = false;
-			else if (e.type == Common::EVENT_KEYDOWN && _roomClass && !_roomClass->key(e.kbd.ascii, e.kbd.keycode) &&
-			         (e.kbd.keycode == Common::KEYCODE_ESCAPE || e.kbd.keycode == Common::KEYCODE_SPACE))
-				_roomClass->skip();
+			else if (e.type == Common::EVENT_KEYDOWN && !(_roomClass && _roomClass->key(e.kbd.ascii, e.kbd.keycode)) &&
+			         (e.kbd.keycode == Common::KEYCODE_ESCAPE || e.kbd.keycode == Common::KEYCODE_SPACE)) {
+				// The room's class first (the title), then the scene playing
+				// and the opening (input slot 5).
+				if (!(_roomClass && _roomClass->skip()))
+					changed = _script->skip() || changed;
+			}
 		}
 
 		// 0x435BC0: the game owes elapsed_ms * 36 / 1000 ticks since the
@@ -228,6 +238,7 @@ Common::Error ScoobyEngine::run() {
 				_roomClass->tick();
 				changed = true;
 			}
+			_music->tick();
 			changed = changed || _script->isBusy() || _inventory->getState() != Inventory::kStateParked ||
 			          _inventory->isScrappyTalking();
 			if (!_requestedRoom.empty()) {
@@ -460,7 +471,7 @@ void ScoobyEngine::clickExit(int sprite) {
 	debugC(1, kDebugInput, "exit %s clicked: going to %s", _currentRoom->getLabel(sprite).c_str(), exit.destination.c_str());
 
 	_currentRoom->setCursor("");
-	_script->startExit(exit);
+	_script->takeExit(exit);
 }
 
 RoomClass *ScoobyEngine::getRoomClass(const Common::String &room) {
@@ -513,6 +524,7 @@ bool ScoobyEngine::tickOnce(Common::String &nextRoom, int &movie) {
 	_inventory->tickGame();
 	if (_roomClass)
 		_roomClass->tick();
+	_music->tick();
 	if (!_requestedRoom.empty()) {
 		nextRoom = _requestedRoom;
 		movie = _requestedMovie;
@@ -1129,21 +1141,37 @@ Common::String ScoobyEngine::getFirstGameRoom() const {
 
 bool ScoobyEngine::showRoom(const Common::String &name) {
 	const Common::String from = _currentRoom ? _currentRoom->getName() : Common::String();
-	if (!_currentRoom || !_currentRoom->load(name))
+	if (!_currentRoom)
+		return false;
+	// The room's own class sees each placement first (vtable +0x18).
+	RoomClass *roomClass = _inventory ? getRoomClass(name) : nullptr;
+	_currentRoom->setPlacementHook(roomClass);
+	const bool loaded = _currentRoom->load(name);
+	_currentRoom->setPlacementHook(nullptr);
+	if (!loaded)
 		return false;
 	// 0x40B920 (game +0x48): the profile's StartRoom is the last room that
 	// isn't a menu.
 	if (!isMenuRoom(name))
 		_startRoom = name;
-	if (_script)
+	// The setup the room's class gave it (0x40B0F0): the music first.
+	const RoomSetup setup = getRoomSetup(getGameId(), name);
+	if (_music)
+		_music->enterRoom(setup.music);
+	if (_script) {
 		_script->enter();
+		_script->setHooks(roomClass);
+	}
 	if (_inventory)
 		_inventory->enterRoom();
+	// The end of the base entry: the opening and the timers (vtable +0x3C).
+	if (_script)
+		_script->setup(setup.opening, setup.snacksNeeded, from);
 	_hover = _lastHover = -1;
 	_currentRoom->setCursor("ANIM_CURSORARROW");
 	// The room's own class, after the base entry.
 	_requestedRoom.clear();
-	_roomClass = _inventory ? getRoomClass(name) : nullptr;
+	_roomClass = roomClass;
 	if (_roomClass)
 		_roomClass->enter(from);
 

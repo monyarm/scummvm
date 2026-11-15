@@ -383,7 +383,30 @@ bool Room::load(const Common::String &name) {
 		s.object = obj;
 		s.anim = anim;
 		int slot;
-		const Kind kind = getPlacementKind(obj, s.y, slot, s.depth);
+		Kind kind = getPlacementKind(obj, s.y, slot, s.depth);
+		// The room's class sees it first (room vtable +0x18): it may build it
+		// itself, as another kind, under another layer, or not at all.
+		Claim claim;
+		if (_hook)
+			_hook->claimPlacement(obj, claim);
+		if (claim.build == Claim::kSkip) {
+			debugC(1, kDebugScript, "room %s: placement %u (%s) claimed, not built", name.c_str(), k, obj.c_str());
+			continue;
+		}
+		if (claim.build == Claim::kRequires || claim.build == Claim::kClickable) {
+			const Kind claimed = claim.build == Claim::kRequires ? kKindRequires : kKindClickable;
+			// 0x408C80 builds a requires object under game +0x58 (layer 0)
+			// unless told; 0x408DC0 a clickable under layer= unless told.
+			if (claim.layer >= 0)
+				slot = claim.layer;
+			else if (claimed != kind)
+				slot = 0;
+			kind = claimed;
+			s.depth = claim.depth;
+			debugC(1, kDebugScript, "room %s: placement %u (%s) claimed as a %s in layer %d, depth %d%s", name.c_str(), k,
+			       obj.c_str(), claimed == kKindRequires ? "requires object" : "clickable", slot, s.depth,
+			       claim.hidden ? ", hidden" : "");
+		}
 		s.kind = kind;
 
 		// Start modes: the clickable constructor (0x401000) and the ghost
@@ -391,7 +414,7 @@ bool Room::load(const Common::String &name) {
 		// inventory, clickables and simple sprites are hit by their step
 		// polygon (type 2); characters and the ghost by their cels.
 		const int mode = (kind == kKindClickable || kind == kKindGhost) ? 0 : 1;
-		s.hidden = kind == kKindGhost;
+		s.hidden = kind == kKindGhost || claim.hidden;
 		s.hitType = (kind == kKindCharacter || kind == kKindGhost) ? 1 : 2;
 		if (kind == kKindExit) {
 			s.rollover = getIniString(obj, "rolloveranim");

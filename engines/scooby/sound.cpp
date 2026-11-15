@@ -64,7 +64,7 @@ const SoundArchive::Clip *Sound::findClip(const Common::String &name, File *file
 	return nullptr;
 }
 
-bool Sound::play(const Common::String &name) {
+bool Sound::play(const Common::String &name, bool background) {
 	File f;
 	const SoundArchive::Clip *clip = findClip(name, &f);
 	if (!clip) {
@@ -90,7 +90,8 @@ bool Sound::play(const Common::String &name) {
 	const byte volume = (byte)MIN<uint>(clip->volume, 100) * Audio::Mixer::kMaxChannelVolume / 100;
 	_mixer->playStream(kSoundTypes[f], &c.handle, playable, -1, volume);
 	c.name = clip->name;
-	_last = f;
+	if (!background)
+		_last = f;
 	debugC(1, kDebugAudio, "play %s from %s: %u Hz, %u ch, %u bits, %u bytes, volume %u%%%s", clip->name.c_str(),
 	       kFileNames[f], clip->rate, clip->channels, clip->bits, clip->dataSize, clip->volume, clip->loop ? ", looping" : "");
 	return true;
