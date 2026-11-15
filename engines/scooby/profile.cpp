@@ -80,6 +80,10 @@ void ScoobyEngine::buildProfile(Common::INIFile &profile) {
 	const RoomScript::StateMap &states = _script->getClickableStates();
 	for (RoomScript::StateMap::const_iterator it = states.begin(); it != states.end(); ++it)
 		profile.setKey(it->_key, "Clickables", it->_value);
+	// Each room class's own keys (room vtable +0x1C).
+	Common::Array<RoomClass *> classes = getAllRoomClasses();
+	for (uint i = 0; i < classes.size(); i++)
+		classes[i]->saveKeys(profile);
 	_inventory->saveProfile(profile);
 }
 
@@ -117,6 +121,10 @@ bool ScoobyEngine::applyProfile(const Common::INIFile &profile) {
 				_script->setClickableState(k->key, value);
 		}
 	}
+	// Each room class's own keys (room vtable +0x20).
+	Common::Array<RoomClass *> classes = getAllRoomClasses();
+	for (uint i = 0; i < classes.size(); i++)
+		classes[i]->loadKeys(profile);
 	_inventory->loadProfile(profile);
 	debugC(1, kDebugScript, "profile read: StartRoom %s, %u movies seen, %u exits taken, %u clickable states", _startRoom.c_str(),
 	       _seenMovies.size(), _takenExits.size(), _script->getClickableStates().size());
@@ -193,10 +201,9 @@ void ScoobyEngine::newGame() {
 	_seenMovies.clear();
 	_takenExits.clear();
 	_script->resetClickableStates();
-	for (Common::HashMap<Common::String, RoomClass *>::iterator it = _roomClasses.begin(); it != _roomClasses.end(); ++it) {
-		if (it->_value)
-			it->_value->reset();
-	}
+	Common::Array<RoomClass *> classes = getAllRoomClasses();
+	for (uint i = 0; i < classes.size(); i++)
+		classes[i]->reset();
 	_inventory->reset();
 	// Phantom's +0x4C, its story's values, isn't traced.
 	if (getGameId() == "showdown")
@@ -235,6 +242,19 @@ void ScoobyEngine::setStoryValues() {
 	}
 	_profile.setKey("Whodunit", "Game", kVillains[_randomSource.getRandomNumber(4)]);
 	_profile.setKey("ArtifactType", "Game", kArtifacts[_randomSource.getRandomNumber(2)]);
+}
+
+bool ScoobyEngine::getGameFlag(const Common::String &key) const {
+	return getGameString(key) == "Yes";
+}
+
+int ScoobyEngine::getGameInt(const Common::String &key) const {
+	return atoi(getGameString(key).c_str());
+}
+
+Common::String ScoobyEngine::getGameString(const Common::String &key) const {
+	Common::String v;
+	return _profile.getKey(key, "Game", v) ? v : Common::String();
 }
 
 void ScoobyEngine::listPlayers(Common::Array<Common::String> &names, Common::Array<int> &slots) {

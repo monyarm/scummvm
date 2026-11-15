@@ -25,6 +25,10 @@
 #include "common/array.h"
 #include "common/str.h"
 
+namespace Common {
+class INIFile;
+}
+
 namespace Scooby {
 
 class ScoobyEngine;
@@ -53,6 +57,13 @@ public:
 	virtual bool key(uint16 ascii, int keycode) { return false; }
 	/** Room vtable +0x08: back to how the factory built it, for a new game (0x435780). */
 	virtual void reset() {}
+	/**
+	 * Room vtable +0x1C / +0x20: write or read the class's own keys, in the
+	 * profile's Game section after the game's (0x42F3A0, 0x42F640). Every
+	 * class is called, built or not. A missing key should leave its value.
+	 */
+	virtual void saveKeys(Common::INIFile &profile) {}
+	virtual void loadKeys(const Common::INIFile &profile) {}
 	/** Input is held (game +0x24) and the cursor is hidden. */
 	virtual bool isBusy() const { return false; }
 

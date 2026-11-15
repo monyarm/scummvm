@@ -169,6 +169,8 @@ public:
 	Common::String getFirstGameRoom() const;
 	/** The class of @p room, built on first use, or nullptr for the base class. */
 	RoomClass *getRoomClass(const Common::String &room);
+	/** Every room's class, in the art file's room order, built if need be (the factory, 0x42E0E0). */
+	Common::Array<RoomClass *> getAllRoomClasses();
 	Common::Point getMousePos() const { return _mousePos; }
 
 	/**
@@ -188,6 +190,21 @@ public:
 	void requestLoad(int slot) { _requestedLoad = slot; }
 	/** Delete the profile in @p slot. */
 	void deletePlayer(int slot);
+
+	/**
+	 * The story's values in the profile's Game section, as the original
+	 * keeps them on the game object and writes them (0x42F3A0): set by the
+	 * new game (Showdown 0x42DBC0) and by the story rooms, saved and loaded
+	 * with the profile. Flags read true only for "Yes" (0x40A170); numbers
+	 * read with atoi (0x40A0F0); a missing key reads false, 0 or "".
+	 */
+	bool hasGameValue(const Common::String &key) const { return _profile.hasKey(key, "Game"); }
+	bool getGameFlag(const Common::String &key) const;
+	int getGameInt(const Common::String &key) const;
+	Common::String getGameString(const Common::String &key) const;
+	void setGameFlag(const Common::String &key, bool value) { _profile.setKey(key, "Game", value ? "Yes" : "No"); }
+	void setGameInt(const Common::String &key, int value) { _profile.setKey(key, "Game", Common::String::format("%d", value)); }
+	void setGameString(const Common::String &key, const Common::String &value) { _profile.setKey(key, "Game", value); }
 
 	/**
 	 * Draws a room as it is set up on entry: its layers and every placement

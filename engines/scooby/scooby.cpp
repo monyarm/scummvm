@@ -464,6 +464,16 @@ RoomClass *ScoobyEngine::getRoomClass(const Common::String &room) {
 	return c;
 }
 
+Common::Array<RoomClass *> ScoobyEngine::getAllRoomClasses() {
+	Common::Array<RoomClass *> all;
+	for (uint i = 0; i < _art->getRoomCount(); i++) {
+		RoomClass *c = getRoomClass(_art->getRoomName(i));
+		if (c)
+			all.push_back(c);
+	}
+	return all;
+}
+
 void ScoobyEngine::requestRoom(const Common::String &room, int movie) {
 	_requestedRoom = room;
 	_requestedMovie = movie;
