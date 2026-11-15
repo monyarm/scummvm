@@ -113,6 +113,13 @@ void Character::setState(Room &room, Sound &sound, int state) {
 		anim = getActAnim(_action);
 		_next = kStateIdle;
 		break;
+	case kStateSpecial:
+		// 0x405190 state 0xD: the object in +0x8C, its sequence the name
+		// without OBJ_, with 1 after it.
+		obj = _action;
+		anim = Common::String("ANIM_") + Common::String(_action.c_str() + MIN<uint>(4, _action.size())) + "1";
+		_next = kStateIdle;
+		break;
 	case kStateActLoop:
 		// 0x405190 state 0x10: the action, looping, until another state.
 		anim = getActAnim(_action);
@@ -174,6 +181,12 @@ bool Character::isBusy() const {
 Common::String Character::getActAnim(const Common::String &action) const {
 	// 0x405190 state 0xF: "ANIM_%s%s%s" of the name, the set and the action.
 	return Common::String::format("ANIM_%s%s%s", _name.c_str(), _set.c_str(), action.c_str());
+}
+
+void Character::special(Room &room, Sound &sound, const Common::String &object) {
+	// 0x406130
+	_action = object;
+	setState(room, sound, kStateSpecial);
 }
 
 void Character::actLoop(Room &room, Sound &sound, const Common::String &action) {

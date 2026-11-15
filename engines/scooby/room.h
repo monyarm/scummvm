@@ -61,7 +61,8 @@ public:
 		int layer = -1;     // the parent layer slot; -1 for the default path's
 		int depth = 0;      // among its siblings (0x430EE0)
 		bool hidden = false;
-		Common::String anim; // kSprite: the sequence, if not the placement's
+		Common::String anim; // the sequence, if not the placement's
+		Common::String required; // kRequires: the cursor it answers, if not its requiredanim=
 		int hitType = 2;     // kSprite: 0 never hit, 1 cels, 2 step polygon
 	};
 
@@ -192,6 +193,8 @@ public:
 	/** Set the hit test: 1 for cels and masks, 2 for the step polygon, 0 for none. */
 	void setHitType(uint sprite, int type) { _sprites[sprite].hitType = type; }
 	int getHitType(uint sprite) const { return _sprites[sprite].hitType; }
+	/** A requires object's cursor set by its room's class, or empty for its requiredanim=. */
+	const Common::String &getRequired(uint sprite) const { return _sprites[sprite].required; }
 	/** Whether any step of the sprite's sequence has a polygon (0x436FC0). */
 	bool hasStepPolygon(uint sprite) const;
 	/**
@@ -257,6 +260,7 @@ private:
 		Common::String label;
 		Common::String rollover;
 		Common::String destination;
+		Common::String required;      // a requires object's cursor, set by a claim
 		Common::Array<uint> children; // indexes into _sprites, by descending depth
 	};
 

@@ -64,6 +64,55 @@ private:
 };
 
 /**
+ * Showdown's Street 1 (0x42AE70, vtable 0x45F23C): the Sheriff, who
+ * introduces himself, takes the sign and gives the gang his clue; the
+ * pump and its trough, which bring up the strong box key; the brick,
+ * washed in the trough for the final clue.
+ */
+class Street1Room : public RoomClass {
+public:
+	explicit Street1Room(ScoobyEngine &engine) : RoomClass(engine) {}
+
+	void reset() override;                                                         // 0x42AED0
+	void prepare() override;                                                       // 0x42BCD0
+	void enter(const Common::String &from) override;                               // 0x42B960
+	void tick() override;                                                          // 0x42AF60
+	void roomLeft() override;                                                      // 0x42AF10
+	bool click(int sprite) override;                                               // 0x42AF60, the Sheriff
+	bool isBusy() const override { return _giving || _pumping || _takeKey; }        // game +0x24
+	void claimPlacement(const Common::String &object, Room::Claim &claim) override; // 0x42BD10
+	void event(const Common::String &object, bool success) override;              // 0x42C120
+	void leaving(const Common::String &destination, Common::String &scene) override; // 0x42BB50
+	void saveKeys(Common::INIFile &profile) override;                              // 0x42C2E0
+	void loadKeys(const Common::INIFile &profile) override;                        // 0x42C360
+
+	int getPumpAttempts() const { return _pumpAttempts; }
+	bool isKeyVisible() const { return _keyVisible; }
+	bool isIntroPlayed() const { return _introPlayed; }
+	bool isPumping() const { return _pumping; }
+
+private:
+	void sheriffGivesClue();
+
+	bool _sceneDone = false;     // +0xBC: Street_1.220D1_ is over
+	bool _sheriffGives = false;  // +0xBD: the Sheriff will give, when idle
+	bool _giving = false;        // +0xBE: he is giving; then the gang leaves
+	int _pumpAttempts = 0;       // +0xC0, saved as PumpAttempts
+	bool _brickWashed = false;   // +0xC4
+	bool _introPlayed = false;   // +0xC5, saved as SheriffIntroPlayed
+	int _hint = 0;               // +0xCC: which of the three hints is next
+	bool _pumping = false;       // +0xD0
+	bool _pumpStarted = false;   // +0xD1
+	bool _takeKey = false;       // +0xD2
+	bool _taking = false;        // +0xD3
+	bool _keyVisible = false;    // +0xD4, saved as KeyVisible
+	bool _waitScene = false;     // Street_1.220D1_ is playing
+	int _hotspot2 = -1;          // +0xB8
+	int _key = -1;               // +0xD8: OBJ_INV_STRONGBOXKEY
+	int _trough = -1;            // +0xDC: OBJ_P03_STREET1_TROUGH
+};
+
+/**
  * Showdown's Street 2 (0x42C3E0, vtable 0x45F27C): Gummy and his donkey,
  * once Artie is met; the clock; Gummy's window.
  */

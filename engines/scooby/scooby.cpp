@@ -135,6 +135,8 @@ Common::Error ScoobyEngine::run() {
 		checkRoomSetup();
 		checkTownCenter();
 		checkStreets();
+		checkClues();
+		checkStreet1();
 		checkAllExits();
 		checkAllClickables();
 		checkAllInventory();
@@ -1496,6 +1498,9 @@ bool ScoobyEngine::showRoom(const Common::String &name) {
 	const Common::String from = _currentRoom ? _currentRoom->getName() : Common::String();
 	if (!_currentRoom)
 		return false;
+	// The room left hears of it (vtable +0x10, from the room unload 0x435CD0).
+	if (_roomClass)
+		_roomClass->roomLeft();
 	// The room's own class sees each placement first (vtable +0x18).
 	RoomClass *roomClass = _inventory ? getRoomClass(name) : nullptr;
 	_currentRoom->setPlacementHook(roomClass);

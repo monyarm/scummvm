@@ -45,6 +45,9 @@ void ScoobyEngine::checkRoomSetup() {
 	// and the tick the opening starts. Then the music's variants in turn.
 	_checking = true;
 	const uint kMaxTicks = 400;
+	// As a new game has it (0x42DBC0): the Sheriff waits for the sign, so
+	// Street 1 doesn't start his clue on entry.
+	setGameFlag("SheriffWaiting", true);
 	Common::String next;
 	int movie;
 	for (uint i = 0; i < _art->getRoomCount(); i++) {
@@ -112,6 +115,7 @@ void ScoobyEngine::checkRoomSetup() {
 	delete _music;
 	_music = new Music(*_sound);
 	_script->resetMemories();
+	_profile.removeKey("SheriffWaiting", "Game");
 	_checking = false;
 	debugC(3, kDebugScript, "setup check: done");
 }
@@ -647,6 +651,364 @@ void ScoobyEngine::checkStreets() {
 	newGameForCheck();
 	_checking = false;
 	debugC(3, kDebugScript, "street check: done");
+}
+
+void ScoobyEngine::checkClues() {
+	// 0x42F990's rules over many draws, from fresh clue slots: the villain
+	// gives a red herring about neither the villain nor himself; anyone else
+	// one of their own three until all three are found, then (level 0) their
+	// fourth or fifth, or (above) a red herring; a clue owner nothing more.
+	static const char *const kSuspects[] = { "ARTIE", "GUMMY", "ICDOUBLE", "JENNY", "SHERIFF" };
+	static const char *const kPrefix[] = { "ARTIE_", "GUMMY_", "IC_", "JENNY_", "SHERIFF_" };
+	if (getGameId() != "showdown")
+		return;
+	struct Fresh {
+		static void clues(ScoobyEngine &e) {
+			for (int i = 0; i < 5; i++) {
+				e.setGameString(Common::String::format("CluesFound%d", i), "");
+				e.setGameString(Common::String::format("ClueOwners%d", i), "");
+			}
+		}
+	};
+	const int kDraws = 40;
+	uint villainOk = 0, ownOk = 0, extraOk = 0, herringOk = 0, onceOk = 0, cases = 0;
+	const int level = _difficulty;
+	for (uint v = 0; v < ARRAYSIZE(kSuspects); v++) {
+		setGameString("Whodunit", kSuspects[v]);
+		for (uint g = 0; g < ARRAYSIZE(kSuspects); g++) {
+			for (int d = 0; d < kDraws; d++) {
+				cases++;
+				Fresh::clues(*this);
+				giveClue(kSuspects[g]);
+				const Common::String clue = getGameString("CluesFound0");
+				const bool owner = getGameString("ClueOwners0") == kSuspects[g];
+				if (v == g) {
+					// A red herring, about neither of them.
+					villainOk += (owner && clue.hasPrefix("RH_") && !clue.hasPrefix(Common::String("RH_") + kPrefix[v])) ? 1 : 0;
+				} else {
+					ownOk += (owner && clue.hasPrefix(kPrefix[g])) ? 1 : 0;
+				}
+				// A clue owner gives nothing more.
+				giveClue(kSuspects[g]);
+				onceOk += getGameString("CluesFound1").empty() ? 1 : 0;
+			}
+			if (v == g)
+				continue;
+			// All three of their own found: the fourth or fifth at level 0, a
+			// red herring above.
+			for (int l = 0; l <= 1; l++) {
+				_difficulty = l;
+				for (int d = 0; d < kDraws; d++) {
+					Fresh::clues(*this);
+					for (int k = 0; k < 3; k++) {
+						static const char *const kOwn[][3] = {
+							{ "ARTIE_ESCAPE_BOOK", "ARTIE_CLASS_LIST", "ARTIE_MAP" },
+							{ "GUMMY_COWBELL", "GUMMY_HORSESHOE_LIFT", "GUMMY_MAP" },
+							{ "IC_BINOCULARS", "IC_EYE_DOCTOR", "IC_MAP" },
+							{ "JENNY_CASSETTE_TAPE", "JENNY_GHOST_TOWN_BOOK", "JENNY_MAP" },
+							{ "SHERIFF_SPURS", "SHERIFF_FEATHER", "SHERIFF_MAP" }
+						};
+						setGameString(Common::String::format("CluesFound%d", k), kOwn[g][k]);
+					}
+					giveClue(kSuspects[g]);
+					const Common::String clue = getGameString("CluesFound3");
+					if (l == 0)
+						extraOk += (clue.hasPrefix(kPrefix[g]) && !clue.hasSuffix("_MAP") && clue != getGameString("CluesFound0") &&
+						            clue != getGameString("CluesFound1") && clue != getGameString("CluesFound2")) ? 1 : 0;
+					else
+						herringOk += (clue.hasPrefix("RH_") && !clue.hasPrefix(Common::String("RH_") + kPrefix[g]) &&
+						              !clue.hasPrefix(Common::String("RH_") + kPrefix[v])) ? 1 : 0;
+				}
+			}
+			_difficulty = level;
+		}
+	}
+	Fresh::clues(*this);
+	setNewClue(false);
+	debugC(3, kDebugScript, "clue check: %u draws; villain's red herring %u of %d, own clue %u of %d, once %u of %u; all three found: level 0 extra %u of %d, level 1 red herring %u of %d",
+	       cases, villainOk, 5 * kDraws, ownOk, 20 * kDraws, onceOk, cases, extraOk, 20 * kDraws, herringOk, 20 * kDraws);
+}
+
+void ScoobyEngine::checkStreet1() {
+	// Showdown's Street 1 (WP-034), every step against the trace.
+	const Common::String kStreet1 = "ROOM_P03_Street1";
+	bool found = false;
+	for (uint i = 0; i < _art->getRoomCount(); i++)
+		found = found || _art->getRoomName(i) == kStreet1;
+	if (!found)
+		return;
+	_checking = true;
+	struct Run {
+		ScoobyEngine &e;
+		Common::String next;
+		int movie;
+		int until(bool (*done)(ScoobyEngine &), uint max) {
+			for (uint t = 1; t <= max; t++) {
+				next.clear();
+				if (e.tickOnce(next, movie))
+					return -1;
+				if (done(e))
+					return t;
+			}
+			return -1;
+		}
+	} run = { *this, Common::String(), -1 };
+	struct Is {
+		static bool noScene(ScoobyEngine &e) { return !e._script->isScenePlaying(); }
+		static bool scene(ScoobyEngine &e) { return e._script->isScenePlaying(); }
+		static bool free(ScoobyEngine &e) { return !e._script->isScenePlaying() && !(e._roomClass && e._roomClass->isBusy()); }
+	};
+	struct Find {
+		static int sprite(ScoobyEngine &e, const Common::String &object) {
+			for (uint s = 0; s < e._currentRoom->getSpriteCount(); s++) {
+				if (e._currentRoom->getObjectName(s) == object)
+					return s;
+			}
+			return -1;
+		}
+		static Common::String placed(ScoobyEngine &e) {
+			Common::String out;
+			static const char *const kObjects[] = { "OBJ_SHERIFF", "OBJ_P03_TO_P02", "OBJ_P03_STREET1_DOOR_OVERLAY", "OBJ_INV_STRONGBOXKEY", "OBJ_P03_STREET1_TROUGH" };
+			for (uint i = 0; i < ARRAYSIZE(kObjects); i++) {
+				const int s = sprite(e, kObjects[i]);
+				if (s < 0)
+					out += Common::String::format("%s none; ", kObjects[i]);
+				else
+					out += Common::String::format("%s %s%s%s; ", kObjects[i], e._currentRoom->getAnim(s).c_str(), e._currentRoom->isHidden(s) ? " hidden" : "",
+					                              e._currentRoom->getRequired(s).empty() ? "" : (Common::String(" asks ") + e._currentRoom->getRequired(s)).c_str());
+			}
+			return out;
+		}
+	};
+	// Name each scene as it starts and skip it (see the town check).
+	struct Skip {
+		ScoobyEngine &e;
+		Common::String scene() {
+			const Common::String s = e._script->isScenePlaying() ? e._script->getScene() : Common::String("-");
+			e._script->skip();
+			return s;
+		}
+	} skip = { *this };
+	const uint kMax = 3000;
+	newGameForCheck();
+	setGameFlag("SheriffWaiting", true);
+	setGameFlag("SheriffPuzzle", false);
+	setGameString("Whodunit", "JENNY");
+
+	// 1. From Town Center: Fred walks in DR; the moaning opening. No Sheriff
+	// before Artie's clue; the office shut.
+	showRoom(kRoomTownCenter);
+	_script->getMemory(kRoomTownCenter).openingPlayed = true;
+	showRoom(kStreet1);
+	Character *fred = _script->getCharacter("FRED");
+	debugC(3, kDebugScript, "street1 check from Town Center: FRED %d %s; opening '%s', held %d", fred ? fred->getState() : -1,
+	       fred ? _currentRoom->getAnim(fred->getSprite()).c_str() : "-", _script->getOpening().c_str(), _script->isBusy() ? 1 : 0);
+	_script->skip();
+	debugC(3, kDebugScript, "street1 check before Artie's clue: %s", Find::placed(*this).c_str());
+
+	// 2. The Sheriff: his introduction on Big Head, then his close-up.
+	setGameString("ClueOwners0", "ARTIE");
+	setGameString("CluesFound0", "ARTIE_MAP");
+	showRoom(kRoomTownCenter);
+	showRoom(kStreet1);
+	_script->skip();
+	run.until(Is::noScene, 1);
+	debugC(3, kDebugScript, "street1 check after Artie's clue: %s", Find::placed(*this).c_str());
+	Character *sheriff = _script->getCharacter("SHERIFF");
+	const int sheriffSprite = sheriff ? sheriff->getSprite() : -1;
+	struct Point {
+		static Common::String of(ScoobyEngine &e, int sprite) {
+			for (int y = 4; y < 480 && sprite >= 0; y += 8) {
+				for (int x = 4; x < 640; x += 8) {
+					if (e._currentRoom->hitTest(x, y) == sprite)
+						return Common::String::format("%d,%d", x, y);
+				}
+			}
+			return "-";
+		}
+	};
+	debugC(3, kDebugScript, "street1 check points: Sheriff %s, trough %s, van %s", Point::of(*this, sheriffSprite).c_str(),
+	       Point::of(*this, Find::sprite(*this, "OBJ_P03_STREET1_TROUGH")).c_str(), Point::of(*this, _inventory->getVanSprite()).c_str());
+	_requestedRoom.clear();
+	_roomClass->click(sheriffSprite);
+	const Common::String first = _requestedRoom;
+	const bool met = _inventory->hasMetSuspect("SHERIFF");
+	_requestedRoom.clear();
+	_roomClass->click(sheriffSprite);
+	debugC(3, kDebugScript, "street1 check Sheriff clicked: first goes to %s, met %d, intro played %d; then to %s", first.c_str(), met ? 1 : 0,
+	       static_cast<Street1Room *>(_roomClass)->isIntroPlayed() ? 1 : 0, _requestedRoom.c_str());
+	_requestedRoom.clear();
+
+	// 3. His puzzle, waiting for the sign: the hints in turn, input on.
+	setGameFlag("SheriffPuzzle", true);
+	Common::String hints;
+	for (int k = 0; k < 4; k++) {
+		_roomClass->click(sheriffSprite);
+		hints += Common::String::format("%s held %d; ", skip.scene().c_str(), _script->isBusy() ? 1 : 0);
+		run.until(Is::noScene, 1);
+	}
+	debugC(3, kDebugScript, "street1 check hints: %s", hints.c_str());
+
+	// 4. The sign: his line, then his clue, he gives it, and the gang thanks
+	// him and goes to the suspects and clues.
+	_inventory->addItem("OBJ_INV_SIGN");
+	_inventory->setCursor("ANIM_CURSORPOP_SIGN");
+	const bool taken = _roomClass->click(sheriffSprite);
+	Common::String steps = Common::String::format("taken %d, sign %s, waiting %d; ", taken ? 1 : 0, (_inventory->getSlot(0) == "OBJ_INV_SIGN" || _inventory->getSlot(1) == "OBJ_INV_SIGN") ? "kept" : "given",
+	                                              getGameFlag("SheriffWaiting") ? 1 : 0);
+	steps += skip.scene() + "; ";
+	run.until(Is::scene, 5);
+	// Which of the three lines, and which of his own three clues, come from
+	// rand(); the line names the sets.
+	const Common::String line = skip.scene();
+	const Common::String clue = getGameString("CluesFound1");
+	const bool own = clue == "SHERIFF_SPURS" || clue == "SHERIFF_FEATHER" || clue == "SHERIFF_MAP";
+	steps += (line.hasPrefix("Street_1.130C") ? Common::String("Street_1.130C[123]_") : line) + "; clue " + (own ? Common::String("one of his own three") : clue) +
+	         " from " + getGameString("ClueOwners1") + "; ";
+	struct Giving {
+		static bool started(ScoobyEngine &e) {
+			Character *s = e._script->getCharacter("SHERIFF");
+			return s && s->getState() == Character::kStateAct;
+		}
+	};
+	int t = run.until(Giving::started, kMax);
+	steps += Common::String::format("gives after %d ticks (%s), held %d; ", t, sheriff ? _currentRoom->getAnim(sheriffSprite).c_str() : "-",
+	                                _roomClass->isBusy() ? 1 : 0);
+	run.until(Is::scene, kMax);
+	steps += skip.scene() + "; ";
+	run.next.clear();
+	run.until(Is::scene, kMax);
+	debugC(3, kDebugScript, "street1 check sign: %sthen %s", steps.c_str(), run.next.c_str());
+
+	// 5. Back, his clue given: the office open, he stands at (501, 270), a
+	// line for him.
+	showRoom(kRoomTownCenter);
+	showRoom(kStreet1);
+	_script->skip();
+	run.until(Is::noScene, 1);
+	sheriff = _script->getCharacter("SHERIFF");
+	_roomClass->click(sheriff ? sheriff->getSprite() : -1);
+	debugC(3, kDebugScript, "street1 check after his clue: %s Sheriff at %d,%d; clicked: %s", Find::placed(*this).c_str(),
+	       sheriff ? _currentRoom->getX(sheriff->getSprite()) : 0, sheriff ? _currentRoom->getY(sheriff->getSprite()) : 0, skip.scene().c_str());
+	run.until(Is::noScene, 1);
+
+	// 6. The trough: lines before the handle, the handle, then four pumps.
+	const int trough = Find::sprite(*this, "OBJ_P03_STREET1_TROUGH");
+	struct Use {
+		static void with(ScoobyEngine &e, int sprite, const char *cursor) {
+			e._inventory->setCursor(cursor);
+			e._inventory->click(sprite);
+		}
+	};
+	Common::String lines;
+	for (int k = 0; k < 4; k++) {
+		Use::with(*this, trough, "ANIM_CURSORARROW");
+		run.until(Is::scene, 3);
+		lines += skip.scene() + " ";
+		run.until(Is::noScene, 1);
+	}
+	debugC(3, kDebugScript, "street1 check trough before the handle: %s", lines.c_str());
+	_inventory->addItem("OBJ_INV_PUMP_HANDLE");
+	Use::with(*this, trough, "ANIM_CURSORPUMP_HANDLE");
+	run.until(Is::scene, 3);
+	Common::String pumps = Common::String::format("handle %s; ", _inventory->getSlot(0) == "OBJ_INV_PUMP_HANDLE" ? "kept" : "on the pump");
+	struct Street1 {
+		static Street1Room *room(ScoobyEngine &e) { return static_cast<Street1Room *>(e._roomClass); }
+	};
+	// Each pump: what Shaggy becomes, the scenes that start (each skipped),
+	// the trough's sequence and the key.
+	for (int k = 0; k < 5; k++) {
+		if (k > 0)
+			Use::with(*this, trough, "ANIM_CURSORARROW");
+		Common::String shaggyAs = "-", scenes;
+		for (uint n = 0; n < kMax; n++) {
+			run.until(Is::noScene, 1);
+			Character *shaggy = _script->getCharacter("SHAGGY");
+			if (shaggy && shaggy->getState() == Character::kStateSpecial)
+				shaggyAs = _currentRoom->getObjectName(shaggy->getSprite());
+			if (_script->isScenePlaying())
+				scenes += skip.scene() + " ";
+			if (!Street1::room(*this)->isPumping() && !_script->isScenePlaying() && n > 2)
+				break;
+		}
+		const int keySprite = Find::sprite(*this, "OBJ_INV_STRONGBOXKEY");
+		pumps += Common::String::format("%s, scenes %s, %s, %d pumps, key %s; ", shaggyAs.c_str(), scenes.empty() ? "- " : scenes.c_str(),
+		                                _currentRoom->getAnim(trough).c_str(), Street1::room(*this)->getPumpAttempts(),
+		                                keySprite >= 0 && !_currentRoom->isHidden(keySprite) ? "shows" : "hidden");
+	}
+	debugC(3, kDebugScript, "street1 check pump: %s", pumps.c_str());
+
+	// 7. The key: Scooby takes it.
+	const int key = Find::sprite(*this, "OBJ_INV_STRONGBOXKEY");
+	Use::with(*this, key, "ANIM_CURSORARROW");
+	run.until(Is::noScene, 2);
+	Character *scooby = _script->getCharacter("SCOOBY");
+	const Common::String taking = scooby ? _currentRoom->getObjectName(scooby->getSprite()) : "-";
+	t = run.until(Is::free, kMax);
+	debugC(3, kDebugScript, "street1 check key: Scooby as %s, done after %d ticks, key %s", taking.c_str(), t,
+	       _inventory->hasItem("OBJ_INV_STRONGBOXKEY") ? "in the toolbar" : "not taken");
+
+	// 8. The keys, saved and read back.
+	Common::INIFile ini;
+	_roomClass->saveKeys(ini);
+	Common::String pa, sip, kv;
+	ini.getKey("PumpAttempts", kStreet1, pa);
+	ini.getKey("SheriffIntroPlayed", kStreet1, sip);
+	ini.getKey("KeyVisible", kStreet1, kv);
+	_roomClass->reset();
+	_roomClass->loadKeys(ini);
+	debugC(3, kDebugScript, "street1 check keys: PumpAttempts=%s SheriffIntroPlayed=%s KeyVisible=%s; read back %d %d %d", pa.c_str(), sip.c_str(), kv.c_str(),
+	       Street1::room(*this)->getPumpAttempts(), Street1::room(*this)->isIntroPlayed() ? 1 : 0, Street1::room(*this)->isKeyVisible() ? 1 : 0);
+
+	// 9. The second hotspot: its scene as it plays its A.
+	showRoom(kRoomTownCenter);
+	showRoom(kStreet1);
+	_script->skip();
+	run.until(Is::noScene, 1);
+	const int hotspot2 = Find::sprite(*this, "OBJ_P03_STREET1_HOTSPOT2");
+	Common::String states;
+	for (int k = 0; k < 3; k++) {
+		const Common::String state = _script->getClickableState(hotspot2);
+		_script->clickClickable(hotspot2);
+		run.until(Is::scene, 2);
+		states += Common::String::format("%s: %s; ", state.c_str(), skip.scene().c_str());
+		for (uint n = 0; n < kMax && _script->isClickablePlaying(hotspot2); n++) {
+			_script->skip();
+			run.until(Is::noScene, 1);
+		}
+	}
+	debugC(3, kDebugScript, "street1 check hotspot 2: %s", states.c_str());
+
+	// 10. The brick: the Sheriff gone, the trough asks for it; washed, the
+	// final clue, movie 14 and the suspects and clues.
+	_inventory->addItem("OBJ_INV_BRICK");
+	showRoom(kRoomTownCenter);
+	showRoom(kStreet1);
+	_script->skip();
+	run.until(Is::noScene, 1);
+	debugC(3, kDebugScript, "street1 check brick taken: %s", Find::placed(*this).c_str());
+	Use::with(*this, Find::sprite(*this, "OBJ_P03_STREET1_TROUGH"), "ANIM_CURSORBRICK");
+	run.until(Is::scene, 3);
+	const Common::String washed = skip.scene();
+	run.next.clear();
+	t = run.until(Is::scene, kMax);
+	debugC(3, kDebugScript, "street1 check brick: %s, brick %s, FinalClue %d; then movie %d and %s", washed.c_str(),
+	       _inventory->hasItem("OBJ_INV_BRICK") && _inventory->getSlot(0) == "OBJ_INV_BRICK" ? "kept" : "used", getGameFlag("FinalClue") ? 1 : 0,
+	       run.movie, run.next.c_str());
+
+	// 11. To the post office with the lantern: no scene.
+	Common::String scene = "Street_1.Something_";
+	static_cast<Street1Room *>(getRoomClass(kStreet1))->leaving("ROOM_P08_Post_Office", scene);
+	Common::String without = scene;
+	_inventory->addItem("OBJ_INV_LANTERN");
+	scene = "Street_1.Something_";
+	static_cast<Street1Room *>(getRoomClass(kStreet1))->leaving("ROOM_P08_Post_Office", scene);
+	debugC(3, kDebugScript, "street1 check to the post office: scene '%s' without the lantern, '%s' with it", without.c_str(), scene.c_str());
+
+	_sound->stop();
+	newGameForCheck();
+	_checking = false;
+	debugC(3, kDebugScript, "street1 check: done");
 }
 
 void ScoobyEngine::newGameForCheck() {

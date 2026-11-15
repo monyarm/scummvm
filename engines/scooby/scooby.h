@@ -74,6 +74,8 @@ private:
 	void checkRoomSetup();   // story_check.cpp
 	void checkTownCenter();  // story_check.cpp
 	void checkStreets();     // story_check.cpp
+	void checkStreet1();     // story_check.cpp
+	void checkClues();       // story_check.cpp
 	void newGameForCheck();  // story_check.cpp
 	int _checkSprite = -1;   // a sprite a check waits on
 	bool _checking = false;
@@ -191,6 +193,10 @@ public:
 	Music *getMusic() const { return _music; }
 	/** Whether @p name is one of ClueOwners0-4 (game +0xD8, 0x40A870). */
 	bool isClueOwner(const Common::String &name) const;
+	/** Whether @p clue is one of CluesFound0-4 (game +0xB0, 0x4301A0). */
+	bool isClueFound(const Common::String &clue) const;
+	/** The clue @p suspect gives, once (Showdown's game vtable +0x44, 0x42F990; clues.cpp). */
+	void giveClue(const Common::String &suspect);
 	/** Every room's class, in the art file's room order, built if need be (the factory, 0x42E0E0). */
 	Common::Array<RoomClass *> getAllRoomClasses();
 	Common::Point getMousePos() const { return _mousePos; }

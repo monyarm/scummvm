@@ -5,6 +5,7 @@ MODULE_OBJS = \
 	art_archive.o \
 	cel.o \
 	character.o \
+	clues.o \
 	inventory.o \
 	menu_rooms.o \
 	options_rooms.o \

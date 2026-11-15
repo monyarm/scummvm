@@ -44,6 +44,7 @@ public:
 		kStateIdle = 6, // IDLE_MASTER, looping
 		kStateStay = 7, // keep the last step
 		kStateTalk = 8, // TALKS, its step set by lip sync
+		kStateSpecial = 0xD, // another object's ANIM_<object>1 once, then idle (0x406130)
 		kStateAct = 0xF, // ANIM_<NAME><set><action> once, then idle (0x4061F0)
 		kStateActLoop = 0x10, // ANIM_<NAME><set><action>, looping (0x406210)
 		kStateScared = 0x11, // SCARED once, with Global.Scared.<NAME>, then idle
@@ -75,6 +76,11 @@ public:
 
 	/** Play ANIM_<NAME><set>@p action once, then go idle (0x4061F0, state 0xF). */
 	void act(Room &room, Sound &sound, const Common::String &action);
+	/**
+	 * Become @p object and play its sequence ANIM_<object without OBJ_>1
+	 * once, then go idle as before (0x406130, state 0xD): Shaggy pumping.
+	 */
+	void special(Room &room, Sound &sound, const Common::String &object);
 	/** Play ANIM_<NAME><set>@p action looping, until another state (0x406210, state 0x10). */
 	void actLoop(Room &room, Sound &sound, const Common::String &action);
 	/** The sequence act() plays. */

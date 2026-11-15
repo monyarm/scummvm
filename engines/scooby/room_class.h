@@ -48,6 +48,8 @@ public:
 
 	/** Room vtable +0x0C, after the base entry (0x40B920): @p from is the room left. */
 	virtual void enter(const Common::String &from) {}
+	/** Room vtable +0x10, after the base leave (0x40BB70): the room is left. */
+	virtual void roomLeft() {}
 	/** Room vtable +0x04, after the base tick (0x40B490). */
 	virtual void tick() {}
 	/** A click on @p sprite (-1 for none), before the engine's own handling. Returns true if taken. */

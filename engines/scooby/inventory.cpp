@@ -579,7 +579,10 @@ void Inventory::clickRequires(int sprite) {
 	// 0x402F20: the right item, or the arrow, tells the room; either way
 	// the cursor goes back to the arrow. Another item does nothing here.
 	const Common::String obj = _room.getObjectName(sprite);
-	const Common::String required = getIniString(obj, "requiredanim");
+	// The room's class may have set another (Street 1's trough).
+	Common::String required = _room.getRequired(sprite);
+	if (required.empty())
+		required = getIniString(obj, "requiredanim");
 	if (_cursor == required)
 		roomEvent(obj, true);
 	else if (isDefaultCursor())

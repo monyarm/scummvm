@@ -403,6 +403,9 @@ bool Room::load(const Common::String &name) {
 				slot = 0;
 			kind = claimed;
 			s.depth = claim.depth;
+			s.required = claim.required;
+			if (!claim.anim.empty())
+				anim = s.anim = claim.anim;
 			debugC(1, kDebugScript, "room %s: placement %u (%s) claimed as a %s in layer %d, depth %d%s", name.c_str(), k,
 			       obj.c_str(), claimed == kKindRequires ? "requires object" : "clickable", slot, s.depth,
 			       claim.hidden ? ", hidden" : "");
