@@ -238,8 +238,21 @@ void ScoobyEngine::checkTownCenter() {
 	_inventory->click(c ? c->getSprite() : -1);
 	run.until(Is::noScene, 1);
 	scene = skip.scene();
-	const Common::String fed = _inventory->takeLog();
-	debugC(3, kDebugScript, "town check snack: %sline %s; snacks given %u", fed.c_str(), scene.c_str(),
+	// The Global line is Fred's A or B or Velma's C by rand(); the line
+	// names the set, so runs compare.
+	struct Same {
+		static Common::String of(const Common::String &in) {
+			Common::String out = in;
+			static const char *const kLines[] = { "Global.Snack_GivenA_", "Global.Snack_GivenB_", "Global.Snack_GivenC_" };
+			for (uint i = 0; i < ARRAYSIZE(kLines); i++) {
+				for (size_t at = out.find(kLines[i]); at != Common::String::npos; at = out.find(kLines[i]))
+					out = Common::String(out.c_str(), at) + "Global.Snack_Given[ABC]_" + Common::String(out.c_str() + at + strlen(kLines[i]));
+			}
+			return out;
+		}
+	};
+	const Common::String fed = Same::of(_inventory->takeLog());
+	debugC(3, kDebugScript, "town check snack: %sline %s; snacks given %u", fed.c_str(), Same::of(scene).c_str(),
 	       _script->getMemory(kRoom).snacksGiven);
 	run.until(Is::noScene, 60);
 	clickExit(exitSprite);
@@ -358,13 +371,30 @@ void ScoobyEngine::checkTownCenter() {
 	_script->resetMemories();
 	_script->getMemory(kRoom).openingPlayed = true;
 	showRoom(kRoom);
-	Common::String chatter;
-	for (int k = 0; k < 6; k++) {
+	// Which scene, and when, come from rand(); the line reports what the
+	// trace fixes. With moans every chatter is a scene, 25-54 seconds
+	// (900-1944 ticks, +1 for the tick it runs out) after the last; without
+	// them only 1100D_ plays.
+	setGameFlag("MoaningActive", true);
+	uint inTime = 0, known = 0;
+	const int kRuns = 6;
+	for (int k = 0; k < kRuns; k++) {
 		t = run.until(Is::scene, 3000);
-		chatter += Common::String::format("%s@%d ", skip.scene().c_str(), t);
+		const Common::String s = skip.scene();
+		inTime += (t >= 900 && t <= 1945) ? 1 : 0;
+		known += (s == "Town_Center.100B_" || s == "Town_Center.100B2_" || s == "Town_Center.100B3_" || s == "Town_Center.1100D_") ? 1 : 0;
 		run.until(Is::noScene, 1);
 	}
-	debugC(3, kDebugScript, "town check idle: %s", chatter.c_str());
+	setGameFlag("MoaningActive", false);
+	uint others = 0;
+	for (int k = 0; k < kRuns; k++) {
+		t = run.until(Is::scene, 4000);
+		if (t >= 0 && skip.scene() != "Town_Center.1100D_")
+			others++;
+		run.until(Is::noScene, 1);
+	}
+	debugC(3, kDebugScript, "town check idle: with moans %u of %d after 25-54 s, %u of %d a 100B or 1100D scene; without, %u other scenes",
+	       inTime, kRuns, known, kRuns, others);
 
 	_sound->stop();
 	_inventory->reset();
