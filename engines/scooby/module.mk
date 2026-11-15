@@ -11,6 +11,7 @@ MODULE_OBJS = \
 	clues.o \
 	hotel_rooms.o \
 	inventory.o \
+	jail_rooms.o \
 	menu_rooms.o \
 	options_rooms.o \
 	profile.o \

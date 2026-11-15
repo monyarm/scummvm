@@ -29,6 +29,7 @@
 #include "scooby/chase_rooms.h"
 #include "scooby/detection.h"
 #include "scooby/hotel_rooms.h"
+#include "scooby/jail_rooms.h"
 #include "scooby/stage_rooms.h"
 #include "scooby/inventory.h"
 #include "scooby/room.h"
@@ -2140,6 +2141,241 @@ void ScoobyEngine::checkChases() {
 		}
 		_script->setGhostChance(&_randomSource, ConfMan.hasKey("ghost_chance") ? (uint)ConfMan.getInt("ghost_chance") : 30);
 		setDifficulty(levelBefore);
+	}
+
+	// The jail (WP-044).
+	{
+		const char *const kJail = "ROOM_P07_Jail";
+		const char *const kOffice = "ROOM_P02_Sheriffs_Office";
+		const char *const kBlanketItem = "OBJ_INV_BLANKET";
+		_script->setGhostChance(nullptr, 0);
+		{
+			RoomClass *a = createRoomClass(*this, kJail);
+			debugC(3, kDebugScript, "jail check classes: P07_Jail %s", dynamic_cast<JailRoom *>(a) ? "jail" : a ? "other" : "-");
+			delete a;
+		}
+		auto jail = [&]() { return dynamic_cast<JailRoom *>(_roomClass); };
+		auto placed = [&](const char *object) {
+			const int s = Find::sprite(*this, object);
+			if (s < 0)
+				return Common::String::format("%s none", object + 4);
+			return Common::String::format("%s %s mode %d step %u depth %d hit %d%s%s%s", object + 4, _currentRoom->getAnim(s).c_str(), _currentRoom->getMode(s),
+			                              _currentRoom->getStep(s), _currentRoom->getDepth(s), _currentRoom->getHitType(s), _currentRoom->isHidden(s) ? " hidden" : "",
+			                              _currentRoom->isRequiresObject(s) ? " requires" : "", _currentRoom->isClickable(s) ? " clickable" : "");
+		};
+		auto special = [&](const char *name) {
+			Character *c = _script->getCharacter(name);
+			if (!c)
+				return Common::String::format("%s none", name);
+			return Common::String::format("%s state %d %s steps %u", name, c->getState(), _currentRoom->getAnim(c->getSprite()).c_str(),
+			                              _currentRoom->getStepCount(c->getSprite()));
+		};
+		auto hidden = [&](const char *name) {
+			Character *c = _script->getCharacter(name);
+			return c && _currentRoom->isHidden(c->getSprite()) ? 1 : 0;
+		};
+		auto enterJail = [&]() {
+			newGameForCheck();
+			fresh.room(kOffice);
+			fresh.room(kJail);
+			_script->skip();
+		};
+		// A click on a clickable, its state and scene after the tick; then
+		// the scene skipped and the clickable at rest.
+		auto clickRest = [&](int sprite) {
+			_script->clickClickable(sprite);
+			tick1();
+			const Common::String state = _script->getClickableState(sprite);
+			const Common::String r = Common::String::format(" %c '%s' held %d", state.empty() ? '-' : state.lastChar(), _script->getScene().c_str(),
+			                                                _script->isBusy() ? 1 : 0);
+			for (uint t = 0; t < kMax && (_script->isScenePlaying() || _script->isClickablePlaying(sprite)); t++) {
+				if (_script->isScenePlaying())
+					_script->skip();
+				tick1();
+			}
+			return r;
+		};
+
+		// The placements, and the blanket once taken.
+		{
+			enterJail();
+			Common::String out = placed(kBlanketItem) + "; " + placed("OBJ_P07_JAIL_HOTSPOT2") +
+			                     Common::String::format(" rollover '%s'; ", _currentRoom->getRollover(jail()->getBed()).c_str()) +
+			                     placed("OBJ_P07_JAIL_HOTSPOT3") + "; " + placed("OBJ_P07_JAIL_HOTSPOT4") + "; " + placed("OBJ_P07_JAIL_OVERLAY_HOLE") + "; " +
+			                     placed("OBJ_P07_JAIL_OVERLAY_STOOL");
+			out += Common::String::format("; BedBroken %d, opening '%s'", jail()->isBedBroken() ? 1 : 0, _script->getOpening().c_str());
+			_inventory->addItem(kBlanketItem);
+			showRoom(kOffice);
+			showRoom(kJail);
+			out += "; taken: " + placed(kBlanketItem);
+			debugC(3, kDebugScript, "jail check placements: %s", out.c_str());
+		}
+
+		// Hotspots 3 and 4, and the bed's first click: their lines.
+		{
+			enterJail();
+			const int h3 = Find::sprite(*this, "OBJ_P07_JAIL_HOTSPOT3");
+			Common::String out = "hotspot 3:";
+			for (uint k = 0; k < 3; k++)
+				out += clickRest(h3);
+			out += "; hotspot 4:";
+			for (uint k = 0; k < 5; k++)
+				out += clickRest(jail()->getHotspot4());
+			out += "; bed:" + clickRest(jail()->getBed());
+			out += Common::String::format(", BedBroken %d", jail()->isBedBroken() ? 1 : 0);
+			debugC(3, kDebugScript, "jail check hotspots: %s", out.c_str());
+		}
+
+		// The blanket: not with an item; with the arrow Shaggy takes it.
+		{
+			enterJail();
+			_inventory->setCursor("ANIM_CURSORRUSTY_HAMMER");
+			_script->sendEvent(kBlanketItem, false);
+			Common::String out = Common::String::format("another cursor: busy %d", jail()->isBusy() ? 1 : 0);
+			_inventory->setCursor("ANIM_CURSORARROW");
+			_script->sendEvent(kBlanketItem, false);
+			out += Common::String::format("; the arrow: busy %d", jail()->isBusy() ? 1 : 0);
+			int got = -1;
+			for (uint t = 1; t <= kMax && got < 0; t++) {
+				tick1();
+				if (t == 1)
+					out += Common::String::format("; tick 1: %s, %s", special("SHAGGY").c_str(), placed(kBlanketItem).c_str());
+				if (_inventory->hasItem(kBlanketItem)) {
+					got = t;
+					out += Common::String::format("; in the toolbar at tick %d, scene '%s' held %d, busy %d", t, _script->getScene().c_str(),
+					                              _script->isBusy() ? 1 : 0, jail()->isBusy() ? 1 : 0);
+				}
+			}
+			_script->skip();
+			showRoom(kOffice);
+			showRoom(kJail);
+			out += "; back: " + placed(kBlanketItem);
+			debugC(3, kDebugScript, "jail check blanket: %s", out.c_str());
+		}
+
+		// The bed: the second click, Scooby breaks it; then 150D_ and the
+		// two down the hole; and the jail again.
+		{
+			enterJail();
+			const int bed = jail()->getBed();
+			clickRest(bed);
+			_script->clickClickable(bed);
+			tick1();
+			Common::String out = Common::String::format("bed hit %d %s mode %d, busy %d; %s; sound %s", _currentRoom->getHitType(bed), _currentRoom->getAnim(bed).c_str(),
+			                                            _currentRoom->getMode(bed), jail()->isBusy() ? 1 : 0, special("SCOOBY").c_str(), jail()->getLastSound().c_str());
+			int broken = -1;
+			for (uint t = 2; t <= kMax && broken < 0; t++) {
+				tick1();
+				if (jail()->isBedBroken())
+					broken = t;
+			}
+			out += Common::String::format("; broken at tick %d: bed hidden %d rollover '%s', %s, %s, scene '%s' held %d, busy %d", broken,
+			                              _currentRoom->isHidden(bed) ? 1 : 0, _currentRoom->getRollover(bed).c_str(), placed("OBJ_P07_JAIL_OVERLAY_HOLE").c_str(),
+			                              placed("OBJ_P07_JAIL_OVERLAY_STOOL").c_str(), _script->getScene().c_str(), _script->isBusy() ? 1 : 0, jail()->isBusy() ? 1 : 0);
+			debugC(3, kDebugScript, "jail check bed: %s", out.c_str());
+
+			const int stool = _currentRoom->getDepth(jail()->getStool());
+			int start = -1, step6 = -9999, change = -1;
+			Common::String at;
+			int shaggySprite = -1;
+			for (uint t = 1; t <= kMax && change < 0; t++) {
+				if (_script->isScenePlaying())
+					_script->skip();
+				if (tick1()) {
+					change = t;
+					break;
+				}
+				Character *sh = _script->getCharacter("SHAGGY");
+				if (start < 0 && sh && sh->getState() == Character::kStateSpecial) {
+					start = t;
+					shaggySprite = sh->getSprite();
+					at = Common::String::format("%s depth %d, stool %d, Scooby hidden %d, sound %s, busy %d", special("SHAGGY").c_str(), _currentRoom->getDepth(sh->getSprite()),
+					                            stool, hidden("SCOOBY"), jail()->getLastSound().c_str(), jail()->isBusy() ? 1 : 0);
+				}
+				if (start >= 0 && step6 == -9999 && sh && _currentRoom->getStep(sh->getSprite()) == 6)
+					step6 = _currentRoom->getDepth(sh->getSprite());
+			}
+			out = Common::String::format("after 150D_: %s; at step 6 depth %d; next %s %d ticks after, Shaggy hidden %d", at.c_str(), step6, run.next.c_str(),
+			                             change - start, shaggySprite >= 0 && _currentRoom->isHidden(shaggySprite) ? 1 : 0);
+			showRoom(kJail);
+			const bool again = tick1();
+			out += Common::String::format("; again: next %s at tick 1 (%d), hole done %d", run.next.c_str(), again ? 1 : 0, jail() && jail()->isHoleDone() ? 1 : 0);
+			debugC(3, kDebugScript, "jail check hole: %s", out.c_str());
+		}
+
+		// The keys: BedBroken saved and read back; a new game's reset.
+		{
+			enterJail();
+			Common::INIFile before;
+			jail()->saveKeys(before);
+			Common::String no;
+			before.getKey("BedBroken", kJail, no);
+			Common::INIFile yes;
+			yes.setKey("BedBroken", kJail, "Yes");
+			jail()->loadKeys(yes);
+			showRoom(kOffice);
+			showRoom(kJail);
+			const int bed = jail()->getBed();
+			Common::String out = Common::String::format("BedBroken=%s; Yes read: bed hidden %d rollover '%s', hole hidden %d, stool hidden %d", no.c_str(),
+			                                            _currentRoom->isHidden(bed) ? 1 : 0, _currentRoom->getRollover(bed).c_str(),
+			                                            _currentRoom->isHidden(jail()->getHole()) ? 1 : 0, _currentRoom->isHidden(jail()->getStool()) ? 1 : 0);
+			tick1();
+			out += Common::String::format("; tick 1: scene '%s' held %d", _script->getScene().c_str(), _script->isBusy() ? 1 : 0);
+			Common::INIFile after;
+			jail()->saveKeys(after);
+			Common::String v;
+			after.getKey("BedBroken", kJail, v);
+			jail()->reset();
+			const bool reset = jail()->isBedBroken();
+			Common::INIFile none;
+			jail()->loadKeys(yes);
+			jail()->loadKeys(none);
+			out += Common::String::format("; saved BedBroken=%s; reset %d, missing %d", v.c_str(), reset ? 1 : 0, jail()->isBedBroken() ? 1 : 0);
+			_script->skip();
+			debugC(3, kDebugScript, "jail check keys: %s", out.c_str());
+		}
+
+		// Out of the jail with the blanket or the bed under way: finished.
+		{
+			enterJail();
+			_script->sendEvent(kBlanketItem, false);
+			showRoom(kOffice);
+			Common::String out = Common::String::format("the blanket clicked, then out: blanket %d", _inventory->hasItem(kBlanketItem) ? 1 : 0);
+			enterJail();
+			const int bed = jail()->getBed();
+			clickRest(bed);
+			_script->clickClickable(bed);
+			tick1();
+			JailRoom *j = jail();
+			showRoom(kOffice);
+			out += Common::String::format("; the bed clicked, then out: BedBroken %d", j->isBedBroken() ? 1 : 0);
+			debugC(3, kDebugScript, "jail check left: %s", out.c_str());
+		}
+
+		// The exit handler: Shaggy leaves only with the blanket in a slot and
+		// no scene; never the default handler.
+		{
+			enterJail();
+			Common::String out = Common::String::format("no blanket: %d, leaving %d", jail()->leaveBy("OBJ_P02_TO_P07") ? 1 : 0, jail()->isLeaving() ? 1 : 0);
+			_inventory->addItem(kBlanketItem);
+			_script->startScene("Jail_Cell.150X2_", true);
+			jail()->leaveBy("OBJ_P02_TO_P07");
+			out += Common::String::format("; the blanket in a slot, a scene: leaving %d", jail()->isLeaving() ? 1 : 0);
+			_script->skip();
+			jail()->leaveBy("OBJ_P02_TO_P07");
+			out += Common::String::format("; no scene: leaving %d, %s", jail()->isLeaving() ? 1 : 0, special("SHAGGY").c_str());
+			Character *sh = _script->getCharacter("SHAGGY");
+			const int shaggySprite = sh ? sh->getSprite() : -1;
+			int change = -1;
+			for (uint t = 1; t <= kMax && change < 0; t++) {
+				if (tick1())
+					change = t;
+			}
+			out += Common::String::format("; next %s at tick %d, Shaggy hidden %d", run.next.c_str(), change,
+			                              shaggySprite >= 0 && _currentRoom->isHidden(shaggySprite) ? 1 : 0);
+			debugC(3, kDebugScript, "jail check exit handler: %s", out.c_str());
+		}
+		_script->setGhostChance(&_randomSource, ConfMan.hasKey("ghost_chance") ? (uint)ConfMan.getInt("ghost_chance") : 30);
 	}
 	newGameForCheck();
 	_checking = false;
