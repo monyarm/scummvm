@@ -22,6 +22,7 @@
 // The script level 3 checks of each room's setup and of Town Center
 // (WP-029), driven through the engine with the sound mixer's clips.
 
+#include "common/config-manager.h"
 #include "common/debug.h"
 
 #include "scooby/art_archive.h"
@@ -133,6 +134,8 @@ void ScoobyEngine::checkTownCenter() {
 	if (!found)
 		return;
 	_checking = true;
+	// No ghost in place of a click (1 in 30): the check is the same on every run.
+	_script->setGhostChance(nullptr, 0);
 	const uint kMaxTicks = 3000;
 	struct Fresh {
 		ScoobyEngine &e;
@@ -410,6 +413,7 @@ void ScoobyEngine::checkTownCenter() {
 	_inventory->reset();
 	_script->resetMemories();
 	fresh.room(kRoom);
+	_script->setGhostChance(&_randomSource, ConfMan.hasKey("ghost_chance") ? (uint)ConfMan.getInt("ghost_chance") : 30);
 	_checking = false;
 	debugC(3, kDebugScript, "town check: done");
 }
@@ -423,6 +427,8 @@ void ScoobyEngine::checkStreets() {
 	if (!found)
 		return;
 	_checking = true;
+	// No ghost in place of a click (1 in 30): the check is the same on every run.
+	_script->setGhostChance(nullptr, 0);
 	struct Run {
 		ScoobyEngine &e;
 		Common::String next;
@@ -653,6 +659,7 @@ void ScoobyEngine::checkStreets() {
 
 	_sound->stop();
 	newGameForCheck();
+	_script->setGhostChance(&_randomSource, ConfMan.hasKey("ghost_chance") ? (uint)ConfMan.getInt("ghost_chance") : 30);
 	_checking = false;
 	debugC(3, kDebugScript, "street check: done");
 }
@@ -742,6 +749,8 @@ void ScoobyEngine::checkStreet1() {
 	if (!found)
 		return;
 	_checking = true;
+	// No ghost in place of a click (1 in 30): the check is the same on every run.
+	_script->setGhostChance(nullptr, 0);
 	struct Run {
 		ScoobyEngine &e;
 		Common::String next;
@@ -1011,6 +1020,7 @@ void ScoobyEngine::checkStreet1() {
 
 	_sound->stop();
 	newGameForCheck();
+	_script->setGhostChance(&_randomSource, ConfMan.hasKey("ghost_chance") ? (uint)ConfMan.getInt("ghost_chance") : 30);
 	_checking = false;
 	debugC(3, kDebugScript, "street1 check: done");
 }
