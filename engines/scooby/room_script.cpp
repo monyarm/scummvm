@@ -392,6 +392,8 @@ bool RoomScript::startScene(const Common::String &scene, bool block) {
 	_sceneBlocks = block;
 	if (block)
 		_busy = true;
+	// 0x40B400 turns the music down while a scene plays (0x434F10).
+	_sound.fadeMusic(90, 2, false);
 	debugC(1, kDebugScript, "scene %s starts%s", scene.c_str(), block ? "" : " (input stays on)");
 	return true;
 }
@@ -481,6 +483,8 @@ void RoomScript::tickScene() {
 }
 
 void RoomScript::endScene() {
+	// 0x40C810's end, played out or skipped: the music back up (0x434F30).
+	_sound.fadeMusic(100, 4, true);
 	_scene.clear();
 	_speaker = -1;
 	if (!_exitParked && _sceneBlocks)

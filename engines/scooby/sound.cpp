@@ -87,7 +87,10 @@ bool Sound::play(const Common::String &name, bool background) {
 	// inference that fits the 10 music tracks and 3 ambient effects that set
 	// it. Pan is 0 on every clip, so the balance stays centred.
 	Audio::AudioStream *playable = clip->loop ? Audio::makeLoopingAudioStream(stream, 0) : stream;
-	const byte volume = (byte)MIN<uint>(clip->volume, 100) * Audio::Mixer::kMaxChannelVolume / 100;
+	// A music clip starts at the music's percent (0x43CC20 reads the file's
+	// +0x18).
+	c.volume = (byte)(MIN<uint>(clip->volume, 100) * Audio::Mixer::kMaxChannelVolume / 100);
+	const byte volume = f == kMusic ? (byte)(c.volume * _musicPercent / 100) : c.volume;
 	_mixer->playStream(kSoundTypes[f], &c.handle, playable, -1, volume);
 	c.name = clip->name;
 	if (!background)
@@ -130,6 +133,65 @@ void Sound::stopClip(const Common::String &name) {
 
 bool Sound::isClipPlaying(const Common::String &name) const {
 	return findChannel(name) != nullptr;
+}
+
+void Sound::fadeMusic(uint target, uint interval, bool up) {
+	_fadeUp = up;
+	_fadeDown = !up;
+	_fadeTarget = target;
+	_fadeInterval = interval;
+	_fadeCountdown = interval;
+	debugC(1, kDebugAudio, "music fades %s to %u%%, a step every %u ticks, from %u%%", up ? "up" : "down", target, interval, _musicPercent);
+}
+
+void Sound::cancelMusicFade() {
+	_fadeUp = _fadeDown = false;
+	_musicPercent = 100;
+	applyMusicPercent();
+}
+
+void Sound::tickMusicFade() {
+	// 0x434C00: the countdown runs every tick; at 0 it starts again, and a
+	// fade moves the music one percent, stopping at its target.
+	if (--_fadeCountdown != 0)
+		return;
+	_fadeCountdown = _fadeInterval;
+	if (_fadeUp) {
+		const uint v = _musicPercent + 1;
+		if (_fadeTarget <= v) {
+			_fadeUp = false;
+			_musicPercent = _fadeTarget;
+		} else {
+			_musicPercent = v;
+		}
+	} else if (_fadeDown) {
+		uint v = _musicPercent - 1;
+		if (v <= _fadeTarget) {
+			_fadeDown = false;
+			v = _fadeTarget;
+		}
+		_musicPercent = v;
+	} else {
+		return;
+	}
+	applyMusicPercent();
+}
+
+Common::String Sound::describeMusicFade() const {
+	if (!_fadeUp && !_fadeDown)
+		return "-";
+	return Common::String::format("%s %u/%u", _fadeUp ? "up" : "down", _fadeTarget, _fadeInterval);
+}
+
+byte Sound::getMusicVolume() const {
+	const Channel &c = _channels[kMusic];
+	return _mixer && _mixer->isSoundHandleActive(c.handle) ? (byte)_mixer->getChannelVolume(c.handle) : 0;
+}
+
+void Sound::applyMusicPercent() {
+	Channel &c = _channels[kMusic];
+	if (_mixer && _mixer->isSoundHandleActive(c.handle))
+		_mixer->setChannelVolume(c.handle, (byte)(c.volume * _musicPercent / 100));
 }
 
 bool Sound::getLipShape(const Common::String &name, uint &shape, uint32 *index, uint *high) const {

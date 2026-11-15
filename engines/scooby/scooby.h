@@ -67,6 +67,7 @@ private:
 	void checkSignIn();
 	void checkOptionsCredits();
 	void checkAccusation();
+	void checkMusicFade();
 	// Each room's profile section (room_setup.cpp).
 	void saveRoomKeys(Common::INIFile &profile);
 	void loadRoomKeys(const Common::INIFile &profile);

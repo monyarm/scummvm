@@ -35,7 +35,8 @@ namespace Scooby {
 // from the factories (Showdown 0x42E0E0; Phantom's names from 0x42ED7F)
 // and the constructors they call. Town Center's reset (0x42D030) needs
 // one snack. Rooms not listed get the base class's empty strings. The
-// Credits room's opening comes from its factory call and isn't here.
+// Credits room's opening is its factory's first scene (0x40B0F0's third
+// argument); its other two are the class's own (+0xC8, +0xD0).
 static const RoomSetup kShowdown[] = {
 	{ "ROOM_P01_Town_Center", "2", "Town_Center.100B_", 1 },
 	{ "ROOM_P02_Sheriffs_Office", "5", "", 0 },
@@ -94,7 +95,7 @@ static const RoomSetup kShowdown[] = {
 	{ "ROOM_Quit", "1", "", 0 },
 	{ "ROOM_Gummy", "Gummy.Music", "Gummy_Puzzle.220B_", 0 },
 	{ "ROOM_Title_Screen", "Title_Screen.Music", "", 0 },
-	{ "ROOM_Credits", "1", "", 0 },
+	{ "ROOM_Credits", "1", "Credits.1100A2_", 0 },
 	{ "ROOM_Vault_Clock", "5", "", 0 },
 	{ "ROOM_Cheat", "6", "", 0 },
 	{ "ROOM_Ghost_Spot", "Ghost_Spot.Music", "", 0 },
@@ -150,7 +151,7 @@ static const RoomSetup kPhantom[] = {
 	{ "ROOM_Hedge_Maze", "Hedge_Maze.Music", "", 0 },
 	{ "ROOM_Maze_Map", "1", "", 0 },
 	{ "ROOM_Garden_Plaque", "", "Gardeners_House.130A_", 0 },
-	{ "ROOM_Credits", "1", "", 0 },
+	{ "ROOM_Credits", "1", "Credits.10002_", 0 },
 	{ "ROOM_Cheat", "6", "", 0 },
 	{ "ROOM_Ghost_Spot", "Ghost_Spot.Music", "", 0 },
 };

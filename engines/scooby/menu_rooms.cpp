@@ -61,6 +61,8 @@ void TitleRoom::enter(const Common::String &from) {
 		room.setOffset(layer, kTitleStart, 0);
 	_countdown = kTitleTicks;
 	ConfMan.setBool("title_movies_seen", true);
+	// 0x428380 ends any fade: the music at full (0x434F50).
+	_engine.getSound()->cancelMusicFade();
 	ConfMan.flushToDisk();
 
 	// 0x428480 builds three of the title's placements itself, at depths 1,

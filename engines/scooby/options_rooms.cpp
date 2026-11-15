@@ -283,12 +283,12 @@ void CreditsRoom::enter(const Common::String &from) {
 		return;
 	}
 	// The roll: input held, the cursor hidden, the toolbar hidden (by the
-	// table), TLC first; the room's entry scene.
+	// table), TLC first. The first scene is the room's opening, which the
+	// base room plays 100 ticks in (room_setup.cpp).
 	_rolling = true;
 	_logo = _text = -1;
 	_stage = 0;
 	show("OBJ_CREDITS_TLC", "ANIM_CREDITS_TLCLOGO", "ANIM_CREDITS_TLCTEXT");
-	_engine.getScript()->startScene(getScene(0), false);
 	debugC(1, kDebugScript, "credits: rolling, %d to scroll", _remaining);
 }
 

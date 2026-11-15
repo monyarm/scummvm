@@ -143,6 +143,7 @@ Common::Error ScoobyEngine::run() {
 		checkSignIn();
 		checkOptionsCredits();
 		checkAccusation();
+		checkMusicFade();
 		checkAllMovies();
 	}
 
@@ -251,6 +252,7 @@ Common::Error ScoobyEngine::run() {
 				changed = true;
 			}
 			_music->tick();
+			_sound->tickMusicFade();
 			changed = changed || _script->isBusy() || _inventory->getState() != Inventory::kStateParked ||
 			          _inventory->isScrappyTalking();
 			if (!_requestedRoom.empty()) {
@@ -537,6 +539,7 @@ bool ScoobyEngine::tickOnce(Common::String &nextRoom, int &movie) {
 	if (_roomClass)
 		_roomClass->tick();
 	_music->tick();
+	_sound->tickMusicFade();
 	if (!_requestedRoom.empty()) {
 		nextRoom = _requestedRoom;
 		movie = _requestedMovie;
@@ -1357,6 +1360,127 @@ void ScoobyEngine::checkAccusation() {
 	debugC(3, kDebugScript, "accusation check: done");
 }
 
+void ScoobyEngine::checkMusicFade() {
+	// The music's fade, driven through the engine: the steps of each fade
+	// the original starts, where the rooms start them, and the music's
+	// channel volume at a percent.
+	_checking = true;
+	Common::String next;
+	int movie;
+	auto changes = [&](uint ticks) {
+		Common::String out;
+		uint last = _sound->getMusicPercent();
+		for (uint t = 1; t <= ticks; t++) {
+			_sound->tickMusicFade();
+			if (_sound->getMusicPercent() != last) {
+				last = _sound->getMusicPercent();
+				out += Common::String::format(" %u:%u", t, last);
+			}
+		}
+		return out;
+	};
+
+	// The steps: down to 90 every 2 ticks from 100, then up to 100 every 4,
+	// down again, cut short by up every 3, and down from 90 (already there).
+	_sound->cancelMusicFade();
+	_sound->fadeMusic(90, 2, false);
+	debugC(3, kDebugScript, "fade check down 90/2:%s", changes(30).c_str());
+	_sound->fadeMusic(100, 4, true);
+	debugC(3, kDebugScript, "fade check up 100/4:%s", changes(50).c_str());
+	_sound->fadeMusic(90, 2, false);
+	const Common::String partway = changes(9);
+	_sound->fadeMusic(100, 3, true);
+	debugC(3, kDebugScript, "fade check down 90/2 for 9 ticks:%s, then up 100/3:%s", partway.c_str(), changes(40).c_str());
+	_sound->fadeMusic(90, 2, false);
+	changes(30);
+	_sound->fadeMusic(90, 2, false);
+	const Common::String at90Steps = changes(10);
+	debugC(3, kDebugScript, "fade check down 90/2 at 90:%s, fading %d", at90Steps.c_str(), _sound->isMusicFading());
+	_sound->fadeMusic(80, 2, false);
+	changes(4);
+	_sound->cancelMusicFade();
+	debugC(3, kDebugScript, "fade check cancelled at %u%%: %s", _sound->getMusicPercent(), _sound->describeMusicFade().c_str());
+
+	// The music's channel at a percent: its clip's volume, scaled.
+	_sound->stop();
+	_sound->fadeMusic(90, 1, false);
+	changes(20);
+	const Common::String clip = getGameId() == "showdown" ? "Suspect.Music" : "Track6.Music";
+	_sound->play(clip, true);
+	const uint volumeAt90 = _sound->getMusicVolume();
+	_sound->cancelMusicFade();
+	debugC(3, kDebugScript, "fade check %s: clip volume %u, at 90%% %u, at 100%% %u", clip.c_str(), _sound->getMusicClipVolume(), volumeAt90,
+	       _sound->getMusicVolume());
+	_sound->stop();
+
+	// Where the rooms start them: a room's load, a scene starting and
+	// ending, the title, and Big Head's opening.
+	newGame();
+	_sound->cancelMusicFade();
+	showRoom(getFirstGameRoom());
+	const Common::String load = _sound->describeMusicFade();
+	_script->skip();
+	_sound->cancelMusicFade();
+	_script->startScene("Check.Scene_", true);
+	const Common::String start = _sound->describeMusicFade();
+	_script->skip();
+	debugC(3, kDebugScript, "fade check rooms: load %s, scene start %s, scene end %s", load.c_str(), start.c_str(),
+	       _sound->describeMusicFade().c_str());
+	RoomClass *c;
+	if (_roomClasses.tryGetVal("ROOM_Title_Screen", c)) {
+		if (_roomClass == c)
+			_roomClass = nullptr;
+		delete c;
+		_roomClasses.erase("ROOM_Title_Screen");
+	}
+	_sound->fadeMusic(80, 2, false);
+	changes(6);
+	for (int visit = 1; visit <= 4; visit++) {
+		_requestedRoom.clear();
+		showRoom("ROOM_Title_Screen");
+	}
+	debugC(3, kDebugScript, "fade check title: %u%%, %s", _sound->getMusicPercent(), _sound->describeMusicFade().c_str());
+	_sound->stop();
+
+	// Big Head: the opening starts 100 ticks in, and the music goes down.
+	setGameString("Whodunit", SuspectChooserRoom::getSuspect(getGameId(), 3));
+	startBigHead(SuspectChooserRoom::getRevealScene(getGameId(), getGameString("Whodunit"), true), getGameId() == "showdown" ? "BIG_HEAD_BG_P03" : "BIG_HEAD_BG_P16",
+	             "ROOM_Credits");
+	_requestedRoom.clear();
+	if (_roomClasses.tryGetVal("ROOM_Big_Head", c)) {
+		if (_roomClass == c)
+			_roomClass = nullptr;
+		delete c;
+		_roomClasses.erase("ROOM_Big_Head");
+	}
+	_sound->cancelMusicFade();
+	showRoom("ROOM_Big_Head");
+	BigHeadRoom *bh = static_cast<BigHeadRoom *>(_roomClass);
+	int started = -1, firstLine = -1, at90 = -1;
+	for (int t = 1; t <= 200 && at90 < 0; t++) {
+		tickOnce(next, movie);
+		if (started < 0 && bh->isStarted())
+			started = t;
+		if (firstLine < 0 && bh->getLine() == 1)
+			firstLine = t;
+		if (_sound->getMusicPercent() == 90)
+			at90 = t;
+		_sound->stopClip(bh->getLineClip());
+	}
+	debugC(3, kDebugScript, "fade check big head: opening at tick %d, line 1 at tick %d, music at 90%% on tick %d", started, firstLine, at90);
+
+	_sound->stop();
+	_sound->cancelMusicFade();
+	newGame();
+	_startRoom.clear();
+	_profile = Common::INIFile();
+	_bigHeadScene.clear();
+	_bigHeadBackground.clear();
+	_bigHeadNext.clear();
+	_checking = false;
+	debugC(3, kDebugScript, "fade check: done");
+}
+
 Common::String ScoobyEngine::getFirstGameRoom() const {
 	// The level select's rooms: Showdown's ROOM_P01_Town_Center, Phantom's
 	// ROOM_P01_Drawbridge.
@@ -1402,6 +1526,10 @@ bool ScoobyEngine::showRoom(const Common::String &name) {
 	_roomClass = roomClass;
 	if (_roomClass)
 		_roomClass->enter(from);
+	// The load ends with the music coming up to full (0x435DC0 -> 0x434F30),
+	// after the room's entry.
+	if (_sound)
+		_sound->fadeMusic(100, 3, true);
 
 	_system->fillScreen(0);
 	// A class that asks for another room at once (the title's movies) isn't

@@ -354,6 +354,10 @@ void BigHeadRoom::enter(const Common::String &from) {
 	_clip.clear();
 	_done = _left = false;
 	_playing = true;
+	// The scene is the room's opening: the base room starts it 100 ticks
+	// after entry (+0x74), holding input meanwhile (0x40C7B0).
+	_started = false;
+	_delay = 100;
 	_speaker = findSpeaker(1);
 	if (_speaker.empty())
 		_speaker = kSpeakers[ARRAYSIZE(kSpeakers) - 1];
@@ -456,6 +460,16 @@ void BigHeadRoom::nextLine() {
 }
 
 void BigHeadRoom::tick() {
+	if (_playing && !_started) {
+		if (_delay-- != 0)
+			return;
+		// 0x40B400: the scene starts, and the music goes down (0x434F10).
+		// Big Head's own line player never ends it the base room's way, so
+		// the music only comes back up with the next room.
+		_started = true;
+		_engine.getSound()->fadeMusic(90, 2, false);
+		debugC(1, kDebugScript, "big head: the scene starts");
+	}
 	nextLine();
 	Room &room = *_engine.getRoom();
 	Sound &sound = *_engine.getSound();

@@ -87,12 +87,31 @@ public:
 	/** Read every clip's PCM and log its MD5 on the audio channel. */
 	void checkAllClips() const;
 
+	/**
+	 * The music's fade (the sound manager's +0x10-+0x1C, 0x475F48): one
+	 * percent of the music file's volume (its +0x18, 100 at start) every
+	 * @p interval game ticks, down (0x434F10) or up (0x434F30) to @p target.
+	 */
+	void fadeMusic(uint target, uint interval, bool up);
+	/** 0x434F50: no fade, the music at 100%. */
+	void cancelMusicFade();
+	/** 0x434C00, once a game tick: the fade's next step. */
+	void tickMusicFade();
+	uint getMusicPercent() const { return _musicPercent; }
+	bool isMusicFading() const { return _fadeDown || _fadeUp; }
+	/** The fade as "up 100/4", "down 90/2" or "-", for the checks. */
+	Common::String describeMusicFade() const;
+	/** The music channel's mixer volume now, and its clip's own. */
+	byte getMusicVolume() const;
+	byte getMusicClipVolume() const { return _channels[kMusic].volume; }
+
 private:
 	Audio::Mixer *_mixer;
 	SoundArchive _archives[kFileCount];
 	struct Channel {
 		Audio::SoundHandle handle;
 		Common::String name;
+		byte volume = 0;          // the clip's own, for the mixer
 		byte lipSyncFps;
 		Common::Array<byte> lipSync;
 	};
@@ -101,6 +120,14 @@ private:
 
 	Channel _channels[kFileCount];
 	File _last;
+
+	/** The music's channel volume: its clip's, at the music's percent (0x43C940). */
+	void applyMusicPercent();
+	bool _fadeDown = false, _fadeUp = false; // +0x10, +0x11
+	uint _fadeTarget = 0;                    // +0x14
+	uint _fadeInterval = 0;                  // +0x18
+	int _fadeCountdown = 0;                  // +0x1C
+	uint _musicPercent = 100;                // the music file's +0x18
 };
 
 } // End of namespace Scooby

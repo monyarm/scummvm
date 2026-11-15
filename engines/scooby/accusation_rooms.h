@@ -114,6 +114,7 @@ public:
 	/** The background last drawn for a speaker (0x404270). */
 	const Common::String &getBackgroundAnim() const { return _backgroundAnim; }
 	bool isDone() const { return _done; }
+	bool isStarted() const { return _started; }
 
 private:
 	void nextLine();                // vtable +0x38, 0x403940
@@ -134,6 +135,8 @@ private:
 	bool _partnerShown = false;     // +0xDC
 	bool _redraw = false;           // +0xDD: the background needs drawing
 	bool _playing = false;
+	bool _started = false;          // the opening has started (0x40B400)
+	int _delay = 0;                 // +0x74: the opening's delay
 	bool _done = false;             // +0x10
 	bool _left = false;
 };
