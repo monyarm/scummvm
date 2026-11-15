@@ -373,7 +373,7 @@ void StageTrapdoorRoom::tick() {
 		exit.movie = -1;
 		leave(exit);
 	}
-	// Jenny knocks or yells every 73 ticks.
+	// Jenny knocks or yells every 74 ticks: the countdown runs from 72 to -1.
 	if (_knock < -5) {
 		sound.play("Stage_Trapdoor.Knock1");
 		_lastSound = "Stage_Trapdoor.Knock1";
