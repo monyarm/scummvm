@@ -23,6 +23,7 @@ MODULE_OBJS = \
 	story_check.o \
 	story_rooms.o \
 	toolbar_rooms.o \
+	vault_rooms.o \
 	console.o \
 	metaengine.o \
 	movie.o

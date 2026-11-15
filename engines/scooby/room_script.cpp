@@ -300,6 +300,18 @@ Common::String RoomScript::getClickableState(uint sprite) const {
 	return Common::String();
 }
 
+void RoomScript::setClickable(uint sprite, const Common::String &state) {
+	// 0x401780: +0x60 is the state, A for one the art file lacks; the
+	// sound name follows it.
+	if (Clickable *c = findClickable(sprite)) {
+		c->state = state;
+		if (!_room.hasAnim(c->state) && !c->state.empty())
+			c->state.setChar('A', c->state.size() - 1);
+		_clickableStates[c->object] = c->state;
+		setSoundName(*c);
+	}
+}
+
 void RoomScript::advanceClickable(Clickable &c) {
 	// 0x401650: the last character + 1, unless that makes a digit 1-9; a
 	// name the art file doesn't have goes back to A.

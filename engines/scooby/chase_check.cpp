@@ -20,6 +20,7 @@
  */
 
 #include "common/algorithm.h"
+#include "common/config-manager.h"
 #include "common/debug.h"
 
 #include "scooby/art_archive.h"
@@ -32,6 +33,7 @@
 #include "scooby/room_script.h"
 #include "scooby/scooby.h"
 #include "scooby/sound.h"
+#include "scooby/vault_rooms.h"
 
 namespace Scooby {
 
@@ -772,6 +774,246 @@ void ScoobyEngine::checkChases() {
 			after += c->isPlaced(i) ? 1 : 0;
 		debugC(3, kDebugScript, "artifact check keys: %u placed read back, %u after a reset", read, after);
 		delete c;
+	}
+	newGameForCheck();
+
+	// The vault and the open safe (WP-038).
+	{
+		const char *const kBank = "ROOM_P13_Bank";
+		const char *const kVault = "ROOM_P16_Bank_Vault";
+		const char *const kSafe = "ROOM_Open_Safe";
+		{
+			RoomClass *a = createRoomClass(*this, kVault);
+			RoomClass *b = createRoomClass(*this, kSafe);
+			debugC(3, kDebugScript, "vault check classes: P16_Bank_Vault %s; Open_Safe %s", dynamic_cast<BankVaultRoom *>(a) ? "vault" : a ? "other" : "-",
+			       dynamic_cast<OpenSafeRoom *>(b) ? "open safe" : b ? "other" : "-");
+			delete a;
+			delete b;
+		}
+		auto vault = [&]() { return dynamic_cast<BankVaultRoom *>(_roomClass); };
+		auto placed = [&](const char *object) {
+			const int s = Find::sprite(*this, object);
+			if (s < 0)
+				return Common::String::format("%s none", object + 4);
+			// The depth only where the class claims it (the door).
+			const Common::String depth = !strcmp(object, "OBJ_P16_DOOR") ? Common::String::format(" depth %d", _currentRoom->getDepth(s)) : Common::String();
+			return Common::String::format("%s %s mode %d step %u%s hidden %d%s%s", object + 4, _currentRoom->getAnim(s).c_str(), _currentRoom->getMode(s),
+			                              _currentRoom->getStep(s), depth.c_str(), _currentRoom->isHidden(s) ? 1 : 0,
+			                              _currentRoom->isRequiresObject(s) ? " requires" : "", _currentRoom->isClickable(s) ? " clickable" : "");
+		};
+		auto boxes = [&]() {
+			Common::String out;
+			for (char k = '1'; k <= '5'; k++)
+				out += placed(Common::String::format("OBJ_P16_BANK_VAULT_HOTSPOT%c", k).c_str()) + "; ";
+			return out;
+		};
+		auto useItem = [&](const char *item) {
+			_inventory->addItem(item);
+			_inventory->removeItem(item);
+		};
+		// The placements: a new game; the combination used; the key used,
+		// and the dentures it brings, once.
+		newGameForCheck();
+		fresh.room(kBank);
+		fresh.room(kVault);
+		debugC(3, kDebugScript, "vault check placed: %s; %s%s", placed("OBJ_P16_DOOR").c_str(), boxes().c_str(), placed("OBJ_P16_BANK_VAULT_HOTSPOT6").c_str());
+		{
+			// Where the live run clicks (not compared).
+			auto at = [&](const char *object) {
+				const int s = Find::sprite(*this, object);
+				for (int y = 4; y < 400 && s >= 0; y += 4) {
+					for (int x = 4; x < 640; x += 4) {
+						if (_currentRoom->hitTest(x, y) == s)
+							return Common::String::format("%d %d", x, y);
+					}
+				}
+				return Common::String("-");
+			};
+			debugC(3, kDebugScript, "vault points: DOOR=%s BOX1=%s DUST=%s", at("OBJ_P16_DOOR").c_str(), at("OBJ_P16_BANK_VAULT_HOTSPOT1").c_str(),
+			       at("OBJ_P16_BANK_VAULT_HOTSPOT6").c_str());
+		}
+		useItem("OBJ_INV_SAFE_COMBO");
+		useItem("OBJ_INV_STRONGBOXKEY");
+		fresh.room(kBank);
+		fresh.room(kVault);
+		const bool dentures = _inventory->hasItem("OBJ_INV_DENTURES");
+		_inventory->removeItem("OBJ_INV_DENTURES");
+		showRoom(kBank);
+		showRoom(kVault);
+		debugC(3, kDebugScript, "vault check both used: %s; %sdentures %d, again %d", placed("OBJ_P16_DOOR").c_str(), boxes().c_str(), dentures ? 1 : 0,
+		       _inventory->hasItem("OBJ_INV_DENTURES") && _inventory->getSlot(0) == "OBJ_INV_DENTURES" ? 1 : 0);
+
+		// The safe: Daphne tries it, with the arrow and with the combination.
+		struct Daphne {
+			static bool trying(ScoobyEngine &e) {
+				Character *d = e._script->getCharacter("DAPHNE");
+				return d && d->getState() == Character::kStateSpecial;
+			}
+		};
+		for (int withCombo = 0; withCombo < 2; withCombo++) {
+			newGameForCheck();
+			if (withCombo)
+				_inventory->addItem("OBJ_INV_SAFE_COMBO", "ANIM_TOOLBARSAFE_COMBO", "ANIM_CURSORSAFE_COMBO");
+			fresh.room(kBank);
+			fresh.room(kVault);
+			_script->sendEvent("OBJ_P16_DOOR", withCombo != 0);
+			const bool held = vault()->isBusy();
+			const bool usedNow = withCombo && _inventory->hasItem("OBJ_INV_SAFE_COMBO") && _inventory->getSlot(0) != "OBJ_INV_SAFE_COMBO";
+			int tries = -1, after = -1, t = -1;
+			Common::String anim, doorThen, afterLine;
+			const int door = vault()->getDoorSprite();
+			for (uint k = 1; k <= kMax && t < 0 && after < 0; k++) {
+				const bool changed = tick1();
+				if (tries < 0 && Daphne::trying(*this)) {
+					tries = k;
+					Character *d = _script->getCharacter("DAPHNE");
+					anim = Common::String::format("%s steps %u, %s, door hidden %d, held %d", _currentRoom->getAnim(d->getSprite()).c_str(),
+					                              _currentRoom->getStepCount(d->getSprite()), vault()->getLastSound().c_str(),
+					                              door >= 0 && _currentRoom->isHidden(door) ? 1 : 0, vault()->isBusy() ? 1 : 0);
+				}
+				if (changed) {
+					t = k;
+				} else if (tries > 0 && !vault()->isDoorClicked()) {
+					after = k;
+					afterLine = Common::String::format("%s, held %d, scene held %d", _script->isScenePlaying() ? _script->getScene().c_str() : "no scene",
+					                                   vault()->isBusy() ? 1 : 0, _script->isBusy() ? 1 : 0);
+					doorThen = placed("OBJ_P16_DOOR");
+				}
+			}
+			if (after > 0 && withCombo) {
+				for (uint k = after + 1; k <= kMax && t < 0; k++) {
+					if (tick1())
+						t = k;
+				}
+			}
+			debugC(3, kDebugScript, "vault check the safe %s: held %d, combination used %d; Daphne at tick %d (%s); done at tick %d: %s, %s; next %s at tick %d",
+			       withCombo ? "with the combination" : "with the arrow", held ? 1 : 0, usedNow ? 1 : 0, tries, anim.c_str(), after, afterLine.c_str(),
+			       doorThen.c_str(), run.next.c_str(), t);
+		}
+
+		// The strong boxes: the arrow's two lines; the key in a wrong box
+		// (three lines, rand() % 3); the key in the right one: its movie.
+		newGameForCheck();
+		fresh.room(kBank);
+		fresh.room(kVault);
+		Common::String arrowLines;
+		for (uint k = 0; k < 3; k++) {
+			_script->sendEvent("OBJ_P16_BANK_VAULT_HOTSPOT1", false);
+			arrowLines += vault()->getLastScene() + Common::String::format(" held %d; ", _script->isBusy() ? 1 : 0);
+			_script->skip();
+		}
+		setGameInt("StrongBox", 2);
+		Common::Array<Common::String> wrong;
+		_inventory->addItem("OBJ_INV_STRONGBOXKEY", "ANIM_TOOLBARSTRONGBOXKEY", "ANIM_CURSORSTRONG_BOX_KEY");
+		for (uint k = 0; k < 40; k++) {
+			_script->sendEvent("OBJ_P16_BANK_VAULT_HOTSPOT1", true);
+			const Common::String s = vault()->getLastScene();
+			bool known = false;
+			for (uint i = 0; i < wrong.size(); i++)
+				known = known || wrong[i] == s;
+			if (!known)
+				wrong.push_back(s);
+			_script->skip();
+		}
+		Common::sort(wrong.begin(), wrong.end());
+		Common::String wrongLines;
+		for (uint i = 0; i < wrong.size(); i++)
+			wrongLines += "'" + wrong[i] + "' ";
+		_script->sendEvent("OBJ_P16_BANK_VAULT_HOTSPOT3", true);
+		const bool keyUsed = _inventory->hasItem("OBJ_INV_STRONGBOXKEY") && _inventory->getSlot(0) != "OBJ_INV_STRONGBOXKEY" &&
+		                     _inventory->getSlot(1) != "OBJ_INV_STRONGBOXKEY";
+		const int bt = run.change(5);
+		const Common::String boxNext = run.next;
+		const int boxMovie = run.movie;
+		if (!boxNext.empty())
+			showRoom(boxNext);
+		debugC(3, kDebugScript, "vault check strong boxes: with the arrow %swith the key in box 1 (StrongBox 2): %sin box 3: key used %d, next %s movie %d at tick %d; there, dentures %d; %s",
+		       arrowLines.c_str(), wrongLines.c_str(), keyUsed ? 1 : 0, boxNext.c_str(), boxMovie, bt, _inventory->hasItem("OBJ_INV_DENTURES") ? 1 : 0, boxes().c_str());
+
+		// The dust: clicked until its next state is C, then once more.
+		newGameForCheck();
+		fresh.room(kBank);
+		fresh.room(kVault);
+		{
+			// No ghost in place of a click (1 in 30), for the check.
+			_script->setGhostChance(nullptr, 0);
+			const int dust = vault()->getDustSprite();
+			Common::String clicks;
+			for (uint k = 0; k < 3 && dust >= 0; k++) {
+				_script->clickClickable(dust);
+				tick1();
+				clicks += Common::String::format("%s next %s visible %d scene '%s'; ", _currentRoom->getAnim(dust).c_str(), _script->getClickableState(dust).c_str(),
+				                                 vault()->isDustVisible() ? 1 : 0, _script->isScenePlaying() ? _script->getScene().c_str() : "");
+				_script->skip();
+				for (uint w = 0; w < 200 && _script->isClickablePlaying(dust); w++)
+					tick1();
+			}
+			Common::INIFile ini;
+			_roomClass->saveKeys(ini);
+			Common::String v;
+			ini.getKey("DustVisible", kVault, v);
+			showRoom(kBank);
+			showRoom(kVault);
+			debugC(3, kDebugScript, "vault check dust: %sDustVisible=%s; back: %s, next %s", clicks.c_str(), v.c_str(), placed("OBJ_P16_BANK_VAULT_HOTSPOT6").c_str(),
+			       _script->getClickableState(vault()->getDustSprite()).c_str());
+			BankVaultRoom *c = dynamic_cast<BankVaultRoom *>(createRoomClass(*this, kVault));
+			c->loadKeys(ini);
+			const bool yes = c->isDustVisible();
+			c->reset();
+			debugC(3, kDebugScript, "vault check keys: DustVisible=Yes reads %d, reset %d", yes ? 1 : 0, c->isDustVisible() ? 1 : 0);
+			delete c;
+			_script->setGhostChance(&_randomSource, ConfMan.hasKey("ghost_chance") ? (uint)ConfMan.getInt("ghost_chance") : 30);
+		}
+
+		// The open safe: the gang placed; the scene's lines, each speaker's
+		// mouth; then the back alley. Seen, it goes straight there. Skipped,
+		// likewise.
+		newGameForCheck();
+		fresh.room(kVault);
+		fresh.room(kSafe);
+		{
+			OpenSafeRoom *o = dynamic_cast<OpenSafeRoom *>(_roomClass);
+			Common::String gang;
+			static const char *const kNames[] = { "DAPHNE", "FRED", "VELMA", "SHAGGY", "SCOOBY" };
+			for (uint i = 0; i < OpenSafeRoom::kGang; i++)
+				gang += placed(Common::String::format("OBJ_GANG_VAULT_%s", kNames[i]).c_str()) + Common::String::format(" hit %d; ", o->getGangSprite(i) >= 0 ? _currentRoom->getHitType(o->getGangSprite(i)) : -1);
+			const bool hides = o->hidesCursor(), swallows = o->click(-1);
+			Common::String lines;
+			int first = -1, t = -1;
+			for (uint k = 1; k <= 4000 && t < 0; k++) {
+				const Common::String before = o->getClip();
+				if (tick1()) {
+					t = k;
+					break;
+				}
+				if (o->getClip() != before && !o->getClip().empty()) {
+					if (first < 0)
+						first = k;
+					int who = -1;
+					for (uint i = 0; i < OpenSafeRoom::kGang; i++)
+						who = o->getGangSprite(i) == o->getMouth() ? (int)i : who;
+					lines += Common::String::format("%s (%s) ", o->getClip().c_str() + strlen("Open_Safe.340F_"), who >= 0 ? kNames[who] : "-");
+					_sound->stopClip(o->getClip());
+				}
+			}
+			debugC(3, kDebugScript, "open safe check: %scursor hidden %d, clicks taken %d; first line at tick %d: %snext %s at tick %d, played %d", gang.c_str(),
+			       hides ? 1 : 0, swallows ? 1 : 0, first, lines.c_str(), run.next.c_str(), t, _script->getMemory(kSafe).openingPlayed ? 1 : 0);
+			showRoom(kVault);
+			showRoom(kSafe);
+			const int again = run.change(5);
+			debugC(3, kDebugScript, "open safe check seen: next %s at tick %d", run.next.c_str(), again);
+			newGameForCheck();
+			fresh.room(kVault);
+			fresh.room(kSafe);
+			o = dynamic_cast<OpenSafeRoom *>(_roomClass);
+			for (uint k = 0; k < 100; k++)
+				tick1();
+			const Common::String playing = o->getClip();
+			const bool taken = o->skip();
+			const int skipped = run.change(5);
+			debugC(3, kDebugScript, "open safe check skipped on tick 100 during %s: taken %d, next %s at tick %d", playing.c_str() + strlen("Open_Safe.340F_"),
+			       taken ? 1 : 0, run.next.c_str(), skipped);
+		}
 	}
 	newGameForCheck();
 	_checking = false;

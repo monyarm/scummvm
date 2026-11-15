@@ -218,6 +218,11 @@ public:
 	bool isClickablePlaying(uint sprite) const;
 	/** The clickable's state ANIM name (+0x60), or empty. */
 	Common::String getClickableState(uint sprite) const;
+	/**
+	 * Set the clickable's state (0x401780): @p state, or with its last
+	 * letter A if the art file doesn't name it. Its sequence isn't touched.
+	 */
+	void setClickable(uint sprite, const Common::String &state);
 	/** What the last click did, as "anim A steps N sound S next B", or "ghost". */
 	const Common::String &getClickLog() const { return _clickLog; }
 
