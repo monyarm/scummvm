@@ -23,6 +23,7 @@
 #include "common/debug.h"
 
 #include "scooby/art_archive.h"
+#include "scooby/character.h"
 #include "scooby/chase_rooms.h"
 #include "scooby/detection.h"
 #include "scooby/inventory.h"
@@ -58,7 +59,8 @@ void ScoobyEngine::checkChases() {
 	for (uint i = 0; i < ARRAYSIZE(kRooms); i++) {
 		RoomClass *c = createRoomClass(*this, kRooms[i]);
 		classes += Common::String::format("%s %s; ", kRooms[i] + 5,
-		                                  dynamic_cast<ChaseBRoom *>(c) ? "B" : dynamic_cast<ChaseCRoom *>(c) ? "C" : c ? "other" : "-");
+		                                  dynamic_cast<ChaseBRoom *>(c) ? "B" : dynamic_cast<ChaseCRoom *>(c) ? "C" :
+		                                  dynamic_cast<CloseupRoom *>(c) ? "close-up" : c ? "other" : "-");
 		delete c;
 	}
 	debugC(3, kDebugScript, "chase check classes: %s", classes.c_str());
@@ -312,6 +314,256 @@ void ScoobyEngine::checkChases() {
 		}();
 		debugC(3, kDebugScript, "chase check %s: %s; over at tick %d; next %s movie %d at tick %d", kCRooms[i] + 5, head.c_str(), over,
 		       run.next.c_str(), run.movie, t);
+	}
+	newGameForCheck();
+
+	// The close-up (WP-036).
+	const char *const kCloseupRoom = "ROOM_P25A_Chase_B2_Closeup";
+	const char *const kCombo = "OBJ_INV_SAFE_COMBO";
+	auto closeup = [&]() { return dynamic_cast<CloseupRoom *>(_roomClass); };
+	auto icdSprite = [&]() {
+		Character *c = _script->getCharacter("ICDOUBLE");
+		return c ? c->getSprite() : -1;
+	};
+	auto comboLine = [&]() {
+		const int s = Find::sprite(*this, kCombo);
+		if (s < 0)
+			return Common::String("combination none");
+		return Common::String::format("combination %s depth %d mode %d step %u of %u hidden %d%s", _currentRoom->getAnim(s).c_str(),
+		                              _currentRoom->getDepth(s), _currentRoom->getMode(s), _currentRoom->getStep(s), _currentRoom->getStepCount(s),
+		                              _currentRoom->isHidden(s) ? 1 : 0, _currentRoom->isRequiresObject(s) ? " requires" : "");
+	};
+	// One tick; whether the room changed.
+	auto tick1 = [&]() {
+		run.next.clear();
+		run.movie = -1;
+		return tickOnce(run.next, run.movie);
+	};
+	// The state a visit starts from: ICDouble met or not, the artifact built
+	// or not, his clue given or not.
+	auto setup = [&](bool met, bool built, bool owner) {
+		newGameForCheck();
+		if (met)
+			_inventory->meetSuspect("ICDOUBLE");
+		if (built)
+			setGameInt("ArtifactsBuilt", 1);
+		if (owner) {
+			setGameString("CluesFound0", "IC_BINOCULARS");
+			setGameString("ClueOwners0", "ICDOUBLE");
+		}
+		fresh.room(kStart);
+		fresh.room(kCloseupRoom);
+	};
+
+	// The first visit: his introduction on Big Head, then the artifact, by
+	// level and artifact.
+	static const char *const kTypes[] = { "Bowl", "Deer", "Vase" };
+	for (int level = 0; level < 3; level++) {
+		Common::String out;
+		for (uint i = 0; i < ARRAYSIZE(kTypes); i++) {
+			newGameForCheck();
+			setDifficulty(level);
+			setGameString("ArtifactType", kTypes[i]);
+			fresh.room(kStart);
+			fresh.room(kCloseupRoom);
+			const bool met = _inventory->hasMetSuspect("ICDOUBLE");
+			const int t = run.change(5);
+			out += Common::String::format("%s: met %d, next %s at tick %d, %s on %s then %s; ", kTypes[i], met ? 1 : 0, run.next.c_str(), t,
+			                              getBigHeadScene().c_str(), getBigHeadBackground().c_str(), getBigHeadNext().c_str());
+		}
+		debugC(3, kDebugScript, "closeup check first visit, level %d: %s", level, out.c_str());
+	}
+	setDifficulty(0);
+
+	// Met, the artifact not built: the combination waits, hidden; ICDouble
+	// clicked goes back to the artifact.
+	setup(true, false, false);
+	setGameString("ArtifactType", "Deer");
+	{
+		const bool busy = closeup() && closeup()->isBusy();
+		const Common::String placed = comboLine();
+		_roomClass->click(icdSprite());
+		const int t = run.change(5);
+		debugC(3, kDebugScript, "closeup check met, no artifact: %s, held %d; ICDouble clicked: next %s at tick %d", placed.c_str(), busy ? 1 : 0,
+		       run.next.c_str(), t);
+	}
+
+	// His clue: a 260C line (rand() % 3) as the visit starts, then he gives,
+	// then the gang thanks him and goes to the suspects and clues.
+	{
+		Common::Array<Common::String> seen;
+		for (uint k = 0; k < 40; k++) {
+			setup(true, true, false);
+			const Common::String s = closeup() ? closeup()->getLastScene() : Common::String("no class");
+			bool known = false;
+			for (uint i = 0; i < seen.size(); i++)
+				known = known || seen[i] == s;
+			if (!known)
+				seen.push_back(s);
+		}
+		Common::sort(seen.begin(), seen.end());
+		Common::String scenes;
+		for (uint i = 0; i < seen.size(); i++)
+			scenes += "'" + seen[i] + "' ";
+		setup(true, true, false);
+		// His own three, or a red herring about neither him nor the villain
+		// when he is the villain (0x42F990): which, from rand().
+		const Common::String villain = getGameString("Whodunit");
+		const Common::String clue = getGameString("CluesFound0");
+		const bool fits = villain == "ICDOUBLE" ? clue.hasPrefix("RH_") && !clue.hasPrefix("RH_IC_")
+		                                        : clue == "IC_BINOCULARS" || clue == "IC_EYE_DOCTOR" || clue == "IC_MAP";
+		const bool held = _script->isBusy();
+		_script->skip();
+		int gives = -1, thanks = -1, t = -1;
+		Common::String givesAnim;
+		for (uint k = 1; k <= kMax && t < 0; k++) {
+			const bool changed = tick1();
+			Character *c = _script->getCharacter("ICDOUBLE");
+			if (gives < 0 && c && c->getState() == Character::kStateAct) {
+				gives = k;
+				givesAnim = Common::String::format("%s steps %u, held %d", _currentRoom->getAnim(c->getSprite()).c_str(),
+				                                   _currentRoom->getStepCount(c->getSprite()), _roomClass->isBusy() ? 1 : 0);
+			}
+			if (thanks < 0 && _script->isScenePlaying() && _script->getScene() == "Global.Thank_You_")
+				thanks = k;
+			if (changed)
+				t = k;
+			if (_script->isScenePlaying())
+				_script->skip();
+		}
+		debugC(3, kDebugScript, "closeup check his clue: lines %s; a clue from %s, fits %d, owner %d, scene held %d; gives at tick %d (%s); thanks at tick %d; next %s",
+		       scenes.c_str(), getGameString("ClueOwners0").c_str(), fits ? 1 : 0, isClueOwner("ICDOUBLE") ? 1 : 0,
+		       held ? 1 : 0, gives, givesAnim.c_str(), thanks, run.next.c_str());
+	}
+
+	// His clue given, the artifact built: his lines (rand() & 3), not held.
+	setup(true, true, true);
+	{
+		Common::Array<Common::String> seen;
+		for (uint k = 0; k < 40; k++) {
+			_roomClass->click(icdSprite());
+			const Common::String s = closeup() ? closeup()->getLastScene() : Common::String("no class");
+			bool known = false;
+			for (uint i = 0; i < seen.size(); i++)
+				known = known || seen[i] == s;
+			if (!known)
+				seen.push_back(s);
+			_script->skip();
+		}
+		Common::sort(seen.begin(), seen.end());
+		Common::String scenes;
+		for (uint i = 0; i < seen.size(); i++)
+			scenes += "'" + seen[i] + "' ";
+		debugC(3, kDebugScript, "closeup check ICDouble clicked after his clue: %sheld %d", scenes.c_str(), _script->isBusy() ? 1 : 0);
+	}
+
+	// The combination blows in: held from entry; 25 ticks on, from behind
+	// Shaggy, in front of him on step 38; input free when it stops.
+	setup(true, true, true);
+	{
+		const Common::String placed = comboLine();
+		const bool held = closeup() && closeup()->isBusy();
+		Character *shaggy = _script->getCharacter("SHAGGY");
+		const int sd = shaggy ? _currentRoom->getDepth(shaggy->getSprite()) : 0;
+		const int s = Find::sprite(*this, kCombo);
+		int blown = -1, front = -1, over = -1, released = -1, behind = 0;
+		for (uint k = 1; k <= 400 && s >= 0; k++) {
+			tick1();
+			if (blown < 0 && closeup()->hasComboBlownIn()) {
+				blown = k;
+				behind = _currentRoom->getDepth(s) - sd;
+			}
+			if (front < 0 && blown > 0 && _currentRoom->getDepth(s) == sd + 1)
+				front = k;
+			if (over < 0 && blown > 0 && _currentRoom->getMode(s) == 0)
+				over = k;
+			if (released < 0 && blown > 0 && !closeup()->isBusy())
+				released = k;
+		}
+		Common::INIFile ini;
+		_roomClass->saveKeys(ini);
+		Common::String v;
+		ini.getKey("ComboBlewOn", kCloseupRoom, v);
+		debugC(3, kDebugScript, "closeup check the combination: %s, held %d; blows in at tick %d (%s, Shaggy %+d), in front at tick %d, over at tick %d, free at tick %d; ComboBlewOn=%s",
+		       placed.c_str(), held ? 1 : 0, blown, closeup()->getLastSound().c_str(), behind, front, over, released, v.c_str());
+
+		// Back again: it is there at once, input free.
+		showRoom(kStart);
+		showRoom(kCloseupRoom);
+		debugC(3, kDebugScript, "closeup check back with it blown in: %s, held %d", comboLine().c_str(), closeup()->isBusy() ? 1 : 0);
+		// Where the live run clicks (not compared).
+		{
+			struct Point {
+				static Common::String of(ScoobyEngine &e, int sprite) {
+					for (int y = 4; y < 480 && sprite >= 0; y += 8) {
+						for (int x = 4; x < 640; x += 8) {
+							if (e._currentRoom->hitTest(x, y) == sprite)
+								return Common::String::format("%d %d", x, y);
+						}
+					}
+					return "-";
+				}
+			};
+			debugC(3, kDebugScript, "closeup points: COMBO=%s ICDOUBLE=%s", Point::of(*this, Find::sprite(*this, kCombo)).c_str(),
+			       Point::of(*this, icdSprite()).c_str());
+		}
+
+		// Clicked: its scene, not held; then Shaggy takes it and it goes in
+		// the toolbar.
+		const int combo = Find::sprite(*this, kCombo);
+		_script->sendEvent(kCombo, false);
+		const Common::String scene = closeup()->getLastScene();
+		const bool sceneHeld = _script->isBusy() || closeup()->isBusy();
+		_script->skip();
+		int takes = -1, toolbar = -1;
+		Common::String takeAnim;
+		bool hidden = false, heldTaking = false;
+		for (uint k = 1; k <= kMax && toolbar < 0; k++) {
+			tick1();
+			Character *sh = _script->getCharacter("SHAGGY");
+			if (takes < 0 && sh && sh->getState() == Character::kStateSpecial) {
+				takes = k;
+				takeAnim = Common::String::format("%s steps %u", _currentRoom->getAnim(sh->getSprite()).c_str(), _currentRoom->getStepCount(sh->getSprite()));
+				hidden = combo >= 0 && _currentRoom->isHidden(combo);
+				heldTaking = closeup()->isBusy();
+			}
+			if (_inventory->hasItem(kCombo))
+				toolbar = k;
+		}
+		debugC(3, kDebugScript, "closeup check the combination clicked: %s, held %d; Shaggy takes it at tick %d (%s), it hidden %d, held %d; in the toolbar at tick %d, held %d",
+		       scene.c_str(), sceneHeld ? 1 : 0, takes, takeAnim.c_str(), hidden ? 1 : 0, heldTaking ? 1 : 0, toolbar, closeup()->isBusy() ? 1 : 0);
+		showRoom(kStart);
+		showRoom(kCloseupRoom);
+		debugC(3, kDebugScript, "closeup check back with it held: %s", comboLine().c_str());
+	}
+
+	// Leaving while Shaggy takes it: it goes in the toolbar anyway.
+	setup(true, true, true);
+	for (uint k = 0; k < 200; k++)
+		tick1();
+	_script->sendEvent(kCombo, false);
+	_script->skip();
+	for (uint k = 0; k < 2 && !_inventory->hasItem(kCombo); k++)
+		tick1();
+	{
+		const bool before = _inventory->hasItem(kCombo);
+		showRoom(kStart);
+		debugC(3, kDebugScript, "closeup check left while Shaggy takes it: held before %d, after %d", before ? 1 : 0, _inventory->hasItem(kCombo) ? 1 : 0);
+	}
+
+	// The keys, and a new game's reset.
+	{
+		CloseupRoom *c = dynamic_cast<CloseupRoom *>(createRoomClass(*this, kCloseupRoom));
+		Common::INIFile ini;
+		ini.setKey("ComboBlewOn", kCloseupRoom, "Yes");
+		c->loadKeys(ini);
+		const bool yes = c->hasComboBlownIn();
+		c->reset();
+		const bool reset = c->hasComboBlownIn();
+		Common::INIFile none;
+		c->loadKeys(none);
+		debugC(3, kDebugScript, "closeup check keys: ComboBlewOn=Yes reads %d, reset %d, missing %d", yes ? 1 : 0, reset ? 1 : 0, c->hasComboBlownIn() ? 1 : 0);
+		delete c;
 	}
 	newGameForCheck();
 	_checking = false;

@@ -21,6 +21,7 @@
 
 #include "common/debug.h"
 
+#include "scooby/character.h"
 #include "scooby/chase_rooms.h"
 #include "scooby/detection.h"
 #include "scooby/inventory.h"
@@ -305,8 +306,225 @@ void ChaseCRoom::tick() {
 	}
 }
 
+// ---------------------------------------------------------------------------
+// The close-up
+
+static const char *const kIcDouble = "ICDOUBLE";
+static const char *const kCombo = "OBJ_INV_SAFE_COMBO";
+// The combination's run of the sprite: step 38 is where it passes Shaggy.
+static const uint kComboPassStep = 38;
+static const int kComboDepth = 500;
+static const int kModeLast = 5;
+
+void CloseupRoom::reset() {
+	// 0x411A50, after the base reset (0x40CD20).
+	_gives = false;
+	_thanks = false;
+	_blownIn = false;
+}
+
+Common::String CloseupRoom::getArtifactRoom() const {
+	// 0x412490: ROOM_Artifact_<ArtifactType>_, then the level's size.
+	const int level = _engine.getDifficulty();
+	return Common::String::format("ROOM_Artifact_%s_%s", _engine.getGameString("ArtifactType").c_str(),
+	                              level == 0 ? "09" : level == 1 ? "12" : "15");
+}
+
+void CloseupRoom::claimPlacement(const Common::String &object, Room::Claim &claim) {
+	// 0x412300: the combination, once ICDouble's clue is given and until it is
+	// held, is a requires object under layer 0 at depth 500, stopped on its
+	// last step (graphics_AnimSprite_Start 5, in enter()), and hidden until
+	// it has blown in.
+	if (object != kCombo)
+		return;
+	if (_engine.getInventory()->hasItem(kCombo)) {
+		claim.build = Room::Claim::kSkip;
+		return;
+	}
+	claim.build = Room::Claim::kRequires;
+	claim.layer = 0;
+	claim.depth = kComboDepth;
+	claim.hidden = !_blownIn;
+}
+
+void CloseupRoom::enter(const Common::String &from) {
+	// 0x412020, after the base entry.
+	Room &room = *_engine.getRoom();
+	RoomScript &script = *_engine.getScript();
+	Inventory &inventory = *_engine.getInventory();
+	_lastScene.clear();
+	_lastSound.clear();
+	_comboScene = false;
+	_held = false;
+	_combo = findPrefixed(room, kCombo);
+	if (_combo >= 0)
+		room.startAnim(_combo, room.getAnim(_combo), kModeLast, -1);
+
+	// With the artifact built and no clue from him yet: a 260C scene
+	// (rand() % 3), and his clue; he gives it when next idle.
+	_owner = _engine.isClueOwner(kIcDouble);
+	if (!_owner && _engine.getGameInt("ArtifactsBuilt") == 1) {
+		static const char *const kScenes[] = {
+			"Chase_B2_Closeup.260C1_", "Chase_B2_Closeup.260C2_", "Chase_B2_Closeup.260C3_"
+		};
+		_lastScene = kScenes[_engine.getRandomNumber(2)];
+		script.startScene(_lastScene, true);
+		_engine.giveClue(kIcDouble);
+		_gives = true;
+		debugC(1, kDebugScript, "close-up: %s, and ICDouble's clue", _lastScene.c_str());
+	}
+	_comboSceneDone = false;
+	_taking = false;
+	_countdown = 24;
+
+	// The first visit: he introduces himself on Big Head, then the artifact.
+	if (!inventory.hasMetSuspect(kIcDouble)) {
+		inventory.meetSuspect(kIcDouble);
+		const Common::String artifact = getArtifactRoom();
+		_engine.startBigHead("Chase.Branch_2.260A_", "BIG_HEAD_BG_P25A", artifact);
+		debugC(1, kDebugScript, "close-up: ICDouble's introduction, then %s", artifact.c_str());
+		return;
+	}
+	// The combination is about to blow in: input waits for it.
+	if (_combo >= 0 && !_blownIn && _owner)
+		_held = true;
+}
+
+void CloseupRoom::roomLeft() {
+	// 0x411A70, after the base leave: the combination's scene was over but
+	// Shaggy hadn't taken it yet.
+	Inventory &inventory = *_engine.getInventory();
+	if (_comboSceneDone && !inventory.hasItem(kCombo))
+		inventory.addItem(kCombo, "ANIM_TOOLBARSAFE_COMBO", "ANIM_CURSORSAFE_COMBO");
+}
+
+bool CloseupRoom::click(int sprite) {
+	// 0x411AC0: a click on ICDouble with the arrow. Before the artifact is
+	// built, back to it; after, one of his lines (rand() & 3).
+	Character *icd = _engine.getScript()->getCharacter(kIcDouble);
+	if (!icd || sprite < 0 || sprite != icd->getSprite() || !_engine.getInventory()->isDefaultCursor())
+		return false;
+	if (_engine.getGameInt("ArtifactsBuilt") < 1) {
+		const Common::String artifact = getArtifactRoom();
+		debugC(1, kDebugScript, "close-up: ICDouble clicked; to %s", artifact.c_str());
+		_engine.requestRoom(artifact);
+	} else {
+		static const char *const kLines[] = {
+			"Chase_B2_Closeup.1901_", "Chase_B2_Closeup.1902_", "Chase_B2_Closeup.1903_", "Chase_B2_Closeup.1904_"
+		};
+		const char *scene = kLines[_engine.getRandomNumber(3)];
+		if (_engine.getScript()->startScene(scene, false))
+			_lastScene = scene;
+		debugC(1, kDebugScript, "close-up: ICDouble clicked; %s", scene);
+	}
+	return true;
+}
+
+void CloseupRoom::event(const Common::String &object, bool success) {
+	// 0x411FC0: the combination clicked with the arrow: its scene. 0x40B400
+	// is told to hold input, but the room's tick lets go of it that same
+	// tick (see tick()), so the scene doesn't block.
+	if (object != kCombo || !_engine.getInventory()->isDefaultCursor())
+		return;
+	if (_engine.getScript()->startScene("Chase.Branch_2.486_", false)) {
+		_lastScene = "Chase.Branch_2.486_";
+		_comboScene = true;
+		_comboSceneDone = false;
+		debugC(1, kDebugScript, "close-up: the combination clicked at tick %u", _engine.getScript()->getTick());
+	}
+}
+
+void CloseupRoom::tick() {
+	// 0x411AC0, after the base tick.
+	Room &room = *_engine.getRoom();
+	RoomScript &script = *_engine.getScript();
+	Sound &sound = *_engine.getSound();
+	Inventory &inventory = *_engine.getInventory();
+	// The combination's scene's done flag (+0xC0, through +0x80).
+	if (_comboScene && !script.isScenePlaying()) {
+		_comboScene = false;
+		_comboSceneDone = true;
+	}
+
+	// ICDouble gives when idle; then the gang thanks him and goes to the
+	// suspects and clues.
+	Character *icd = script.getCharacter(kIcDouble);
+	if (icd && icd->getState() == Character::kStateIdle) {
+		if (_gives) {
+			icd->act(room, sound, "GIVES");
+			_gives = false;
+			_thanks = true;
+			_held = true;
+			debugC(1, kDebugScript, "close-up: ICDouble gives at tick %u", script.getTick());
+		}
+		if (icd->getState() == Character::kStateIdle && _thanks) {
+			_thanks = false;
+			RoomScript::Exit exit;
+			exit.destination = "ROOM_Suspect_Chooser";
+			exit.scene = "Global.Thank_You_";
+			exit.movie = -1;
+			script.takeExit(exit);
+			debugC(1, kDebugScript, "close-up: thanks at tick %u, then the suspects and clues", script.getTick());
+		}
+	}
+
+	// The combination's scene over: Shaggy takes it when free, and it goes
+	// in the toolbar when he is idle again.
+	Character *shaggy = script.getCharacter("SHAGGY");
+	if (_comboSceneDone) {
+		if (!_taking && shaggy && shaggy->getState() == Character::kStateIdle && !script.isScenePlaying() && script.isOpeningDone()) {
+			_taking = true;
+			shaggy->special(room, sound, "OBJ_SHAGGY_P25A_TAKE_COMBO");
+			if (_combo >= 0)
+				room.setHidden(_combo, true);
+			_held = true;
+			debugC(1, kDebugScript, "close-up: Shaggy takes the combination at tick %u", script.getTick());
+		}
+		if (_taking && shaggy && shaggy->getState() == Character::kStateIdle) {
+			_comboSceneDone = false;
+			_taking = false;
+			if (!inventory.hasItem(kCombo))
+				inventory.addItem(kCombo, "ANIM_TOOLBARSAFE_COMBO", "ANIM_CURSORSAFE_COMBO");
+			_held = false;
+			debugC(1, kDebugScript, "close-up: the combination in the toolbar at tick %u", script.getTick());
+		}
+	}
+
+	// The combination blows in, 25 ticks after entry, from behind Shaggy.
+	if (_combo >= 0 && !_blownIn && _owner && _countdown-- < 1) {
+		_blownIn = true;
+		room.setHidden(_combo, false);
+		room.startAnim(_combo, room.getAnim(_combo), kModeOnce, -1);
+		if (shaggy && shaggy->getSprite() >= 0)
+			room.setDepth(_combo, room.getDepth(shaggy->getSprite()) - 1);
+		_lastSound = "ICDouble.Combo.Blows.In";
+		sound.play(_lastSound);
+		debugC(1, kDebugScript, "close-up: the combination blows in at tick %u", script.getTick());
+	}
+	// On step 38 it passes in front of him.
+	if (_combo >= 0 && room.getMode(_combo) != 0 && room.getStep(_combo) == kComboPassStep && shaggy && shaggy->getSprite() >= 0)
+		room.setDepth(_combo, room.getDepth(shaggy->getSprite()) + 1);
+	// Once it is in, input is free, every tick: that ends the hold of the
+	// combination's scene and of Shaggy taking it the tick they start.
+	if (_combo >= 0 && _blownIn && room.getMode(_combo) == 0 && _owner)
+		_held = false;
+}
+
+void CloseupRoom::saveKeys(Common::INIFile &profile) {
+	// 0x412410: the base keys, then ComboBlewOn, in the room's section.
+	profile.setKey("ComboBlewOn", kCloseup, _blownIn ? "Yes" : "No");
+}
+
+void CloseupRoom::loadKeys(const Common::INIFile &profile) {
+	// 0x412450 -> 0x40C560: a missing key reads as false.
+	Common::String v;
+	_blownIn = profile.getKey("ComboBlewOn", kCloseup, v) && v == "Yes";
+}
+
 RoomClass *createChaseRoom(ScoobyEngine &engine, const Common::String &room) {
 	// Showdown's factory (0x42E0E0); Phantom has no chase.
+	if (room == kCloseup)
+		return new CloseupRoom(engine);
 	static const char *const kBRooms[] = {
 		"ROOM_P24_Chase_B1", "ROOM_P25_Chase_B2", "ROOM_P26_Chase_B3",
 		"ROOM_P27_Chase_B4", "ROOM_P28_Chase_B5", "ROOM_P29_Chase_B6"

@@ -87,6 +87,50 @@ private:
 	Common::String _lastSound;
 };
 
+/**
+ * Showdown's close-up, ROOM_P25A_Chase_B2_Closeup (0x4119F0, vtable
+ * 0x45E890): ICDouble digging. The first visit meets him on Big Head and
+ * goes on to the artifact; with the artifact built he gives his clue; with
+ * his clue given, the safe's combination blows in, and Shaggy takes it.
+ */
+class CloseupRoom : public RoomClass {
+public:
+	explicit CloseupRoom(ScoobyEngine &engine) : RoomClass(engine) {}
+
+	void reset() override;                                                          // 0x411A50
+	void enter(const Common::String &from) override;                                // 0x412020
+	void roomLeft() override;                                                       // 0x411A70
+	void tick() override;                                                           // 0x411AC0
+	bool click(int sprite) override;                                                // 0x411AC0's click
+	bool isBusy() const override { return _held; }                                  // game +0x24
+	void claimPlacement(const Common::String &object, Room::Claim &claim) override; // 0x412300
+	void event(const Common::String &object, bool success) override;               // 0x411FC0
+	void saveKeys(Common::INIFile &profile) override;                               // 0x412410
+	void loadKeys(const Common::INIFile &profile) override;                         // 0x412450
+
+	/** The artifact's room for this game: ROOM_Artifact_<type>_<09, 12 or 15> (0x412490). */
+	Common::String getArtifactRoom() const;
+	int getComboSprite() const { return _combo; }
+	bool hasComboBlownIn() const { return _blownIn; }
+	/** The last scene the class started, for the checks. */
+	const Common::String &getLastScene() const { return _lastScene; }
+	const Common::String &getLastSound() const { return _lastSound; }
+
+private:
+	bool _gives = false;        // +0xB8: ICDouble gives when next idle
+	bool _thanks = false;       // +0xB9: then the gang thanks him and leaves
+	int _combo = -1;            // +0xBC: OBJ_INV_SAFE_COMBO, as a requires object
+	bool _comboSceneDone = false; // +0xC0: Chase.Branch_2.486_ is over
+	bool _taking = false;       // +0xC1: Shaggy is taking the combination
+	bool _blownIn = false;      // +0xC2: ComboBlewOn
+	bool _owner = false;        // +0xC3: ICDouble had given his clue on entry
+	int _countdown = 24;        // +0xC4: ticks before the combination blows in
+	bool _comboScene = false;   // Chase.Branch_2.486_ is playing
+	bool _held = false;         // game +0x24, as the class sets and clears it
+	Common::String _lastScene;
+	Common::String _lastSound;
+};
+
 /** The chase room class the factory builds for @p room, or nullptr. */
 RoomClass *createChaseRoom(ScoobyEngine &engine, const Common::String &room);
 
