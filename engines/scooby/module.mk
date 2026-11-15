@@ -4,6 +4,8 @@ MODULE_OBJS = \
 	accusation_rooms.o \
 	art_archive.o \
 	cel.o \
+	chase_check.o \
+	chase_rooms.o \
 	character.o \
 	clues.o \
 	inventory.o \

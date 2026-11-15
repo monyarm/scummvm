@@ -65,6 +65,12 @@ public:
 	 * set its opening for this visit (RoomScript::setOpening).
 	 */
 	virtual void prepare() {}
+	/**
+	 * Room vtable +0x2C, right after +0x30 in the base entry (0x40B920),
+	 * with the room left: a class may set this visit's opening by where the
+	 * gang came from.
+	 */
+	virtual void arrive(const Common::String &from) {}
 };
 
 /**

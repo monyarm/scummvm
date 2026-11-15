@@ -147,6 +147,7 @@ Common::Error ScoobyEngine::run() {
 		checkOptionsCredits();
 		checkAccusation();
 		checkMusicFade();
+		checkChases();
 		checkAllMovies();
 	}
 
@@ -515,13 +516,13 @@ void ScoobyEngine::requestRoom(const Common::String &room, int movie) {
 	_requestedMovie = movie;
 }
 
-void ScoobyEngine::exitTo(const Common::String &room) {
+void ScoobyEngine::exitTo(const Common::String &room, int movie) {
 	// The base exit handler (0x40C1E0) with an exit that names only its
-	// room: the cursor fades, input stops, and with no scene and no gang to
-	// walk off, the room changes.
+	// room (and maybe a movie): the cursor fades, input stops, and with no
+	// scene and no gang to walk off, the room changes.
 	RoomScript::Exit exit;
 	exit.destination = room;
-	exit.movie = -1;
+	exit.movie = movie;
 	_currentRoom->setCursor("");
 	_script->startExit(exit);
 }

@@ -150,8 +150,10 @@ void RoomScript::setup(const Common::String &opening, uint snacksNeeded, const C
 	_openingDelay = kOpeningDelay;
 	_sceneIsOpening = false;
 	// 0x40B920: the class's +0x30 first, which may set this visit's opening.
-	if (_hooks)
+	if (_hooks) {
 		_hooks->prepare();
+		_hooks->arrive(from);
+	}
 	// 0x40B920: coming from the ghost spot, the gang talks about it first.
 	if (from == kGhostRoom) {
 		_opening = kGhostOpenings[draw(ARRAYSIZE(kGhostOpenings))];

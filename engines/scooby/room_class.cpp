@@ -25,6 +25,7 @@
 #include "scooby/menu_rooms.h"
 #include "scooby/options_rooms.h"
 #include "scooby/accusation_rooms.h"
+#include "scooby/chase_rooms.h"
 #include "scooby/room.h"
 #include "scooby/room_class.h"
 #include "scooby/scooby.h"
@@ -149,6 +150,9 @@ static RoomClass *buildRoomClass(ScoobyEngine &engine, const Common::String &roo
 		return new SuspectChooserRoom(engine);
 	if (room == "ROOM_Big_Head")
 		return new BigHeadRoom(engine);
+	// Showdown's chase (chase_rooms.cpp).
+	if (RoomClass *chase = createChaseRoom(engine, room))
+		return chase;
 	// The story rooms (story_rooms.cpp); every other room gets the base
 	// class for now.
 	return createStoryRoom(engine, room);

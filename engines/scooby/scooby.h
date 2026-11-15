@@ -77,6 +77,7 @@ private:
 	void checkStreet1();     // story_check.cpp
 	void checkClues();       // story_check.cpp
 	void newGameForCheck();  // story_check.cpp
+	void checkChases();      // chase_check.cpp
 	int _checkSprite = -1;   // a sprite a check waits on
 	bool _checking = false;
 	Music *_music = nullptr;
@@ -180,7 +181,7 @@ public:
 	/** Go to @p room after the current tick, after @p movie if 0-74 (game vtable +0x04, +0x08). */
 	void requestRoom(const Common::String &room, int movie = -1);
 	/** Leave by a room's exit (vtable +0x24) for @p room: no scene, no walk. */
-	void exitTo(const Common::String &room);
+	void exitTo(const Common::String &room, int movie = -1);
 	/** Quit the game (game +0x110), or only log it during the checks. */
 	void requestQuit();
 	int getDifficulty() const { return _difficulty; }
