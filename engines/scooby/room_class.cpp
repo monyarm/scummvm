@@ -23,6 +23,7 @@
 
 #include "scooby/alley_rooms.h"
 #include "scooby/detection.h"
+#include "scooby/dining_rooms.h"
 #include "scooby/doors_rooms.h"
 #include "scooby/drawbridge_rooms.h"
 #include "scooby/garden_rooms.h"
@@ -186,6 +187,8 @@ static RoomClass *buildRoomClass(ScoobyEngine &engine, const Common::String &roo
 		return doors;
 	if (RoomClass *throne = createThroneRoom(engine, room))
 		return throne;
+	if (RoomClass *dining = createDiningRoom(engine, room))
+		return dining;
 	// Showdown's chase (chase_rooms.cpp).
 	if (RoomClass *chase = createChaseRoom(engine, room))
 		return chase;

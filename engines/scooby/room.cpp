@@ -532,6 +532,16 @@ bool Room::load(const Common::String &name) {
 			       obj.c_str(), claimed == kKindRequires ? "requires object" : "clickable", slot, s.depth,
 			       claim.hidden ? ", hidden" : "");
 		}
+		if (claim.build == Claim::kInventory || claim.build == Claim::kExit) {
+			// 0x408BD0 and 0x401850 as a class calls them: the placement's
+			// pick-up or way out, under the layer and at the depth it names.
+			kind = claim.build == Claim::kInventory ? kKindInventory : kKindExit;
+			if (claim.layer >= 0)
+				slot = claim.layer;
+			s.depth = claim.depth;
+			debugC(1, kDebugScript, "room %s: placement %u (%s) claimed as %s in layer %d, depth %d%s", name.c_str(), k, obj.c_str(),
+			       kind == kKindInventory ? "an inventory object" : "an exit", slot, s.depth, claim.hidden ? ", hidden" : "");
+		}
 		if (claim.build == Claim::kSprite) {
 			// graphics_AnimSprite_ctor, as the class calls it: its parent layer,
 			// its depth, looping at 3 ticks a step, its hit test.

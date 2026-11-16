@@ -11,6 +11,8 @@ MODULE_OBJS = \
 	corral_rooms.o \
 	character.o \
 	clues.o \
+	dining_check.o \
+	dining_rooms.o \
 	doors_check.o \
 	doors_rooms.o \
 	drawbridge_check.o \

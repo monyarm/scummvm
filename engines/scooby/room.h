@@ -55,7 +55,9 @@ public:
 			kSkip,      // claimed, and not built at all
 			kRequires,  // a requiresobject (0x408C80)
 			kClickable, // a clickableobject (0x408DC0)
-			kSprite     // a plain animated sprite (graphics_AnimSprite_ctor), looping
+			kSprite,    // a plain animated sprite (graphics_AnimSprite_ctor), looping
+			kInventory, // an inventoryobject (0x408BD0) under layer, at depth
+			kExit       // an exitobject (0x401850) under layer, at depth
 		};
 		Build build = kDefault;
 		int layer = -1;     // the parent layer slot; -1 for the default path's
