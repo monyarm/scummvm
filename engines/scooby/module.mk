@@ -24,6 +24,7 @@ MODULE_OBJS = \
 	signin_room.o \
 	sound_archive.o \
 	stage_rooms.o \
+	store_rooms.o \
 	story_check.o \
 	story_rooms.o \
 	toolbar_rooms.o \

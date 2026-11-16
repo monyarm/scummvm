@@ -31,6 +31,7 @@
 #include "scooby/hotel_rooms.h"
 #include "scooby/jail_rooms.h"
 #include "scooby/stage_rooms.h"
+#include "scooby/store_rooms.h"
 #include "scooby/inventory.h"
 #include "scooby/room.h"
 #include "scooby/room_class.h"
@@ -2374,6 +2375,260 @@ void ScoobyEngine::checkChases() {
 			out += Common::String::format("; next %s at tick %d, Shaggy hidden %d", run.next.c_str(), change,
 			                              shaggySprite >= 0 && _currentRoom->isHidden(shaggySprite) ? 1 : 0);
 			debugC(3, kDebugScript, "jail check exit handler: %s", out.c_str());
+		}
+		_script->setGhostChance(&_randomSource, ConfMan.hasKey("ghost_chance") ? (uint)ConfMan.getInt("ghost_chance") : 30);
+	}
+
+	// The General Store (WP-045).
+	{
+		const char *const kFront = "ROOM_P10_Front_Of_General_Store";
+		const char *const kStore = "ROOM_P15_General_Store_Interior";
+		const char *const kStreet2 = "ROOM_P04_Street2";
+		const char *const kAlley = "ROOM_P19_Back_Alley";
+		const char *const kIdle = "General_Store_Interior.Snake_Idle";
+		_script->setGhostChance(nullptr, 0);
+		{
+			RoomClass *a = createRoomClass(*this, kFront);
+			RoomClass *b = createRoomClass(*this, kStore);
+			debugC(3, kDebugScript, "store check classes: P10_Front_Of_General_Store %s; P15_General_Store_Interior %s",
+			       dynamic_cast<StoreFrontRoom *>(a) ? "front" : a ? "other" : "-", dynamic_cast<GeneralStoreRoom *>(b) ? "store" : b ? "other" : "-");
+			delete a;
+			delete b;
+		}
+		auto front = [&]() { return dynamic_cast<StoreFrontRoom *>(_roomClass); };
+		auto store = [&]() { return dynamic_cast<GeneralStoreRoom *>(_roomClass); };
+		auto placed = [&](const char *object) {
+			const int s = Find::sprite(*this, object);
+			if (s < 0)
+				return Common::String::format("%s none", object + 4);
+			return Common::String::format("%s %s mode %d step %u depth %d hit %d%s%s", object + 4, _currentRoom->getAnim(s).c_str(), _currentRoom->getMode(s),
+			                              _currentRoom->getStep(s), _currentRoom->getDepth(s), _currentRoom->getHitType(s), _currentRoom->isHidden(s) ? " hidden" : "",
+			                              _currentRoom->isRequiresObject(s) ? " requires" : "");
+		};
+		auto who = [&](const char *name) {
+			Character *c = _script->getCharacter(name);
+			if (!c)
+				return Common::String::format("%s none", name);
+			return Common::String::format("%s state %d %s steps %u", name, c->getState(), _currentRoom->getAnim(c->getSprite()).c_str(),
+			                              _currentRoom->getStepCount(c->getSprite()));
+		};
+		auto inSlot = [&](const char *item) {
+			for (uint i = 0; i < Inventory::kSlotCount; i++) {
+				if (_inventory->getSlot(i) == item)
+					return 1;
+			}
+			return 0;
+		};
+		auto use = [&](const char *item) {
+			_inventory->addItem(item);
+			_inventory->removeItem(item);
+		};
+		auto opening = [&](const char *room) {
+			return Common::String::format("'%s'%s", _script->getOpening().c_str(), _script->getMemory(room).openingPlayed ? " played" : "");
+		};
+		auto enterFront = [&]() {
+			fresh.room(kStreet2);
+			fresh.room(kFront);
+		};
+		auto enterStore = [&]() {
+			fresh.room(kAlley);
+			fresh.room(kStore);
+		};
+
+		// The front: the clock, the faceless clock, the opening, Fred.
+		{
+			newGameForCheck();
+			enterFront();
+			Common::String out = placed("OBJ_INV_CLOCK") + "; " + placed("OBJ_P10_FRONT_OF_GS_CLOCK_NOFACE") + "; opening " + opening(kFront) + "; " + who("FRED");
+			newGameForCheck();
+			setGameFlag("MoaningActive", false);
+			enterFront();
+			out += "; not moaning: opening " + opening(kFront);
+			newGameForCheck();
+			use("OBJ_INV_HAMMER");
+			enterFront();
+			out += Common::String::format("; the hammer used: clock %d, ", _inventory->hasItem("OBJ_INV_CLOCK") ? 1 : 0) + placed("OBJ_INV_CLOCK") + "; " +
+			       placed("OBJ_P10_FRONT_OF_GS_CLOCK_NOFACE");
+			debugC(3, kDebugScript, "store check front: %s", out.c_str());
+		}
+
+		// The front's lines: the clock without the hammer, in turn; the
+		// door's two; hotspot 3; hotspot 1 scares Scooby.
+		{
+			newGameForCheck();
+			enterFront();
+			_script->skip();
+			Common::String out = "clock:";
+			auto line = [&](const char *object) {
+				_script->sendEvent(object, false);
+				Common::String s = Common::String::format(" '%s' held %d", _script->getScene().c_str(), _script->isBusy() ? 1 : 0);
+				_script->skip();
+				return s;
+			};
+			for (uint k = 0; k < 4; k++)
+				out += line("OBJ_INV_CLOCK");
+			_script->sendEvent("OBJ_P10_FRONT_OF_GS_HOTSPOT2", false);
+			const Common::String door = _script->getScene();
+			out += Common::String::format("; door: %s", door == "Front_of_General_Store.Door_Locked_" || door == "Front_of_General_Store.Door_Lockedb_" ?
+			                                                "Front_of_General_Store.Door_Locked[b]_" : door.c_str());
+			_script->skip();
+			out += "; hotspot 3:" + line("OBJ_P10_FRONT_OF_GS_HOTSPOT3");
+			_script->sendEvent("OBJ_P10_FRONT_OF_GS_HOTSPOT1", false);
+			out += Common::String::format("; hotspot 1: waiting %d", front()->isScoobyWaiting() ? 1 : 0);
+			tick1();
+			out += Common::String::format(", no sound playing, tick 1: %s, waiting %d", who("SCOOBY").c_str(), front()->isScoobyWaiting() ? 1 : 0);
+			debugC(3, kDebugScript, "store check front lines: %s", out.c_str());
+		}
+
+		// The clock and the hammer: Take_Clock_, the hammer used up; out
+		// through movie 2, and back with the broken clock.
+		{
+			newGameForCheck();
+			_inventory->addItem("OBJ_INV_HAMMER");
+			enterFront();
+			_script->skip();
+			_inventory->setCursor("ANIM_CURSORRUSTY_HAMMER");
+			_script->sendEvent("OBJ_INV_CLOCK", true);
+			Common::String out = Common::String::format("scene '%s' held %d, hammer %d in a slot %d, cursor %s, taken %d", _script->getScene().c_str(),
+			                                            _script->isBusy() ? 1 : 0, _inventory->hasItem("OBJ_INV_HAMMER") ? 1 : 0, inSlot("OBJ_INV_HAMMER"),
+			                                            _inventory->isDefaultCursor() ? "arrow" : "other", front()->isClockTaken() ? 1 : 0);
+			tick1();
+			out += Common::String::format("; tick 1, the scene on: changed %d", run.next.empty() ? 0 : 1);
+			_script->skip();
+			const bool changed = tick1();
+			out += Common::String::format("; over, next tick: changed %d, next %s movie %d", changed ? 1 : 0, run.next.c_str(), run.movie);
+			showRoom(kFront);
+			out += Common::String::format("; back: clock %d, ", _inventory->hasItem("OBJ_INV_CLOCK") ? 1 : 0) + placed("OBJ_INV_CLOCK") + "; " +
+			       placed("OBJ_P10_FRONT_OF_GS_CLOCK_NOFACE");
+			debugC(3, kDebugScript, "store check clock: %s", out.c_str());
+		}
+
+		// The store: the snake and the lantern; the snake's idle on tick 1;
+		// Shaggy; the hotspots; with the lantern taken; with the blanket used.
+		{
+			newGameForCheck();
+			enterStore();
+			Common::String out = placed("OBJ_P15_GSI_SNAKE") + "; " + placed("OBJ_INV_LANTERN") + "; opening " + opening(kStore) + "; " + who("SHAGGY");
+			tick1();
+			const int snake = store()->getSnake();
+			out += Common::String::format("; tick 1: snake %s mode %d, sound %s", _currentRoom->getAnim(snake).c_str(), _currentRoom->getMode(snake),
+			                              store()->getLastSound().c_str());
+			out += "; hotspots:";
+			static const char *const kHot[] = { "OBJ_P15_GSI_HOTSPOT1", "OBJ_P15_GSI_HOTSPOT1", "OBJ_P15_GSI_HOTSPOT2" };
+			for (uint k = 0; k < ARRAYSIZE(kHot); k++) {
+				_script->sendEvent(kHot[k], false);
+				out += Common::String::format(" '%s' held %d", _script->getScene().c_str(), _script->isBusy() ? 1 : 0);
+				_script->skip();
+			}
+			newGameForCheck();
+			_inventory->addItem("OBJ_INV_LANTERN");
+			enterStore();
+			out += "; lantern taken: " + placed("OBJ_INV_LANTERN");
+			newGameForCheck();
+			use("OBJ_INV_BLANKET");
+			enterStore();
+			out += "; blanket used: " + placed("OBJ_P15_GSI_SNAKE") + Common::String::format(", sound %s, sfx %u%%", store()->getLastSound().c_str(),
+			                                                                                 _sound->getFilePercent(Sound::kSfx));
+			_sound->setFilePercent(kIdle, 100);
+			debugC(3, kDebugScript, "store check store: %s", out.c_str());
+		}
+
+		// The snake: its three lines in turn; it strikes on its step 0, and
+		// idles again after.
+		{
+			newGameForCheck();
+			enterStore();
+			tick1();
+			Common::String out = "clicks:";
+			for (uint k = 0; k < 4; k++) {
+				_script->sendEvent("OBJ_P15_GSI_SNAKE", false);
+				out += Common::String::format(" '%s' held %d strike %d", _script->getScene().c_str(), _script->isBusy() ? 1 : 0, store()->isStrikePending() ? 1 : 0);
+				_script->skip();
+			}
+			const int snake = store()->getSnake();
+			int strike = -1, again = -1;
+			Common::String at;
+			for (uint t = 2; t <= kMax && again < 0; t++) {
+				tick1();
+				if (strike < 0 && _currentRoom->getAnim(snake) == "ANIM_P15_GSI_SNAKEANIM") {
+					strike = t;
+					at = Common::String::format("%s mode %d steps %u, sound %s", _currentRoom->getAnim(snake).c_str(), _currentRoom->getMode(snake),
+					                            _currentRoom->getStepCount(snake), store()->getLastSound().c_str());
+				} else if (strike > 0 && _currentRoom->getAnim(snake) == "ANIM_P15_GSI_SNAKEIDLE") {
+					again = t;
+					at += Common::String::format("; idle again at tick %d: mode %d, sound %s", t, _currentRoom->getMode(snake), store()->getLastSound().c_str());
+				}
+			}
+			out += Common::String::format("; strike at tick %d: %s", strike, at.c_str());
+			newGameForCheck();
+			enterStore();
+			_script->sendEvent("OBJ_INV_LANTERN", false);
+			out += Common::String::format("; the lantern, no blanket: '%s' strike %d, busy %d", _script->getScene().c_str(), store()->isStrikePending() ? 1 : 0,
+			                              store()->isBusy() ? 1 : 0);
+			_script->skip();
+			debugC(3, kDebugScript, "store check snake: %s", out.c_str());
+		}
+
+		// The blanket over the snake: its scene, then Fred tosses it.
+		{
+			newGameForCheck();
+			_inventory->addItem("OBJ_INV_BLANKET");
+			enterStore();
+			_inventory->setCursor("ANIM_CURSORBLANKET");
+			_script->sendEvent("OBJ_P15_GSI_SNAKE", true);
+			Common::String out = Common::String::format("scene '%s' held %d, blanket %d in a slot %d, cursor %s", _script->getScene().c_str(), _script->isBusy() ? 1 : 0,
+			                                            _inventory->hasItem("OBJ_INV_BLANKET") ? 1 : 0, inSlot("OBJ_INV_BLANKET"),
+			                                            _inventory->isDefaultCursor() ? "arrow" : "other");
+			_script->skip();
+			tick1();
+			out += Common::String::format("; tick 1: %s, busy %d", who("FRED").c_str(), store()->isBusy() ? 1 : 0);
+			int covered = -1;
+			for (uint t = 2; t <= kMax && covered < 0; t++) {
+				tick1();
+				if (store()->isCovered())
+					covered = t;
+			}
+			out += Common::String::format("; covered at tick %d: %s, sfx %u%%, busy %d", covered, placed("OBJ_P15_GSI_SNAKE").c_str(),
+			                              _sound->getFilePercent(Sound::kSfx), store()->isBusy() ? 1 : 0);
+			_sound->setFilePercent(kIdle, 100);
+			debugC(3, kDebugScript, "store check blanket: %s", out.c_str());
+		}
+
+		// The lantern with the snake covered: Fred takes it; on his step 62
+		// it is in the toolbar; then Click_On_Lantern_. Left halfway, it is
+		// taken anyway.
+		{
+			newGameForCheck();
+			use("OBJ_INV_BLANKET");
+			enterStore();
+			_sound->setFilePercent(kIdle, 100);
+			_script->sendEvent("OBJ_INV_LANTERN", false);
+			Common::String out = Common::String::format("busy %d", store()->isBusy() ? 1 : 0);
+			tick1();
+			out += Common::String::format("; tick 1: %s, %s, sound %s", who("FRED").c_str(), placed("OBJ_INV_LANTERN").c_str(), store()->getLastSound().c_str());
+			int got = -1, done = -1;
+			for (uint t = 2; t <= kMax && done < 0; t++) {
+				tick1();
+				if (got < 0 && _inventory->hasItem("OBJ_INV_LANTERN")) {
+					Character *fred = _script->getCharacter("FRED");
+					got = t;
+					out += Common::String::format("; in the toolbar at tick %d (Fred's step %u)", t, fred ? _currentRoom->getStep(fred->getSprite()) : 0);
+				}
+				if (_script->isScenePlaying()) {
+					done = t;
+					out += Common::String::format("; scene '%s' at tick %d held %d, busy %d", _script->getScene().c_str(), t, _script->isBusy() ? 1 : 0,
+					                              store()->isBusy() ? 1 : 0);
+				}
+			}
+			_script->skip();
+			newGameForCheck();
+			use("OBJ_INV_BLANKET");
+			enterStore();
+			_sound->setFilePercent(kIdle, 100);
+			_script->sendEvent("OBJ_INV_LANTERN", false);
+			showRoom(kAlley);
+			out += Common::String::format("; clicked, then out: lantern %d", _inventory->hasItem("OBJ_INV_LANTERN") ? 1 : 0);
+			debugC(3, kDebugScript, "store check lantern: %s", out.c_str());
 		}
 		_script->setGhostChance(&_randomSource, ConfMan.hasKey("ghost_chance") ? (uint)ConfMan.getInt("ghost_chance") : 30);
 	}

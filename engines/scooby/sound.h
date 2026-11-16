@@ -103,6 +103,16 @@ public:
 		_musicPercent = percent;
 		applyMusicPercent();
 	}
+	/**
+	 * 0x434B60 -> 0x43C940: the volume of the file that holds @p name (its
+	 * +0x18), as a percent of each clip's own, for @p name now if it is
+	 * playing and for every clip the file plays after. The music's is the
+	 * fade's percent.
+	 */
+	void setFilePercent(const Common::String &name, uint percent);
+	uint getFilePercent(File f) const { return f == kMusic ? _musicPercent : _filePercent[f]; }
+	/** 0x434BA0: the seconds @p name has played, in milliseconds, or -1 if it isn't playing. */
+	int32 getClipMillis(const Common::String &name) const;
 	bool isMusicFading() const { return _fadeDown || _fadeUp; }
 	/** The fade as "up 100/4", "down 90/2" or "-", for the checks. */
 	Common::String describeMusicFade() const;
@@ -133,6 +143,7 @@ private:
 	uint _fadeInterval = 0;                  // +0x18
 	int _fadeCountdown = 0;                  // +0x1C
 	uint _musicPercent = 100;                // the music file's +0x18
+	uint _filePercent[kFileCount] = { 100, 100, 100 }; // Sfx.dat's and Voice.dat's +0x18
 };
 
 } // End of namespace Scooby

@@ -87,10 +87,9 @@ bool Sound::play(const Common::String &name, bool background) {
 	// inference that fits the 10 music tracks and 3 ambient effects that set
 	// it. Pan is 0 on every clip, so the balance stays centred.
 	Audio::AudioStream *playable = clip->loop ? Audio::makeLoopingAudioStream(stream, 0) : stream;
-	// A music clip starts at the music's percent (0x43CC20 reads the file's
-	// +0x18).
+	// A clip starts at its file's percent (0x43CC20 reads the file's +0x18).
 	c.volume = (byte)(MIN<uint>(clip->volume, 100) * Audio::Mixer::kMaxChannelVolume / 100);
-	const byte volume = f == kMusic ? (byte)(c.volume * _musicPercent / 100) : c.volume;
+	const byte volume = (byte)(c.volume * getFilePercent(f) / 100);
 	_mixer->playStream(kSoundTypes[f], &c.handle, playable, -1, volume);
 	c.name = clip->name;
 	if (!background)
@@ -186,6 +185,28 @@ Common::String Sound::describeMusicFade() const {
 byte Sound::getMusicVolume() const {
 	const Channel &c = _channels[kMusic];
 	return _mixer && _mixer->isSoundHandleActive(c.handle) ? (byte)_mixer->getChannelVolume(c.handle) : 0;
+}
+
+void Sound::setFilePercent(const Common::String &name, uint percent) {
+	File f;
+	if (!findClip(name, &f))
+		return;
+	if (f == kMusic) {
+		setMusicPercent(percent);
+		return;
+	}
+	_filePercent[f] = percent;
+	const Channel &c = _channels[f];
+	if (_mixer && !c.name.empty() && c.name.equalsIgnoreCase(name) && _mixer->isSoundHandleActive(c.handle))
+		_mixer->setChannelVolume(c.handle, (byte)(c.volume * percent / 100));
+	debugC(1, kDebugAudio, "%s's file at %u%%", name.c_str(), percent);
+}
+
+int32 Sound::getClipMillis(const Common::String &name) const {
+	// The play cursor over the bytes per second (0x4451F0); the mixer's
+	// elapsed time is the same position.
+	const Channel *c = findChannel(name);
+	return c ? (int32)_mixer->getElapsedTime(c->handle).msecs() : -1;
 }
 
 void Sound::applyMusicPercent() {
