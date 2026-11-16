@@ -31,6 +31,7 @@
 #include "scooby/hotel_rooms.h"
 #include "scooby/jail_rooms.h"
 #include "scooby/office_rooms.h"
+#include "scooby/alley_rooms.h"
 #include "scooby/stage_rooms.h"
 #include "scooby/store_rooms.h"
 #include "scooby/inventory.h"
@@ -2829,6 +2830,129 @@ void ScoobyEngine::checkChases() {
 			out += Common::String::format(", after 3 kept %d", three ? 1 : 0);
 			setDifficulty(0);
 			debugC(3, kDebugScript, "office check jail way: %s", out.c_str());
+		}
+		_script->setGhostChance(&_randomSource, ConfMan.hasKey("ghost_chance") ? (uint)ConfMan.getInt("ghost_chance") : 30);
+	}
+
+	// The back alley (WP-047).
+	{
+		const char *const kAlley = "ROOM_P19_Back_Alley";
+		const char *const kStore = "ROOM_P15_General_Store_Interior";
+		const char *const kVault = "ROOM_P16_Bank_Vault";
+		_script->setGhostChance(nullptr, 0);
+		{
+			RoomClass *a = createRoomClass(*this, kAlley);
+			debugC(3, kDebugScript, "alley check classes: P19_Back_Alley %s", dynamic_cast<BackAlleyRoom *>(a) ? "alley" : a ? "other" : "-");
+			delete a;
+		}
+		auto alley = [&]() { return dynamic_cast<BackAlleyRoom *>(_roomClass); };
+		auto who = [&](const char *name) {
+			Character *c = _script->getCharacter(name);
+			if (!c)
+				return Common::String::format("%s none", name);
+			return Common::String::format("%s state %d %s", name, c->getState(), _currentRoom->getAnim(c->getSprite()).c_str());
+		};
+		auto placed = [&](int s) {
+			if (s < 0)
+				return Common::String("none");
+			return Common::String::format("%s mode %d step %u depth %d hit %d%s", _currentRoom->getAnim(s).c_str(), _currentRoom->getMode(s), _currentRoom->getStep(s),
+			                              _currentRoom->getDepth(s), _currentRoom->getHitType(s), _currentRoom->isClickable(s) ? " clickable" : "");
+		};
+
+		// Entry: the walk-ins by the room left, the snakes' sound, the
+		// hotspots, the opening.
+		{
+			newGameForCheck();
+			fresh.room(kStore);
+			fresh.room(kAlley);
+			Common::String out = Common::String::format("from the store: %s, %s; sound %s; hotspot 3 %s; hotspot 1 %s; opening '%s'%s", who("FRED").c_str(),
+			                                            who("SHAGGY").c_str(), alley()->getLastSound().c_str(), placed(alley()->getHotspot3()).c_str(),
+			                                            placed(alley()->getHotspot1()).c_str(), _script->getOpening().c_str(),
+			                                            _script->getMemory(kAlley).openingPlayed ? " played" : "");
+			newGameForCheck();
+			fresh.room(kVault);
+			fresh.room(kAlley);
+			out += Common::String::format("; from the vault: %s, %s", who("FRED").c_str(), who("SHAGGY").c_str());
+			newGameForCheck();
+			fresh.room("ROOM_Open_Safe");
+			fresh.room(kAlley);
+			out += Common::String::format("; from the open safe: %s", who("SHAGGY").c_str());
+			debugC(3, kDebugScript, "alley check entry: %s", out.c_str());
+		}
+
+		// Hotspot 3: its A, no line; its B, a line on the tick it starts.
+		// Hotspot 1: Daphne and Scooby scared on its step 8.
+		{
+			newGameForCheck();
+			fresh.room(kStore);
+			fresh.room(kAlley);
+			_script->skip();
+			const int h3 = alley()->getHotspot3();
+			_script->clickClickable(h3);
+			tick1();
+			Common::String out = Common::String::format("hotspot 3 A: scene '%s', next %s", _script->getScene().c_str(), _script->getClickableState(h3).c_str());
+			for (uint t = 0; t < kMax && _script->isClickablePlaying(h3); t++)
+				tick1();
+			_script->clickClickable(h3);
+			tick1();
+			const Common::String line = _script->getScene();
+			out += Common::String::format("; B on tick 1: %s held %d, %s", line == "Back_Alley.HOTSPOT3B_" || line == "Back_Alley.HOTSPOT3B2_" ? "Back_Alley.HOTSPOT3B[2]_" : line.c_str(),
+			                              _script->isBusy() ? 1 : 0, placed(h3).c_str());
+			for (uint t = 0; t < kMax && (_script->isScenePlaying() || _script->isClickablePlaying(h3)); t++) {
+				if (_script->isScenePlaying())
+					_script->skip();
+				tick1();
+			}
+			const int h1 = alley()->getHotspot1();
+			_script->clickClickable(h1);
+			tick1();
+			int scared = -1;
+			for (uint t = 2; t <= kMax && scared < 0; t++) {
+				tick1();
+				Character *d = _script->getCharacter("DAPHNE");
+				if (d && d->getState() == Character::kStateScared)
+					scared = t;
+			}
+			out += Common::String::format("; hotspot 1: scared at tick %d (step %u): %s, %s", scared, _currentRoom->getStep(h1), who("DAPHNE").c_str(), who("SCOOBY").c_str());
+			debugC(3, kDebugScript, "alley check hotspots: %s", out.c_str());
+		}
+
+		// The way into the store waits for the level's snacks; the way to the
+		// vault doesn't.
+		{
+			Common::String out;
+			for (int level = 0; level < 3; level++) {
+				newGameForCheck();
+				setDifficulty(level);
+				fresh.room(kStore);
+				fresh.room(kAlley);
+				_script->skip();
+				const bool kept = _roomClass->leaveBy("OBJ_P19_TO_P15");
+				const Common::String line = alley()->getLastScene();
+				const bool held = _script->isBusy();
+				_script->skip();
+				for (uint k = 0; k < 5; k++)
+					tick1();
+				const bool opens = _inventory->getState() != Inventory::kStateParked;
+				out += Common::String::format("level %d: kept %d, '%s' held %d, toolbar opening %d; ", level, kept ? 1 : 0, line.c_str(), held ? 1 : 0, opens ? 1 : 0);
+			}
+			newGameForCheck();
+			setDifficulty(1);
+			fresh.room(kStore);
+			fresh.room(kAlley);
+			_script->skip();
+			const bool vault = _roomClass->leaveBy("OBJ_P19_TO_P16");
+			bool fed[3];
+			for (uint k = 0; k < 3; k++) {
+				fed[k] = _roomClass->leaveBy("OBJ_P19_TO_P15");
+				_script->skip();
+				_script->snackEaten();
+			}
+			const bool three = _roomClass->leaveBy("OBJ_P19_TO_P15");
+			out += Common::String::format("to the vault kept %d; level 1 after 0, 1, 2 snacks kept %d %d %d, after 3 kept %d", vault ? 1 : 0, fed[0] ? 1 : 0,
+			                              fed[1] ? 1 : 0, fed[2] ? 1 : 0, three ? 1 : 0);
+			setDifficulty(0);
+			debugC(3, kDebugScript, "alley check store way: %s", out.c_str());
 		}
 		_script->setGhostChance(&_randomSource, ConfMan.hasKey("ghost_chance") ? (uint)ConfMan.getInt("ghost_chance") : 30);
 	}
