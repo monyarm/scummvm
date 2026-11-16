@@ -167,6 +167,48 @@ void Room::frontToBack(uint index, Common::Array<uint> &out) const {
 		frontToBack(s.children[k++], out);
 }
 
+void Room::setActor(uint sprite, Actor *actor) {
+	if (!_sprites[sprite].actor && actor)
+		_actors++;
+	else if (_sprites[sprite].actor && !actor)
+		_actors--;
+	_sprites[sprite].actor = actor;
+}
+
+void Room::walkTick(uint index, Common::Array<bool> &done, bool &changed) {
+	// 0x431130 in 0x431000's order: the children at or above this sprite's
+	// depth, then the sprite (its player +0x08, its update +0x0C), then the
+	// rest; a paused subtree is skipped. The children are read live: one
+	// added behind the sprite being walked is reached, one added in front
+	// is not, and none is walked twice.
+	if (_sprites[index].paused)
+		return;
+	bool self = false;
+	for (uint k = 0; k < _sprites[index].children.size(); k++) {
+		const uint c = _sprites[index].children[k];
+		if (!self && _sprites[index].depth > _sprites[c].depth) {
+			self = true;
+			if (done.size() <= index)
+				done.resize(_sprites.size());
+			done[index] = true;
+			changed = tickPlayer(_sprites[index]) || changed;
+			if (_sprites[index].actor)
+				_sprites[index].actor->actorUpdate(index);
+		}
+		if (c < done.size() && done[c])
+			continue;
+		walkTick(c, done, changed);
+	}
+	if (!self) {
+		if (done.size() <= index)
+			done.resize(_sprites.size());
+		done[index] = true;
+		changed = tickPlayer(_sprites[index]) || changed;
+		if (_sprites[index].actor)
+			_sprites[index].actor->actorUpdate(index);
+	}
+}
+
 int Room::getIniInt(const Common::String &section, const char *key) const {
 	// 0x40AD50: atoi of the value, but a missing or non-numeric value is -1.
 	Common::String value;
@@ -309,6 +351,7 @@ bool Room::startSequence(Sprite &sprite, uint32 sequence, int mode, int ticksPer
 bool Room::load(const Common::String &name) {
 	_name = name;
 	_sprites.clear();
+	_actors = 0;
 	_drawList.clear();
 	_order.clear();
 	_objects.clear();
@@ -406,6 +449,9 @@ bool Room::load(const Common::String &name) {
 		// The room's class sees it first (room vtable +0x18): it may build it
 		// itself, as another kind, under another layer, or not at all.
 		Claim claim;
+		claim.placedAnim = anim;
+		claim.x = s.x;
+		claim.y = s.y;
 		if (_hook)
 			_hook->claimPlacement(obj, claim);
 		if (claim.build == Claim::kSkip) {
@@ -621,8 +667,14 @@ bool Room::tick() {
 	// independent, so the order doesn't change the result. Hidden sprites
 	// still tick: only a paused subtree (+0x30) is skipped.
 	bool changed = false;
-	for (uint i = 0; i < _sprites.size(); i++)
-		changed = tickPlayer(_sprites[i]) || changed;
+	if (_actors) {
+		Common::Array<bool> done;
+		done.resize(_sprites.size());
+		walkTick(0, done, changed);
+	} else {
+		for (uint i = 0; i < _sprites.size(); i++)
+			changed = tickPlayer(_sprites[i]) || changed;
+	}
 	if (_cursorShown)
 		changed = tickPlayer(_cursor) || changed;
 	return changed;

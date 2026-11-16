@@ -27,6 +27,7 @@
 #include "scooby/boot_hill_rooms.h"
 #include "scooby/character.h"
 #include "scooby/chase_rooms.h"
+#include "scooby/corral_rooms.h"
 #include "scooby/detection.h"
 #include "scooby/gummy_rooms.h"
 #include "scooby/room_setup.h"
@@ -4323,6 +4324,184 @@ void ScoobyEngine::checkChases() {
 			                              box->getLastExit().scene.c_str(), box->getLastExit().movie, run.next.c_str(), run.movie);
 			debugC(3, kDebugScript, "strong box check SB%d: %s", n, out.c_str());
 		}
+		_script->setGhostChance(&_randomSource, ConfMan.hasKey("ghost_chance") ? (uint)ConfMan.getInt("ghost_chance") : 30);
+	}
+	// The horseshoe corral (WP-054).
+	{
+		const char *const kCorralRoom = "ROOM_P30_Horseshoe_Corral";
+		const char *const kB5 = "ROOM_P28_Chase_B5";
+		_script->setGhostChance(nullptr, 0);
+		{
+			RoomClass *c = createRoomClass(*this, kCorralRoom);
+			debugC(3, kDebugScript, "corral check classes: Corral %s", dynamic_cast<CorralRoom *>(c) ? "corral" : "-");
+			delete c;
+		}
+		auto corral = [&]() { return dynamic_cast<CorralRoom *>(_roomClass); };
+		auto sprite = [&](int s) {
+			if (s < 0)
+				return Common::String("none");
+			return Common::String::format("%s %s mode %d step %u depth %d hit %d at %d %d", _currentRoom->getObjectName(s).c_str(), _currentRoom->getAnim(s).c_str(),
+			                              _currentRoom->getMode(s), _currentRoom->getStep(s), _currentRoom->getDepth(s), _currentRoom->getHitType(s),
+			                              _currentRoom->getOffsetX(s), _currentRoom->getOffsetY(s));
+		};
+		auto enterCorral = [&](int level) {
+			newGameForCheck();
+			setDifficulty(level);
+			_mouseDown = false;
+			fresh.room(kB5);
+			fresh.room(kCorralRoom);
+		};
+		auto counterBox = [&]() {
+			for (uint s = 0; s < _currentRoom->getSpriteCount(); s++) {
+				if (_currentRoom->getAnim(s) == "ANIM_HC_COUNTERBOX")
+					return (int)s;
+			}
+			return -1;
+		};
+
+		// Entry: what is built, the counter, and Scooby's turn.
+		{
+			enterCorral(0);
+			CorralRoom *c = corral();
+			Common::String out = Common::String::format("Scooby pile %s; Rascal pile %s; box %s; tens %s; ones %s; meter %s; Scooby %s; Rascal %s; body %s",
+			                                            sprite(c->getScoobyPile()).c_str(), sprite(c->getRascalPile()).c_str(), sprite(counterBox()).c_str(),
+			                                            sprite(c->getTens()).c_str(), sprite(c->getOnes()).c_str(), sprite(c->getMeter()).c_str(),
+			                                            sprite(c->getScooby()).c_str(), sprite(c->getRascal()).c_str(), sprite(c->getRascalBody()).c_str());
+			for (uint i = 0; i < 3; i++)
+				out += Common::String::format("; peg %u %s", i + 1, sprite(c->getPeg(i)).c_str());
+			out += Common::String::format("; exit %d, meter placement %d; turn %d, Scooby state %d, Rascal state %d", Find::sprite(*this, "OBJ_HC_EXIT") >= 0 ? 1 : 0,
+			                              Find::sprite(*this, "OBJ_HC_METER") >= 0 && !_currentRoom->isEngineSprite(Find::sprite(*this, "OBJ_HC_METER")) ? 1 : 0,
+			                              c->getTurn(), c->getScoobyState(), c->getRascalState());
+			debugC(3, kDebugScript, "corral check entry: %s", out.c_str());
+		}
+
+		// The meter's sweep, by level: back, then forward again.
+		{
+			Common::String out;
+			for (int level = 0; level < 3; level++) {
+				enterCorral(level);
+				const int m = corral()->getMeter();
+				int back = -1, forward = -1;
+				for (uint t = 1; t <= 400 && forward < 0; t++) {
+					tick1();
+					if (back < 0 && _currentRoom->getMode(m) == 4)
+						back = t;
+					if (back >= 0 && forward < 0 && _currentRoom->getMode(m) == 3)
+						forward = t;
+				}
+				out += Common::String::format("%slevel %d: back at tick %d, forward at tick %d", level ? "; " : "", level, back, forward);
+			}
+			debugC(3, kDebugScript, "corral check meter: %s", out.c_str());
+		}
+
+		// A throw: the button held with the meter on step 2; Scooby throws,
+		// his pile, his horseshoe; then Rascal's turn and his.
+		{
+			enterCorral(0);
+			CorralRoom *c = corral();
+			const int m = c->getMeter();
+			for (uint t = 0; t < 400 && _currentRoom->getStep(m) != 2; t++)
+				tick1();
+			_mouseDown = true;
+			tick1();
+			_mouseDown = false;
+			Common::String out = Common::String::format("held on step 2: strength %d, meter mode %d, Scooby state %d %s", c->getStrength(), _currentRoom->getMode(m),
+			                                            c->getScoobyState(), _currentRoom->getAnim(c->getScooby()).c_str());
+			int pile = -1, arc = -1, landed = -1, rascal = -1, tossing = -1, toss = -1;
+			Common::String arcLine, rascalLine;
+			for (uint t = 1; t <= 2000 && toss < 0; t++) {
+				tick1();
+				if (pile < 0 && _currentRoom->getStep(c->getScoobyPile()) == 1)
+					pile = t;
+				if (arc < 0 && !c->getArcs().empty()) {
+					arc = t;
+					const CorralRoom::Arc &a = c->getArcs()[0];
+					static const char *const kTwo[] = { "ANIM_HC_ARCS2x00", "ANIM_HC_ARCS2x01H", "ANIM_HC_ARCS2x02", "ANIM_HC_ARCS2x03H", "ANIM_HC_ARCS2x04H" };
+					bool known = false;
+					for (uint k = 0; k < ARRAYSIZE(kTwo); k++)
+						known = known || a.anim == kTwo[k];
+					arcLine = Common::String::format("one of strength 2's %d, peg as its H %d, sound found %d, Scooby state %d", known ? 1 : 0,
+					                                 a.peg == (a.anim.lastChar() == 'H' ? 2 : 0) ? 1 : 0, _sound->findClip(a.sound) ? 1 : 0, c->getScoobyState());
+				}
+				if (landed < 0 && c->isScoobyDone())
+					landed = t;
+				if (rascal < 0 && c->getTurn() == 1)
+					rascal = t;
+				if (tossing < 0 && c->getRascalState() == 2)
+					tossing = t;
+				if (toss < 0 && c->getArcs().size() == 2)
+					toss = t;
+			}
+			out += Common::String::format("; pile step 1 at tick %d; horseshoe at tick %d (%s)", pile, arc, arcLine.c_str());
+			const CorralRoom::Arc &a = c->getArcs()[0];
+			const int steps = _currentRoom->getSequenceSteps("OBJ_HC_ARCS", a.anim);
+			const int hit = a.peg ? _currentRoom->getSequenceSteps(Common::String::format("OBJ_HC_PEG%d", a.peg), Common::String::format("ANIM_HC_PEG%dHORSESHOE_HIT", a.peg)) : 0;
+			out += Common::String::format("; landed and told at tick arc + 3 x its steps + 3 x its peg's + %d; Rascal's turn %d tick later",
+			                              landed - arc - 3 * steps - 3 * hit, rascal - landed);
+			const CorralRoom::Arc &r = c->getArcs()[1];
+			const int strength = atoi(r.anim.c_str() + strlen("ANIM_HC_RASCAL_ARCS"));
+			out += Common::String::format("; his toss once his head is still %d, his horseshoe %d ticks into it: strength 1-9 but 8 %d, peg %d, its sound %d found %d, his pile step %u", tossing >= rascal ? 1 : 0, toss - tossing,
+			                              strength >= 1 && strength <= 9 && strength != 8 ? 1 : 0, r.peg == (strength < 4 ? strength : 0) ? 1 : 0,
+			                              r.sound == Common::String::format("Horseshoe_Corral.Rascal.Arc%d", strength) ? 1 : 0, _sound->findClip(r.sound) ? 1 : 0,
+			                              _currentRoom->getStep(c->getRascalPile()));
+			debugC(3, kDebugScript, "corral check throw: %s", out.c_str());
+		}
+
+		// Chosen horseshoes: each's sequence, depth, peg and sound; landed,
+		// the peg it shows, and the ticks to its end; Scooby's ringer a snack.
+		{
+			struct Pick {
+				bool rascal;
+				int strength;
+				int digits;
+			};
+			static const Pick kPicks[] = { { false, 1, 1 }, { false, 3, 0 }, { false, 4, 2 }, { true, 2, -1 }, { true, 8, -1 }, { true, 5, -1 } };
+			Common::String out;
+			for (uint i = 0; i < ARRAYSIZE(kPicks); i++) {
+				enterCorral(0);
+				CorralRoom *c = corral();
+				const uint before = _inventory->getSnacks();
+				c->throwArc(kPicks[i].rascal, kPicks[i].strength, kPicks[i].digits);
+				const CorralRoom::Arc a = c->getArcs()[0];
+				out += Common::String::format("%s%s %d: %s, depth %d, peg %d, sound %s", i ? "; " : "", kPicks[i].rascal ? "Rascal" : "Scooby", kPicks[i].strength,
+				                              a.anim.c_str(), _currentRoom->getDepth(a.sprite), a.peg, c->getLastSound().c_str());
+				int done = -1;
+				for (uint t = 1; t <= 1000 && done < 0; t++) {
+					tick1();
+					if (c->getArcs()[0].state == 2)
+						done = t;
+				}
+				out += Common::String::format("; done at tick %d on %s, paused %d, snacks +%u, counter %u%u", done, _currentRoom->getAnim(a.sprite).c_str(),
+				                              _currentRoom->isPaused(a.sprite) ? 1 : 0, _inventory->getSnacks() - before, _currentRoom->getStep(c->getTens()),
+				                              _currentRoom->getStep(c->getOnes()));
+			}
+			debugC(3, kDebugScript, "corral check horseshoes: %s", out.c_str());
+		}
+
+		// A whole game: the button held whenever the meter sweeps, until Chase B5.
+		{
+			enterCorral(0);
+			CorralRoom *c = corral();
+			int change = -1;
+			for (uint t = 1; t <= 60000 && change < 0; t++) {
+				_mouseDown = c->getScoobyState() == 1;
+				if (tick1())
+					change = t;
+			}
+			_mouseDown = false;
+			uint scooby = 0, rascal = 0, ringers = 0, paused = 0;
+			for (uint i = 0; i < c->getArcs().size(); i++) {
+				const CorralRoom::Arc &a = c->getArcs()[i];
+				scooby += a.rascal ? 0 : 1;
+				rascal += a.rascal ? 1 : 0;
+				ringers += !a.rascal && a.peg ? 1 : 0;
+				paused += _currentRoom->isPaused(a.sprite) ? 1 : 0;
+			}
+			debugC(3, kDebugScript, "corral check game: throws Scooby %u, Rascal %u; piles %u %u; horseshoes paused %u; snacks 1 + ringers %d; next %s movie %d",
+			       scooby, rascal, _currentRoom->getStep(c->getScoobyPile()), _currentRoom->getStep(c->getRascalPile()), paused,
+			       _inventory->getSnacks() == 1 + ringers ? 1 : 0, run.next.c_str(), run.movie);
+		}
+		setDifficulty(0);
 		_script->setGhostChance(&_randomSource, ConfMan.hasKey("ghost_chance") ? (uint)ConfMan.getInt("ghost_chance") : 30);
 	}
 	newGameForCheck();

@@ -65,6 +65,9 @@ public:
 		Common::String required; // kRequires: the cursor it answers, if not its requiredanim=
 		int hitType = 1;     // kSprite: 0 never hit, 1 cels (graphics_Sprite_ctor 0x430D60), 2 step polygon
 		bool group = false;  // under the class's own buffer sprite (wantsGroup), not a layer
+		// Read only: the placement's sequence and place (+0x40, +0x84, +0x86).
+		Common::String placedAnim;
+		int x = 0, y = 0;
 	};
 
 	/** The room's class, offered each placement before the default path. */
@@ -220,6 +223,26 @@ public:
 	/** 0x430BA0: the size of the first cel of the step the sprite shows, or 0 by 0. */
 	void getFirstCelSize(uint sprite, int &width, int &height);
 
+	/**
+	 * A sprite class's own update (its vtable +0x0C), which the room's tick
+	 * calls right after the sprite's player.
+	 */
+	class Actor {
+	public:
+		virtual ~Actor() {}
+		virtual void actorUpdate(uint sprite) = 0;
+	};
+	/**
+	 * Give @p sprite an update. With any actor in the room, its tick walks
+	 * the tree front to back as 0x431130 does: each sprite's player, then its
+	 * update. A sprite added behind the one updating is reached in the same
+	 * walk.
+	 */
+	void setActor(uint sprite, Actor *actor);
+	/** Pause a sprite and its subtree (+0x30): neither player nor update runs. */
+	void setPaused(uint sprite, bool paused) { _sprites[sprite].paused = paused; }
+	bool isPaused(uint sprite) const { return _sprites[sprite].paused; }
+
 	/** Show the OBJ_CURSOR sprite playing @p anim at (x, y); an empty name hides it. */
 	bool setCursor(const Common::String &anim);
 	void setCursorPosition(int x, int y);
@@ -274,10 +297,13 @@ private:
 		Common::String destination;
 		Common::String required;      // a requires object's cursor, set by a claim
 		Common::Array<uint> children; // indexes into _sprites, by descending depth
+		Actor *actor = nullptr;       // its update, if it has one
+		bool paused = false;          // +0x30: its subtree isn't ticked
 	};
 
 	uint addSprite(uint parent, const Sprite &sprite);
 	void frontToBack(uint index, Common::Array<uint> &out) const;
+	void walkTick(uint index, Common::Array<bool> &done, bool &changed);
 	void insertChild(uint parent, uint index);
 	void placeSubtree(uint index);
 	void buildDrawList();
@@ -305,6 +331,7 @@ private:
 	uint16 _width, _height;
 	Common::Array<Sprite> _sprites;
 	Common::Array<uint> _drawList; // front to back
+	uint _actors = 0;              // sprites with an update
 	Common::Array<uint> _characters;
 	int _layerSprites[10];
 	Common::String _order;

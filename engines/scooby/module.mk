@@ -8,6 +8,7 @@ MODULE_OBJS = \
 	cel.o \
 	chase_check.o \
 	chase_rooms.o \
+	corral_rooms.o \
 	character.o \
 	clues.o \
 	gummy_rooms.o \

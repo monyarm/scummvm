@@ -39,6 +39,7 @@
 #include "scooby/accusation_rooms.h"
 #include "scooby/boot_hill_rooms.h"
 #include "scooby/chase_rooms.h"
+#include "scooby/corral_rooms.h"
 #include "scooby/room.h"
 #include "scooby/room_class.h"
 #include "scooby/scooby.h"
@@ -178,6 +179,8 @@ static RoomClass *buildRoomClass(ScoobyEngine &engine, const Common::String &roo
 		return hotel;
 	if (RoomClass *alley = createAlleyRoom(engine, room))
 		return alley;
+	if (RoomClass *corral = createCorralRoom(engine, room))
+		return corral;
 	if (RoomClass *box = createStrongBoxRoom(engine, room))
 		return box;
 	if (RoomClass *sheriff = createSheriffRoom(engine, room))
