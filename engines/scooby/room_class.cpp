@@ -23,6 +23,7 @@
 
 #include "scooby/alley_rooms.h"
 #include "scooby/detection.h"
+#include "scooby/gummy_rooms.h"
 #include "scooby/hotel_rooms.h"
 #include "scooby/jail_rooms.h"
 #include "scooby/office_rooms.h"
@@ -174,6 +175,8 @@ static RoomClass *buildRoomClass(ScoobyEngine &engine, const Common::String &roo
 		return hotel;
 	if (RoomClass *alley = createAlleyRoom(engine, room))
 		return alley;
+	if (RoomClass *gummy = createGummyRoom(engine, room))
+		return gummy;
 	if (RoomClass *station = createStationRoom(engine, room))
 		return station;
 	if (RoomClass *post = createPostRoom(engine, room))

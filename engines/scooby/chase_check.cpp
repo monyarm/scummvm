@@ -28,6 +28,7 @@
 #include "scooby/character.h"
 #include "scooby/chase_rooms.h"
 #include "scooby/detection.h"
+#include "scooby/gummy_rooms.h"
 #include "scooby/hotel_rooms.h"
 #include "scooby/jail_rooms.h"
 #include "scooby/office_rooms.h"
@@ -3385,6 +3386,188 @@ void ScoobyEngine::checkChases() {
 			}
 			out += Common::String::format("; C: Scooby scared at tick %d (step %u)", scared, _currentRoom->getStep(h3));
 			debugC(3, kDebugScript, "station check hotspots: %s", out.c_str());
+		}
+		_script->setGhostChance(&_randomSource, ConfMan.hasKey("ghost_chance") ? (uint)ConfMan.getInt("ghost_chance") : 30);
+	}
+
+	// Gummy's whistle puzzle (WP-050).
+	{
+		const char *const kGummyRoom = "ROOM_Gummy";
+		const char *const kStation = "ROOM_P09_Railroad_Station";
+		_script->setGhostChance(nullptr, 0);
+		GummyRoom *made = dynamic_cast<GummyRoom *>(createRoomClass(*this, kGummyRoom));
+		{
+			Common::String out;
+			for (int level = 0; level < 3; level++) {
+				out += Common::String::format("%slevel %d:", level ? "; " : "", level);
+				for (int k = 0; k < 3 && made; k++) {
+					made->chooseTune(level, k);
+					out += Common::String::format(" %s %s notes %d%d%d%d%d length %u", made->getWhistle().c_str(), made->getTune().c_str(), made->getNote(0),
+					                              made->getNote(1), made->getNote(2), made->getNote(3), made->getNote(4), made->getLength());
+				}
+			}
+			debugC(3, kDebugScript, "gummy check classes: Gummy %s", made ? "gummy" : "-");
+			debugC(3, kDebugScript, "gummy check tunes: %s", out.c_str());
+		}
+		delete made;
+		auto gummy = [&]() { return dynamic_cast<GummyRoom *>(_roomClass); };
+		auto sprite = [&](int s) {
+			if (s < 0)
+				return Common::String("none");
+			return Common::String::format("%s mode %d depth %d hit %d%s%s", _currentRoom->getAnim(s).c_str(), _currentRoom->getMode(s), _currentRoom->getDepth(s),
+			                              _currentRoom->getHitType(s), _currentRoom->isRequiresObject(s) ? " requires" : "",
+			                              _currentRoom->isClickable(s) ? " clickable" : "");
+		};
+		// Each sound the room waits for over at once: the next tick. A note
+		// lasts longer than its bell's swing, so the bells' rings go first.
+		auto stopAndTick = [&]() {
+			for (uint t = 0; t < kMax; t++) {
+				bool busy = false;
+				for (uint b = 0; b < 5; b++)
+					busy = busy || gummy()->getPending(b) || _script->isClickablePlaying(gummy()->getBell(b));
+				if (!busy)
+					break;
+				tick1();
+			}
+			_sound->stopClip(gummy()->getCurrent());
+			_sound->stopClip(gummy()->getWhistle());
+			tick1();
+		};
+		auto enterGummy = [&]() {
+			newGameForCheck();
+			fresh.room(kStation);
+			fresh.room(kGummyRoom);
+			// The first tune of the level, as the check's.
+			gummy()->chooseTune(0, 0);
+		};
+
+		// Entry: the bells, Gummy and the donkey; the opening; the state and
+		// the timers.
+		{
+			enterGummy();
+			Common::String out;
+			for (uint i = 0; i < 5; i++)
+				out += Common::String::format("bell %u %s; ", i + 1, sprite(gummy()->getBell(i)).c_str());
+			const int blink = gummy()->getBlink();
+			out += Common::String::format("Gummy %s; donkey %s; opening '%s'%s; state %d, replay %d, demo %d, snore %d, blink in 108-360 by 36 %d",
+			                              sprite(gummy()->getGummy()).c_str(), sprite(gummy()->getDonkey()).c_str(), _script->getOpening().c_str(),
+			                              _script->getMemory(kGummyRoom).openingPlayed ? " played" : "", gummy()->getState(), gummy()->isReplay() ? 1 : 0,
+			                              gummy()->isDemo() ? 1 : 0, gummy()->getSnore(), blink >= 108 && blink <= 360 && blink % 36 == 0 ? 1 : 0);
+			debugC(3, kDebugScript, "gummy check entry: %s", out.c_str());
+		}
+
+		// The opening over: Gummy whistles, 220B2_, then the bells play the
+		// tune back, each bell with its note.
+		{
+			enterGummy();
+			_script->skip();
+			tick1();
+			Common::String out = Common::String::format("tick 1: state %d, sound %s, busy %d", gummy()->getState(), gummy()->getLastSound().c_str(),
+			                                            gummy()->isBusy() ? 1 : 0);
+			stopAndTick();
+			out += Common::String::format("; the whistle over: state %d, scene '%s' held %d", gummy()->getState(), _script->getScene().c_str(),
+			                              _script->isBusy() ? 1 : 0);
+			_script->skip();
+			tick1();
+			out += Common::String::format("; over: state %d", gummy()->getState());
+			tick1();
+			out += Common::String::format("; next tick: replay %d, demo %d, sound %s", gummy()->isReplay() ? 1 : 0, gummy()->isDemo() ? 1 : 0,
+			                              gummy()->getLastSound().c_str());
+			for (uint t = 0; t < 100 && gummy()->isDemo(); t++)
+				stopAndTick();
+			out += Common::String::format("; played back: %s, demo %d, busy %d", gummy()->getDemoLog().c_str(), gummy()->isDemo() ? 1 : 0,
+			                              gummy()->isBusy() ? 1 : 0);
+			// The rings the bells had waiting.
+			for (uint t = 0; t < kMax; t++) {
+				bool playing = false;
+				for (uint b = 0; b < 5; b++)
+					playing = playing || _script->isClickablePlaying(gummy()->getBell(b)) || gummy()->getPending(b);
+				if (!playing)
+					break;
+				tick1();
+			}
+			out += Common::String::format(", every bell rung: %s", _script->getClickLog().c_str());
+			debugC(3, kDebugScript, "gummy check whistle: %s", out.c_str());
+
+			// A wrong bell, then the tune.
+			// Every bell at rest first, as a player's click would find them.
+			auto rest = [&]() {
+				for (uint t = 0; t < kMax; t++) {
+					bool playing = false;
+					for (uint b = 0; b < 5; b++)
+						playing = playing || _script->isClickablePlaying(gummy()->getBell(b)) || gummy()->getPending(b);
+					if (!playing)
+						return;
+					tick1();
+				}
+			};
+			auto ring = [&](uint bell) {
+				rest();
+				const int s = gummy()->getBell(bell - 1);
+				_script->clickClickable(s);
+				tick1();
+				return Common::String::format("bell %u: %s, index %u, replay %d, demo %d", bell, gummy()->getLastSound().c_str(), gummy()->getIndex(),
+				                              gummy()->isReplay() ? 1 : 0, gummy()->isDemo() ? 1 : 0);
+			};
+			out = ring(1);
+			for (uint t = 0; t < 100 && (gummy()->isReplay() || gummy()->isDemo()); t++)
+				stopAndTick();
+			out += Common::String::format("; played back again, demo count %u", gummy()->getDemoCount());
+			static const uint kRight[] = { 5, 4, 3, 2 };
+			for (uint k = 0; k < ARRAYSIZE(kRight); k++)
+				out += "; " + ring(kRight[k]);
+			rest();
+			const int s3 = gummy()->getBell(2);
+			_script->clickClickable(s3);
+			tick1();
+			out += Common::String::format("; bell 3: %s, GummyPuzzle %d, Gummy met %d, countdown %d, cursor hidden %d", gummy()->getLastSound().c_str(),
+			                              getGameFlag("GummyPuzzle") ? 1 : 0, _inventory->hasMetSuspect("GUMMY") ? 1 : 0, gummy()->getExitCountdown(),
+			                              gummy()->hidesCursor() ? 1 : 0);
+			int change = -1;
+			for (uint t = 1; t <= kMax && change < 0; t++) {
+				if (tick1())
+					change = t;
+			}
+			out += Common::String::format("; next %s %d ticks later", run.next.c_str(), change);
+			debugC(3, kDebugScript, "gummy check bells: %s", out.c_str());
+		}
+
+		// Gummy clicked with the bells free: he whistles again; during the
+		// play-back, nothing. The snore and the donkey's blink.
+		{
+			enterGummy();
+			_script->skip();
+			tick1();
+			stopAndTick();
+			_script->skip();
+			tick1();
+			tick1();
+			_script->sendEvent("OBJ_GUMMYSLEEP_GUMMY", true);
+			Common::String out = Common::String::format("during the play-back: replay %d", gummy()->isReplay() ? 1 : 0);
+			for (uint t = 0; t < 100 && gummy()->isDemo(); t++)
+				stopAndTick();
+			_script->sendEvent("OBJ_GUMMYSLEEP_GUMMY", true);
+			out += Common::String::format("; free: replay %d, index %u", gummy()->isReplay() ? 1 : 0, gummy()->getIndex());
+			for (uint t = 0; t < 100 && (gummy()->isReplay() || gummy()->isDemo()); t++)
+				stopAndTick();
+			const int count = gummy()->getSnore();
+			int snored = -1;
+			for (uint t = 1; t <= kMax && snored < 0; t++) {
+				tick1();
+				if (gummy()->getLastSound().hasPrefix("Gummy.Snore"))
+					snored = t;
+			}
+			out += Common::String::format("; snore after its count + %d ticks: %s, Gummy %s, count %d", snored - count, gummy()->getLastSound().c_str(),
+			                              sprite(gummy()->getGummy()).c_str(), gummy()->getSnore());
+			const int b = gummy()->getBlink();
+			for (int t = 0; t <= b + 1; t++)
+				tick1();
+			const int nb = gummy()->getBlink();
+			const Common::String d = _currentRoom->getAnim(gummy()->getDonkey());
+			out += Common::String::format("; blink: donkey %s mode %d, count in 108-360 by 36 %d",
+			                              d == "ANIM_GUMMYSLEEP_DONKEYBLINK" || d == "ANIM_GUMMYSLEEP_DONKEYIDLE" ? "ANIM_GUMMYSLEEP_DONKEY[BLINK|IDLE]" : d.c_str(),
+			                              _currentRoom->getMode(gummy()->getDonkey()), nb >= 108 && nb <= 360 && nb % 36 == 0 ? 1 : 0);
+			debugC(3, kDebugScript, "gummy check timers: %s", out.c_str());
 		}
 		_script->setGhostChance(&_randomSource, ConfMan.hasKey("ghost_chance") ? (uint)ConfMan.getInt("ghost_chance") : 30);
 	}
