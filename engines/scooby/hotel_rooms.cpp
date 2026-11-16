@@ -213,11 +213,11 @@ void HotelRoomRoom::arrive(const Common::String &from) {
 }
 
 void HotelRoomRoom::claimPlacement(const Common::String &object, Room::Claim &claim) {
-	// 0x411280: hotspots 2 and 4 clickables; the nickel a requires object
-	// (0x408C80 with -1: layer 0), hidden once taken.
-	if (object == "OBJ_P20_HOTEL_HOTSPOT2" || object == "OBJ_P20_HOTEL_HOTSPOT4") {
-		claim.build = Room::Claim::kClickable;
-	} else if (object == kNickel) {
+	// 0x411280: the nickel a requires object (0x408C80 with -1: layer 0),
+	// hidden once taken. Hotspots 2 and 4 are built as the default path
+	// builds a clickable (0x408DC0 with 1, -1: depth priority=, -1 without
+	// one), so they are left to it and found by name on entry.
+	if (object == kNickel) {
 		claim.build = Room::Claim::kRequires;
 		claim.layer = 0;
 		claim.hidden = _engine.getInventory()->hasItem(kNickel);

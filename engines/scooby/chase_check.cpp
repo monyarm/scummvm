@@ -1851,7 +1851,8 @@ void ScoobyEngine::checkChases() {
 			_script->setGhostChance(nullptr, 0);
 			const int h4 = Find::sprite(*this, "OBJ_P20_HOTEL_HOTSPOT4");
 			const int h2 = Find::sprite(*this, "OBJ_P20_HOTEL_HOTSPOT2");
-			Common::String out;
+			Common::String out = Common::String::format("hotspot 2 depth %d, hotspot 4 depth %d; ", h2 >= 0 ? _currentRoom->getDepth(h2) : -9999,
+			                                            h4 >= 0 ? _currentRoom->getDepth(h4) : -9999);
 			if (h4 >= 0) {
 				_currentRoom->startAnim(h4, _currentRoom->getAnim(h4), 0, 11);
 				tick1();
