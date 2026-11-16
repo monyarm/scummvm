@@ -24,6 +24,7 @@
 #include "scooby/detection.h"
 #include "scooby/hotel_rooms.h"
 #include "scooby/jail_rooms.h"
+#include "scooby/office_rooms.h"
 #include "scooby/stage_rooms.h"
 #include "scooby/store_rooms.h"
 #include "scooby/menu_rooms.h"
@@ -168,6 +169,8 @@ static RoomClass *buildRoomClass(ScoobyEngine &engine, const Common::String &roo
 		return tunnel;
 	if (RoomClass *hotel = createHotelRoom(engine, room))
 		return hotel;
+	if (RoomClass *office = createOfficeRoom(engine, room))
+		return office;
 	if (RoomClass *jail = createJailRoom(engine, room))
 		return jail;
 	if (RoomClass *store = createStoreRoom(engine, room))

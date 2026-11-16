@@ -30,6 +30,7 @@
 #include "scooby/detection.h"
 #include "scooby/hotel_rooms.h"
 #include "scooby/jail_rooms.h"
+#include "scooby/office_rooms.h"
 #include "scooby/stage_rooms.h"
 #include "scooby/store_rooms.h"
 #include "scooby/inventory.h"
@@ -2630,6 +2631,204 @@ void ScoobyEngine::checkChases() {
 			showRoom(kAlley);
 			out += Common::String::format("; clicked, then out: lantern %d", _inventory->hasItem("OBJ_INV_LANTERN") ? 1 : 0);
 			debugC(3, kDebugScript, "store check lantern: %s", out.c_str());
+		}
+		_script->setGhostChance(&_randomSource, ConfMan.hasKey("ghost_chance") ? (uint)ConfMan.getInt("ghost_chance") : 30);
+	}
+
+	// The Sheriff's office (WP-046).
+	{
+		const char *const kOffice = "ROOM_P02_Sheriffs_Office";
+		const char *const kStreet1 = "ROOM_P03_Street1";
+		_script->setGhostChance(nullptr, 0);
+		{
+			RoomClass *a = createRoomClass(*this, kOffice);
+			debugC(3, kDebugScript, "office check classes: P02_Sheriffs_Office %s", dynamic_cast<SheriffsOfficeRoom *>(a) ? "office" : a ? "other" : "-");
+			delete a;
+		}
+		auto office = [&]() { return dynamic_cast<SheriffsOfficeRoom *>(_roomClass); };
+		auto placed = [&](const char *object) {
+			const int s = Find::sprite(*this, object);
+			if (s < 0)
+				return Common::String::format("%s none", object + 4);
+			return Common::String::format("%s %s mode %d step %u depth %d hit %d%s%s%s", object + 4, _currentRoom->getAnim(s).c_str(), _currentRoom->getMode(s),
+			                              _currentRoom->getStep(s), _currentRoom->getDepth(s), _currentRoom->getHitType(s), _currentRoom->isHidden(s) ? " hidden" : "",
+			                              _currentRoom->isRequiresObject(s) ? " requires" : "", _currentRoom->isClickable(s) ? " clickable" : "");
+		};
+		auto who = [&](const char *name) {
+			Character *c = _script->getCharacter(name);
+			if (!c)
+				return Common::String::format("%s none", name);
+			return Common::String::format("%s state %d %s steps %u", name, c->getState(), _currentRoom->getAnim(c->getSprite()).c_str(),
+			                              _currentRoom->getStepCount(c->getSprite()));
+		};
+		auto use = [&](const char *item) {
+			_inventory->addItem(item);
+			_inventory->removeItem(item);
+		};
+		auto opening = [&]() {
+			return Common::String::format("'%s'%s", _script->getOpening().c_str(), _script->getMemory(kOffice).openingPlayed ? " played" : "");
+		};
+		auto enterOffice = [&]() {
+			fresh.room(kStreet1);
+			fresh.room(kOffice);
+		};
+		// Clicked, then the scene skipped and the clickable at rest; the state
+		// it moved to and the scene.
+		auto clickRest = [&](int sprite) {
+			_script->clickClickable(sprite);
+			tick1();
+			const Common::String state = _script->getClickableState(sprite);
+			const Common::String r = Common::String::format(" %c '%s' held %d", state.empty() ? '-' : state.lastChar(), _script->getScene().c_str(),
+			                                                _script->isBusy() ? 1 : 0);
+			for (uint t = 0; t < kMax && (_script->isScenePlaying() || _script->isClickablePlaying(sprite)); t++) {
+				if (_script->isScenePlaying())
+					_script->skip();
+				tick1();
+			}
+			return r;
+		};
+
+		// The placements; the opening; with the oil can used; with the blanket
+		// taken too.
+		{
+			newGameForCheck();
+			enterOffice();
+			Common::String out = placed("OBJ_P02_DOOR") + "; " + placed("OBJ_P02_TO_P07") + "; " + placed("OBJ_P02_SHERIFF_HOTSPOT1") + "; " +
+			                     placed("OBJ_P02_SHERIFF_HOTSPOT4") + "; opening " + opening();
+			newGameForCheck();
+			setGameFlag("MoaningActive", false);
+			enterOffice();
+			out += "; not moaning: opening " + opening();
+			newGameForCheck();
+			use("OBJ_INV_OILCAN");
+			enterOffice();
+			out += "; the oil can used: " + placed("OBJ_P02_DOOR") + "; " + placed("OBJ_P02_TO_P07");
+			newGameForCheck();
+			use("OBJ_INV_OILCAN");
+			_inventory->addItem("OBJ_INV_BLANKET");
+			enterOffice();
+			out += "; and the blanket taken: " + placed("OBJ_P02_DOOR") + "; " + placed("OBJ_P02_TO_P07");
+			debugC(3, kDebugScript, "office check placements: %s", out.c_str());
+		}
+
+		// Hotspot 1's lines on its B and E; hotspot 4's on A and B, and the
+		// sandwich after its C.
+		{
+			newGameForCheck();
+			enterOffice();
+			_script->skip();
+			Common::String out = "hotspot 1:";
+			const int h1 = Find::sprite(*this, "OBJ_P02_SHERIFF_HOTSPOT1");
+			for (uint k = 0; k < 6; k++)
+				out += clickRest(h1);
+			out += "; hotspot 4:";
+			const int h4 = office()->getHotspot4();
+			out += clickRest(h4);
+			out += clickRest(h4);
+			_script->clickClickable(h4);
+			tick1();
+			out += Common::String::format(" C waiting %d", office()->isSandwichWaiting() ? 1 : 0);
+			int eat = -1, done = -1;
+			Common::String at;
+			for (uint t = 2; t <= kMax && done < 0; t++) {
+				tick1();
+				Character *sh = _script->getCharacter("SHAGGY");
+				if (eat < 0 && sh && sh->getState() == Character::kStateSpecial) {
+					eat = t;
+					at = Common::String::format("%s, sound %s, busy %d", who("SHAGGY").c_str(), office()->getLastSound().c_str(), office()->isBusy() ? 1 : 0);
+				} else if (eat > 0 && !office()->isBusy()) {
+					done = t;
+				}
+			}
+			out += Common::String::format("; the sandwich at tick %d: %s; busy 0 at tick %d", eat, at.c_str(), done);
+			debugC(3, kDebugScript, "office check hotspots: %s", out.c_str());
+		}
+
+		// The door without the oil can: Shaggy shakes the bars, then a line in
+		// turn, not held. With it: he oils it, and it opens.
+		{
+			newGameForCheck();
+			enterOffice();
+			_script->skip();
+			Common::String out;
+			for (uint k = 0; k < 4; k++) {
+				_script->sendEvent("OBJ_P02_DOOR", false);
+				const bool busy = office()->isBusy();
+				tick1();
+				Common::String at = Common::String::format("%s, sound %s", who("SHAGGY").c_str(), office()->getLastSound().c_str());
+				int line = -1;
+				for (uint t = 2; t <= kMax && line < 0; t++) {
+					tick1();
+					if (!office()->isDoorClicked())
+						line = t;
+				}
+				out += Common::String::format("%sbusy %d, tick 1: %s; at tick %d '%s' held %d, busy %d", k ? "; " : "", busy ? 1 : 0, at.c_str(), line,
+				                              _script->getScene().c_str(), _script->isBusy() ? 1 : 0, office()->isBusy() ? 1 : 0);
+				_script->skip();
+			}
+			debugC(3, kDebugScript, "office check door: %s", out.c_str());
+
+			newGameForCheck();
+			_inventory->addItem("OBJ_INV_OILCAN");
+			enterOffice();
+			_script->skip();
+			_inventory->setCursor("ANIM_CURSOROILCAN");
+			_script->sendEvent("OBJ_P02_DOOR", true);
+			int inSlot = 0;
+			for (uint i = 0; i < Inventory::kSlotCount; i++)
+				inSlot |= _inventory->getSlot(i) == "OBJ_INV_OILCAN" ? 1 : 0;
+			out = Common::String::format("oil can %d in a slot %d, cursor %s, busy %d", _inventory->hasItem("OBJ_INV_OILCAN") ? 1 : 0, inSlot,
+			                             _inventory->isDefaultCursor() ? "arrow" : "other", office()->isBusy() ? 1 : 0);
+			tick1();
+			out += Common::String::format("; tick 1: %s, sound %s, %s", who("SHAGGY").c_str(), office()->getLastSound().c_str(), placed("OBJ_P02_DOOR").c_str());
+			int open = -1;
+			for (uint t = 2; t <= kMax && open < 0; t++) {
+				tick1();
+				if (!office()->isDoorClicked())
+					open = t;
+			}
+			out += Common::String::format("; open at tick %d: %s, scene '%s', busy %d", open, placed("OBJ_P02_DOOR").c_str(), _script->getScene().c_str(),
+			                              office()->isBusy() ? 1 : 0);
+			showRoom(kStreet1);
+			showRoom(kOffice);
+			out += "; back: " + placed("OBJ_P02_DOOR");
+			debugC(3, kDebugScript, "office check oil: %s", out.c_str());
+		}
+
+		// The way into the jail waits for the level's snacks; the way back to
+		// Street 1 doesn't.
+		{
+			Common::String out;
+			for (int level = 0; level < 3; level++) {
+				newGameForCheck();
+				setDifficulty(level);
+				enterOffice();
+				_script->skip();
+				const bool kept = _roomClass->leaveBy("OBJ_P02_TO_P07");
+				const Common::String line = office()->getLastScene();
+				const bool held = _script->isBusy();
+				_script->skip();
+				for (uint k = 0; k < 5; k++)
+					tick1();
+				const bool opens = _inventory->getState() != Inventory::kStateParked;
+				out += Common::String::format("level %d: kept %d, '%s' held %d, toolbar opening %d; ", level, kept ? 1 : 0, line.c_str(), held ? 1 : 0, opens ? 1 : 0);
+			}
+			newGameForCheck();
+			setDifficulty(1);
+			enterOffice();
+			_script->skip();
+			const bool street = _roomClass->leaveBy("OBJ_P02_TO_P03");
+			bool fed[3];
+			for (uint k = 0; k < 3; k++) {
+				fed[k] = _roomClass->leaveBy("OBJ_P02_TO_P07");
+				_script->skip();
+				_script->snackEaten();
+			}
+			out += Common::String::format("to Street 1 kept %d; level 1 after 0, 1, 2 snacks kept %d %d %d", street ? 1 : 0, fed[0] ? 1 : 0, fed[1] ? 1 : 0, fed[2] ? 1 : 0);
+			const bool three = _roomClass->leaveBy("OBJ_P02_TO_P07");
+			out += Common::String::format(", after 3 kept %d", three ? 1 : 0);
+			setDifficulty(0);
+			debugC(3, kDebugScript, "office check jail way: %s", out.c_str());
 		}
 		_script->setGhostChance(&_randomSource, ConfMan.hasKey("ghost_chance") ? (uint)ConfMan.getInt("ghost_chance") : 30);
 	}

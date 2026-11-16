@@ -13,6 +13,7 @@ MODULE_OBJS = \
 	inventory.o \
 	jail_rooms.o \
 	menu_rooms.o \
+	office_rooms.o \
 	options_rooms.o \
 	profile.o \
 	room_class.o \
