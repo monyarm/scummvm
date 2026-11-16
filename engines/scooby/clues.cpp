@@ -28,29 +28,57 @@
 
 namespace Scooby {
 
-// The suspects in the clue table's order (0x4301E0 numbers them so).
-static const char *const kSuspects[] = { "ARTIE", "GUMMY", "ICDOUBLE", "JENNY", "SHERIFF" };
-
-// Each suspect's five clues (0x46FA3C, five a suspect): three of their
-// own, then two more.
-static const char *const kClues[][5] = {
-	{ "ARTIE_ESCAPE_BOOK", "ARTIE_CLASS_LIST", "ARTIE_MAP", "ARTIE_CLOTH", "ARTIE_HATBAND" },
-	{ "GUMMY_COWBELL", "GUMMY_HORSESHOE_LIFT", "GUMMY_MAP", "GUMMY_CHOMPTITE", "GUMMY_CACTUS_PIN" },
-	{ "IC_BINOCULARS", "IC_EYE_DOCTOR", "IC_MAP", "IC_WATCH_CHAIN", "IC_CLEANING_CLOTH" },
-	{ "JENNY_CASSETTE_TAPE", "JENNY_GHOST_TOWN_BOOK", "JENNY_MAP", "JENNY_COW_EARRING", "JENNY_COMPACT" },
-	{ "SHERIFF_SPURS", "SHERIFF_FEATHER", "SHERIFF_MAP", "SHERIFF_EL_SECO_RECIEPT", "SHERIFF_HANDCUFFS" }
+// Each title's clue tables. Showdown's: the suspects in the clue table's
+// order (0x4301E0 numbers them so); each suspect's five clues (0x46FA3C,
+// five a suspect): three of their own, then two more; the red herrings
+// (0x46FAA0), one a suspect. Phantom's (0x4305C0, 0x430F00, WP-061): the
+// same, its five clues a suspect at 0x46E88C, and two red herrings a
+// suspect at 0x46E8F0, one picked by rand() & 1.
+struct ClueTables {
+	const char *suspects[5];
+	const char *clues[5][5];
+	const char *redHerrings[5][2];
+	uint herringsEach;
 };
 
-// The red herrings (0x46FAA0), one a suspect.
-static const char *const kRedHerrings[] = {
-	"RH_ARTIE_BRUSH", "RH_GUMMY_CLOTH", "RH_IC_SOAP", "RH_JENNY_GHOSTLY_TALES", "RH_SHERIFF_GOLD_STAR"
+static const ClueTables kShowdownClues = {
+	{ "ARTIE", "GUMMY", "ICDOUBLE", "JENNY", "SHERIFF" },
+	{
+		{ "ARTIE_ESCAPE_BOOK", "ARTIE_CLASS_LIST", "ARTIE_MAP", "ARTIE_CLOTH", "ARTIE_HATBAND" },
+		{ "GUMMY_COWBELL", "GUMMY_HORSESHOE_LIFT", "GUMMY_MAP", "GUMMY_CHOMPTITE", "GUMMY_CACTUS_PIN" },
+		{ "IC_BINOCULARS", "IC_EYE_DOCTOR", "IC_MAP", "IC_WATCH_CHAIN", "IC_CLEANING_CLOTH" },
+		{ "JENNY_CASSETTE_TAPE", "JENNY_GHOST_TOWN_BOOK", "JENNY_MAP", "JENNY_COW_EARRING", "JENNY_COMPACT" },
+		{ "SHERIFF_SPURS", "SHERIFF_FEATHER", "SHERIFF_MAP", "SHERIFF_EL_SECO_RECIEPT", "SHERIFF_HANDCUFFS" }
+	},
+	{
+		{ "RH_ARTIE_BRUSH", nullptr }, { "RH_GUMMY_CLOTH", nullptr }, { "RH_IC_SOAP", nullptr },
+		{ "RH_JENNY_GHOSTLY_TALES", nullptr }, { "RH_SHERIFF_GOLD_STAR", nullptr }
+	},
+	1
+};
+
+static const ClueTables kPhantomClues = {
+	{ "BRAD", "EWAN", "JESTER", "MARIA", "WIZARD" },
+	{
+		{ "BRAD_COUPON", "BRAD_GLOVE", "BRAD_OIL", "BRAD_COAT", "BRAD_SHEATH" },
+		{ "EWAN_COUPON", "EWAN_BELLOWS", "EWAN_K", "EWAN_FILM", "EWAN_SPOON" },
+		{ "JESTER_COUPON", "JESTER_SIGN", "JESTER_BOOK", "JESTER_MAKEUP", "JESTER_BELL" },
+		{ "MARIA_LICENSE", "MARIA_COUPON", "MARIA_KEYS", "MARIA_BOOTS", "MARIA_BOW" },
+		{ "WIZARD_SMOKEBOMBS", "WIZARD_COUPON", "WIZARD_SCROLL", "WIZARD_BOOK", "WIZARD_WAND" }
+	},
+	{
+		{ "RH_BRAD_SCHEDULE", "RH_BRAD_HELMET" }, { "RH_EWAN_PAN", "RH_EWAN_SPATULA" },
+		{ "RH_JESTER_CLOTH", "RH_JESTER_TAP_SHOES" }, { "RH_MARIA_BOOK", "RH_MARIA_MUFFLER" },
+		{ "RH_WIZARD_POTION", "RH_WIZARD_TESTTUBE" }
+	},
+	2
 };
 
 static const uint kClueSlots = 5;
 
-static int suspectIndex(const Common::String &name) {
-	for (uint i = 0; i < ARRAYSIZE(kSuspects); i++) {
-		if (name == kSuspects[i])
+static int suspectIndex(const ClueTables &t, const Common::String &name) {
+	for (uint i = 0; i < ARRAYSIZE(t.suspects); i++) {
+		if (name == t.suspects[i])
 			return i;
 	}
 	return -1;
@@ -76,35 +104,35 @@ void ScoobyEngine::giveClue(const Common::String &suspect) {
 	}
 	if (slot < 0)
 		return;
+	const ClueTables &t = getGameId() == "showdown" ? kShowdownClues : kPhantomClues;
 	const Common::String villain = getGameString("Whodunit");
-	const int giver = suspectIndex(suspect);
+	const int giver = suspectIndex(t, suspect);
+	// 0x4301E0 (Phantom 0x430F00): a red herring about neither the villain
+	// nor the giver (rand() % 5 until it is neither); Phantom's has two a
+	// suspect, rand() & 1.
+	auto redHerring = [&]() {
+		const int v = suspectIndex(t, villain);
+		uint r;
+		do {
+			r = getRandomNumber(4);
+		} while ((int)r == v || (int)r == giver);
+		return Common::String(t.redHerrings[r][t.herringsEach == 2 ? getRandomNumber(1) : 0]);
+	};
 	Common::String clue;
 	for (int tries = 0; tries < 1000; tries++) {
 		if (suspect == villain || giver < 0) {
-			// 0x4301E0: a red herring about neither the villain nor the
-			// giver (rand() % 5 until it is neither).
-			const int v = suspectIndex(villain);
-			uint r;
-			do {
-				r = getRandomNumber(4);
-			} while ((int)r == v || (int)r == giver);
-			clue = kRedHerrings[r];
+			clue = redHerring();
 		} else {
 			// One of their own three until all three are found; then, at
 			// the first level, the fourth or fifth (rand() & 1); above it,
 			// a red herring.
 			const uint extra = getRandomNumber(1) + 3;
-			if (!isClueFound(kClues[giver][0]) || !isClueFound(kClues[giver][1]) || !isClueFound(kClues[giver][2])) {
-				clue = kClues[giver][getRandomNumber(2)];
+			if (!isClueFound(t.clues[giver][0]) || !isClueFound(t.clues[giver][1]) || !isClueFound(t.clues[giver][2])) {
+				clue = t.clues[giver][getRandomNumber(2)];
 			} else if (_difficulty == 0) {
-				clue = kClues[giver][extra];
+				clue = t.clues[giver][extra];
 			} else {
-				const int v = suspectIndex(villain);
-				uint r;
-				do {
-					r = getRandomNumber(4);
-				} while ((int)r == v || (int)r == giver);
-				clue = kRedHerrings[r];
+				clue = redHerring();
 			}
 		}
 		// One already found is drawn again.

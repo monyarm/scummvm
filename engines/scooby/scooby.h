@@ -82,6 +82,7 @@ private:
 	void checkDrawbridge();  // drawbridge_check.cpp
 	void checkSouvenirShop(); // souvenir_check.cpp
 	void checkGarden();      // garden_check.cpp
+	void checkDoors();       // doors_check.cpp
 	void checkIdles();       // idle_check.cpp
 	int _checkSprite = -1;   // a sprite a check waits on
 	bool _checking = false;
@@ -185,6 +186,8 @@ public:
 	bool isMouseDown() const { return _mouseDown; }
 	/** Go to @p room after the current tick, after @p movie if 0-74 (game vtable +0x04, +0x08). */
 	void requestRoom(const Common::String &room, int movie = -1);
+	/** A room change asked for and not yet made (game +0x08 not empty). */
+	bool hasRequestedRoom() const { return !_requestedRoom.empty(); }
 	/** Leave by a room's exit (vtable +0x24) for @p room: no scene, no walk. */
 	void exitTo(const Common::String &room, int movie = -1);
 	/** Quit the game (game +0x110), or only log it during the checks. */
