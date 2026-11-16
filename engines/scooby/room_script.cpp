@@ -408,9 +408,9 @@ void RoomScript::tickClickable(Clickable &c) {
 			                                   hasSound ? sound.c_str() : "-", c.state.c_str());
 			debugC(1, kDebugScript, "clickable %s clicked at tick %u: %s", c.object.c_str(), _tick, _clickLog.c_str());
 			c.playing = true;
-			// The room's handler (vtable +0x14, through game +0x40) does
-			// nothing in the default room; story rooms override it.
-			sendEvent(c.object, true);
+			// The room's handler (vtable +0x14, through game +0x40, with 0)
+			// does nothing in the default room; story rooms override it.
+			sendEvent(c.object, false);
 			if (_hooks)
 				_hooks->clicked(c.sprite);
 		}

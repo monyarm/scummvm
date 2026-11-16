@@ -44,6 +44,8 @@ MODULE_OBJS = \
 	sound_archive.o \
 	strongbox_rooms.o \
 	stage_rooms.o \
+	throne_check.o \
+	throne_rooms.o \
 	station_rooms.o \
 	store_rooms.o \
 	story_check.o \

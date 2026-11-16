@@ -83,6 +83,7 @@ private:
 	void checkSouvenirShop(); // souvenir_check.cpp
 	void checkGarden();      // garden_check.cpp
 	void checkDoors();       // doors_check.cpp
+	void checkThrone();      // throne_check.cpp
 	void checkIdles();       // idle_check.cpp
 	int _checkSprite = -1;   // a sprite a check waits on
 	bool _checking = false;
