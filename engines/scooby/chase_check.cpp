@@ -31,6 +31,7 @@
 #include "scooby/hotel_rooms.h"
 #include "scooby/jail_rooms.h"
 #include "scooby/office_rooms.h"
+#include "scooby/post_rooms.h"
 #include "scooby/alley_rooms.h"
 #include "scooby/stage_rooms.h"
 #include "scooby/store_rooms.h"
@@ -2953,6 +2954,211 @@ void ScoobyEngine::checkChases() {
 			                              fed[1] ? 1 : 0, fed[2] ? 1 : 0, three ? 1 : 0);
 			setDifficulty(0);
 			debugC(3, kDebugScript, "alley check store way: %s", out.c_str());
+		}
+		_script->setGhostChance(&_randomSource, ConfMan.hasKey("ghost_chance") ? (uint)ConfMan.getInt("ghost_chance") : 30);
+	}
+
+	// The post office (WP-048).
+	{
+		const char *const kPost = "ROOM_P08_Post_Office";
+		const char *const kStreet1 = "ROOM_P03_Street1";
+		const char *const kDark = "ROOM_P14_Tunnel_Dark";
+		const char *const kLit = "ROOM_P18_Tunnel_Lit";
+		const char *const kLanternItem = "OBJ_INV_LANTERN";
+		_script->setGhostChance(nullptr, 0);
+		{
+			RoomClass *a = createRoomClass(*this, kPost);
+			debugC(3, kDebugScript, "post check classes: P08_Post_Office %s", dynamic_cast<PostOfficeRoom *>(a) ? "post office" : a ? "other" : "-");
+			delete a;
+		}
+		auto post = [&]() { return dynamic_cast<PostOfficeRoom *>(_roomClass); };
+		auto hiddenGang = [&]() {
+			static const char *const kNames[] = { "FRED", "DAPHNE", "VELMA", "SHAGGY", "SCOOBY" };
+			Common::String h;
+			for (uint i = 0; i < ARRAYSIZE(kNames); i++) {
+				Character *c = _script->getCharacter(kNames[i]);
+				if (c && _currentRoom->isHidden(c->getSprite()))
+					h += Common::String(h.empty() ? "" : " ") + kNames[i];
+			}
+			return h.empty() ? Common::String("none") : h;
+		};
+		auto sprite = [&](int s) {
+			if (s < 0)
+				return Common::String("none");
+			return Common::String::format("%s mode %d depth %d hit %d%s%s rollover '%s'", _currentRoom->getAnim(s).c_str(), _currentRoom->getMode(s),
+			                              _currentRoom->getDepth(s), _currentRoom->getHitType(s), _currentRoom->isHidden(s) ? " hidden" : "",
+			                              _currentRoom->isClickable(s) ? " clickable" : "", _currentRoom->getRollover(s).c_str());
+		};
+		auto opening = [&]() {
+			return Common::String::format("'%s'%s", _script->getOpening().c_str(), _script->getMemory(kPost).openingPlayed ? " played" : "");
+		};
+		auto state = [&]() {
+			return Common::String::format("hidden %s; opening %s; came %s", hiddenGang().c_str(), opening().c_str(), post()->getOldRoomName().c_str());
+		};
+
+		// Entry: who is here by the room come from and the lantern; the
+		// holes by TunnelLit; the hotspots; the opening.
+		{
+			newGameForCheck();
+			fresh.room(kStreet1);
+			fresh.room(kPost);
+			Common::String out = Common::String::format("from Street 1: %s; hole %s; lit hole %s; hotspot 2 %s; hotspot 3 %s", state().c_str(),
+			                                            sprite(post()->getHole()).c_str(), sprite(post()->getHoleLit()).c_str(),
+			                                            sprite(post()->getHotspot2()).c_str(), sprite(post()->getHotspot3()).c_str());
+			newGameForCheck();
+			_inventory->addItem(kLanternItem);
+			fresh.room(kStreet1);
+			fresh.room(kPost);
+			out += "; with the lantern: " + state();
+			newGameForCheck();
+			setGameFlag("MoaningActive", false);
+			fresh.room(kDark);
+			fresh.room(kPost);
+			out += Common::String::format("; not moaning, from the dark tunnel: %s; hotspot 2 rollover '%s', hotspot 3 rollover '%s'", state().c_str(),
+			                              _currentRoom->getRollover(post()->getHotspot2()).c_str(), _currentRoom->getRollover(post()->getHotspot3()).c_str());
+			showRoom(kLit);
+			showRoom(kPost);
+			out += "; then from the lit tunnel: " + state();
+			setGameFlag("TunnelLit", true);
+			showRoom(kStreet1);
+			showRoom(kPost);
+			out += Common::String::format("; TunnelLit: hole %s; lit hole %s", sprite(post()->getHole()).c_str(), sprite(post()->getHoleLit()).c_str());
+			debugC(3, kDebugScript, "post check entry: %s", out.c_str());
+		}
+
+		// Hotspot 3's lines in turn; hotspot 2's on its C.
+		{
+			newGameForCheck();
+			_inventory->addItem(kLanternItem);
+			fresh.room(kStreet1);
+			fresh.room(kPost);
+			_script->skip();
+			Common::String out = "hotspot 3:";
+			for (uint k = 0; k < 4; k++) {
+				_script->sendEvent("OBJ_P08_POST_OFFICE_HOTSPOT3", true);
+				out += Common::String::format(" '%s' held %d", _script->getScene().c_str(), _script->isBusy() ? 1 : 0);
+				_script->skip();
+			}
+			out += "; hotspot 2:";
+			const int h2 = post()->getHotspot2();
+			for (uint k = 0; k < 3; k++) {
+				_script->clickClickable(h2);
+				tick1();
+				const Common::String st = _script->getClickableState(h2);
+				out += Common::String::format(" %c '%s' held %d", st.empty() ? '-' : st.lastChar(), _script->getScene().c_str(), _script->isBusy() ? 1 : 0);
+				for (uint t = 0; t < kMax && (_script->isScenePlaying() || _script->isClickablePlaying(h2)); t++) {
+					if (_script->isScenePlaying())
+						_script->skip();
+					tick1();
+				}
+			}
+			debugC(3, kDebugScript, "post check hotspots: %s", out.c_str());
+		}
+
+		// The hole in the dark: the whole gang's lines in turn, and once Artie
+		// has been met; Shaggy and Scooby's; with the lantern used, or the
+		// way to Street 1, the default handler.
+		{
+			auto lines = [&](uint n) {
+				Common::String s;
+				for (uint k = 0; k < n; k++) {
+					const bool kept = _roomClass->leaveBy("OBJ_P08_POST_OFFICE_HOLE");
+					const Common::String sc = _script->getScene();
+					s += Common::String::format(" %d '%s' held %d", kept ? 1 : 0,
+					                            sc == "Post_Office.380A_" || sc == "Post_Office.380A1_" ? "Post_Office.380A[1]_" : sc.c_str(), _script->isBusy() ? 1 : 0);
+					_script->skip();
+				}
+				return s;
+			};
+			newGameForCheck();
+			_inventory->addItem(kLanternItem);
+			fresh.room(kStreet1);
+			fresh.room(kPost);
+			_script->skip();
+			Common::String out = "the gang:" + lines(4);
+			newGameForCheck();
+			_inventory->addItem(kLanternItem);
+			_inventory->meetSuspect("ARTIE");
+			fresh.room(kStreet1);
+			fresh.room(kPost);
+			_script->skip();
+			out += "; Artie met:" + lines(1);
+			newGameForCheck();
+			fresh.room(kDark);
+			fresh.room(kPost);
+			_script->skip();
+			out += "; Shaggy and Scooby:" + lines(2);
+			newGameForCheck();
+			_inventory->addItem(kLanternItem);
+			_inventory->removeItem(kLanternItem);
+			fresh.room(kStreet1);
+			fresh.room(kPost);
+			_script->skip();
+			out += Common::String::format("; the lantern used: kept %d; to Street 1 kept %d", _roomClass->leaveBy("OBJ_P08_POST_OFFICE_HOLE") ? 1 : 0,
+			                              _roomClass->leaveBy("OBJ_P08_TO_P03") ? 1 : 0);
+			debugC(3, kDebugScript, "post check dark hole: %s", out.c_str());
+		}
+
+		// The lantern on the hole: used up, TunnelLit, 160C_; then Fred tosses
+		// it, and on his step 15 the gang goes down to the lit tunnel.
+		{
+			newGameForCheck();
+			_inventory->addItem(kLanternItem);
+			fresh.room(kStreet1);
+			fresh.room(kPost);
+			_script->skip();
+			const bool arrow = _roomClass->click(post()->getHole());
+			_inventory->setCursor("ANIM_CURSORLANTERN");
+			const bool taken = _roomClass->click(post()->getHole());
+			tick1();
+			int inSlot = 0;
+			for (uint i = 0; i < Inventory::kSlotCount; i++)
+				inSlot |= _inventory->getSlot(i) == kLanternItem ? 1 : 0;
+			Common::String out = Common::String::format("with the arrow taken %d; with the lantern taken %d; tick 1: lantern %d in a slot %d, cursor %s, "
+			                                            "TunnelLit %d, scene '%s' held %d, busy %d", arrow ? 1 : 0, taken ? 1 : 0,
+			                                            _inventory->hasItem(kLanternItem) ? 1 : 0, inSlot, _inventory->isDefaultCursor() ? "arrow" : "other",
+			                                            getGameFlag("TunnelLit") ? 1 : 0, _script->getScene().c_str(), _script->isBusy() ? 1 : 0,
+			                                            post()->isBusy() ? 1 : 0);
+			_script->skip();
+			int toss = -1, change = -1;
+			Common::String at, holes;
+			for (uint t = 2; t <= kMax && change < 0; t++) {
+				const bool changed = tick1();
+				Character *fred = _script->getCharacter("FRED");
+				if (toss < 0 && fred && fred->getState() == Character::kStateSpecial) {
+					toss = t;
+					at = Common::String::format("FRED state %d %s steps %u, sound %s", fred->getState(), _currentRoom->getAnim(fred->getSprite()).c_str(),
+					                            _currentRoom->getStepCount(fred->getSprite()), post()->getLastSound().c_str());
+				}
+				if (changed) {
+					change = t;
+					holes = Common::String::format("hole hidden %d, lit hole hidden %d", _currentRoom->isHidden(post()->getHole()) ? 1 : 0,
+					                                _currentRoom->isHidden(post()->getHoleLit()) ? 1 : 0);
+				}
+			}
+			out += Common::String::format("; tick %d: %s; tick %d: %s, next %s", toss, at.c_str(), change, holes.c_str(), run.next.c_str());
+			debugC(3, kDebugScript, "post check lantern: %s", out.c_str());
+		}
+
+		// The keys: OldRoomName saved and read back; a new game's reset.
+		{
+			newGameForCheck();
+			fresh.room(kDark);
+			fresh.room(kPost);
+			Common::INIFile ini;
+			_roomClass->saveKeys(ini);
+			Common::String v;
+			ini.getKey("OldRoomName", kPost, v);
+			PostOfficeRoom *c = dynamic_cast<PostOfficeRoom *>(createRoomClass(*this, kPost));
+			c->loadKeys(ini);
+			const Common::String read = c->getOldRoomName();
+			c->reset();
+			const Common::String reset = c->getOldRoomName();
+			Common::INIFile none;
+			c->loadKeys(none);
+			debugC(3, kDebugScript, "post check keys: OldRoomName=%s, read %s, reset %s, missing '%s'", v.c_str(), read.c_str(), reset.c_str(),
+			       c->getOldRoomName().c_str());
+			delete c;
 		}
 		_script->setGhostChance(&_randomSource, ConfMan.hasKey("ghost_chance") ? (uint)ConfMan.getInt("ghost_chance") : 30);
 	}

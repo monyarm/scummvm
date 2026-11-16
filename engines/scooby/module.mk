@@ -16,6 +16,7 @@ MODULE_OBJS = \
 	menu_rooms.o \
 	office_rooms.o \
 	options_rooms.o \
+	post_rooms.o \
 	profile.o \
 	room_class.o \
 	room.o \
