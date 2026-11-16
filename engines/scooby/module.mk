@@ -13,6 +13,8 @@ MODULE_OBJS = \
 	clues.o \
 	drawbridge_check.o \
 	drawbridge_rooms.o \
+	garden_check.o \
+	garden_rooms.o \
 	ghost_spot_check.o \
 	ghost_spot_room.o \
 	gummy_rooms.o \
