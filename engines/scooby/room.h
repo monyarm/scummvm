@@ -184,6 +184,9 @@ public:
 	uint addGroupSprite(int parent, int depth, int x, int y, const Common::String &label);
 	/** Move a sprite to (x, y) from its parent; its children follow. */
 	void setOffset(uint sprite, int x, int y);
+	/** A sprite's position from its parent (+0xC, +0x10). */
+	int getOffsetX(uint sprite) const { return _sprites[sprite].offsetX; }
+	int getOffsetY(uint sprite) const { return _sprites[sprite].offsetY; }
 	/** 0x430C00: the widest and the tallest cel over the current sequence's steps. */
 	void getSize(uint sprite, int &width, int &height);
 	/** 0x430AA0 on the current sequence: set the mode and the step. */

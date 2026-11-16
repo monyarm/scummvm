@@ -34,6 +34,7 @@
 #include "scooby/post_rooms.h"
 #include "scooby/alley_rooms.h"
 #include "scooby/stage_rooms.h"
+#include "scooby/station_rooms.h"
 #include "scooby/store_rooms.h"
 #include "scooby/inventory.h"
 #include "scooby/room.h"
@@ -3159,6 +3160,231 @@ void ScoobyEngine::checkChases() {
 			debugC(3, kDebugScript, "post check keys: OldRoomName=%s, read %s, reset %s, missing '%s'", v.c_str(), read.c_str(), reset.c_str(),
 			       c->getOldRoomName().c_str());
 			delete c;
+		}
+		_script->setGhostChance(&_randomSource, ConfMan.hasKey("ghost_chance") ? (uint)ConfMan.getInt("ghost_chance") : 30);
+	}
+
+	// The railroad station (WP-049).
+	{
+		const char *const kStation = "ROOM_P09_Railroad_Station";
+		const char *const kStreet2 = "ROOM_P04_Street2";
+		const char *const kDenturesItem = "OBJ_INV_DENTURES";
+		_script->setGhostChance(nullptr, 0);
+		{
+			RoomClass *a = createRoomClass(*this, kStation);
+			debugC(3, kDebugScript, "station check classes: P09_Railroad_Station %s", dynamic_cast<RailroadStationRoom *>(a) ? "station" : a ? "other" : "-");
+			delete a;
+		}
+		auto station = [&]() { return dynamic_cast<RailroadStationRoom *>(_roomClass); };
+		auto who = [&](const char *name) {
+			Character *c = _script->getCharacter(name);
+			if (!c)
+				return Common::String::format("%s none", name);
+			const int s = c->getSprite();
+			return Common::String::format("%s state %d %s x %d hit %d", name, c->getState(), _currentRoom->getAnim(s).c_str(), _currentRoom->getOffsetX(s),
+			                              _currentRoom->getHitType(s));
+		};
+		auto placed = [&](const char *object) {
+			const int s = Find::sprite(*this, object);
+			return s < 0 ? Common::String::format("%s none", object + 4)
+			             : Common::String::format("%s depth %d", object + 4, _currentRoom->getDepth(s));
+		};
+		auto opening = [&]() {
+			return Common::String::format("'%s'%s", _script->getOpening().c_str(), _script->getMemory(kStation).openingPlayed ? " played" : "");
+		};
+		auto enterStation = [&]() {
+			fresh.room(kStreet2);
+			fresh.room(kStation);
+		};
+		auto solve = [&](bool clue) {
+			_inventory->meetSuspect("ARTIE");
+			setGameFlag("GummyPuzzle", true);
+			if (clue)
+				giveClue("GUMMY");
+		};
+
+		// Who is here, by Artie, the puzzle and Gummy's clue; the way to the
+		// chase; the hotspots; the openings.
+		{
+			newGameForCheck();
+			enterStation();
+			Common::String out = Common::String::format("new: %s, %s, %s; %s, %s, %s; opening %s", who("GUMMY").c_str(), who("DONKEY").c_str(),
+			                                            placed("OBJ_P09_TO_P40").c_str(), who("SHAGGY").c_str(), placed("OBJ_P09_RAILROAD_STATION_HOTSPOT2").c_str(),
+			                                            placed("OBJ_P09_RAILROAD_STATION_HOTSPOT3").c_str(), opening().c_str());
+			newGameForCheck();
+			setGameFlag("MoaningActive", false);
+			_inventory->meetSuspect("ARTIE");
+			enterStation();
+			out += Common::String::format("; Artie met, not moaning: %s, %s, %s; opening %s", who("GUMMY").c_str(), who("DONKEY").c_str(),
+			                              placed("OBJ_P09_TO_P40").c_str(), opening().c_str());
+			newGameForCheck();
+			setGameFlag("MoaningActive", false);
+			solve(false);
+			enterStation();
+			out += Common::String::format("; solved: %s, %s, %s; opening %s", who("GUMMY").c_str(), who("DONKEY").c_str(), placed("OBJ_P09_TO_P40").c_str(),
+			                              opening().c_str());
+			newGameForCheck();
+			setGameFlag("MoaningActive", false);
+			solve(true);
+			enterStation();
+			out += Common::String::format("; his clue given: %s, %s, %s; opening %s", who("GUMMY").c_str(), who("DONKEY").c_str(), placed("OBJ_P09_TO_P40").c_str(),
+			                              opening().c_str());
+			debugC(3, kDebugScript, "station check placements: %s", out.c_str());
+		}
+
+		// Gummy and the donkey clicked: to the puzzle before it is solved;
+		// hints after, until the dentures; lines once his clue is given.
+		{
+			auto clickGummy = [&]() {
+				Character *g = _script->getCharacter("GUMMY");
+				const bool taken = g && _roomClass->click(g->getSprite());
+				tick1();
+				Common::String r = Common::String::format(" %d '%s' held %d", taken ? 1 : 0, _script->getScene().c_str(), _script->isBusy() ? 1 : 0);
+				_script->skip();
+				return r;
+			};
+			newGameForCheck();
+			_inventory->meetSuspect("ARTIE");
+			enterStation();
+			_script->skip();
+			Character *g = _script->getCharacter("GUMMY");
+			const bool gummyTaken = g && _roomClass->click(g->getSprite());
+			tick1();
+			Common::String out = Common::String::format("unsolved, Gummy: taken %d, out to %s movie %d", gummyTaken ? 1 : 0, station()->getLastExit().destination.c_str(),
+			                                            station()->getLastExit().movie);
+			newGameForCheck();
+			_inventory->meetSuspect("ARTIE");
+			enterStation();
+			_script->skip();
+			Character *d = _script->getCharacter("DONKEY");
+			const bool donkeyTaken = d && _roomClass->click(d->getSprite());
+			tick1();
+			out += Common::String::format("; the donkey: taken %d, out to %s", donkeyTaken ? 1 : 0, station()->getLastExit().destination.c_str());
+			newGameForCheck();
+			solve(false);
+			setGameFlag("MoaningActive", false);
+			enterStation();
+			_script->skip();
+			out += "; solved, Gummy:";
+			for (uint k = 0; k < 4; k++)
+				out += clickGummy();
+			newGameForCheck();
+			solve(false);
+			setGameFlag("MoaningActive", false);
+			_inventory->addItem(kDenturesItem);
+			enterStation();
+			_script->skip();
+			out += "; with the dentures had, the arrow:";
+			for (uint k = 0; k < 3; k++)
+				out += clickGummy();
+			_inventory->setCursor("ANIM_CURSORRUSTY_HAMMER");
+			g = _script->getCharacter("GUMMY");
+			out += Common::String::format("; with the hammer taken %d", g && _roomClass->click(g->getSprite()) ? 1 : 0);
+			_inventory->setCursor("ANIM_CURSORARROW");
+			newGameForCheck();
+			_inventory->meetSuspect("ARTIE");
+			_inventory->addItem(kDenturesItem);
+			enterStation();
+			_script->skip();
+			_inventory->setCursor("ANIM_CURSORDENTURES");
+			g = _script->getCharacter("GUMMY");
+			out += Common::String::format("; unsolved, with the dentures taken %d", g && _roomClass->click(g->getSprite()) ? 1 : 0);
+			_inventory->setCursor("ANIM_CURSORARROW");
+			newGameForCheck();
+			solve(true);
+			enterStation();
+			_script->skip();
+			g = _script->getCharacter("GUMMY");
+			const bool taken = g && _roomClass->click(g->getSprite());
+			tick1();
+			const Common::String line = _script->getScene();
+			out += Common::String::format("; his clue given: %d %s held %d", taken ? 1 : 0,
+			                              line == "Global.1000GA_" || line == "Global.1000GB_" || line == "Global.1000GC_" ? "Global.1000G[ABC]_" : line.c_str(),
+			                              _script->isBusy() ? 1 : 0);
+			_script->skip();
+			debugC(3, kDebugScript, "station check clicks: %s", out.c_str());
+		}
+
+		// The dentures: used up, the station again through movie 30 with
+		// 220D_; back, his clue, 220DP_, GIVES, the thanks and the suspects.
+		{
+			newGameForCheck();
+			solve(false);
+			_inventory->addItem(kDenturesItem);
+			enterStation();
+			_script->skip();
+			_inventory->setCursor("ANIM_CURSORDENTURES");
+			Character *g = _script->getCharacter("GUMMY");
+			const bool taken = g && _roomClass->click(g->getSprite());
+			tick1();
+			int inSlot = 0;
+			for (uint i = 0; i < Inventory::kSlotCount; i++)
+				inSlot |= _inventory->getSlot(i) == kDenturesItem ? 1 : 0;
+			Common::String out = Common::String::format("taken %d; dentures %d in a slot %d, cursor %s; out to %s, scene '%s', movie %d", taken ? 1 : 0,
+			                                            _inventory->hasItem(kDenturesItem) ? 1 : 0, inSlot, _inventory->isDefaultCursor() ? "arrow" : "other",
+			                                            station()->getLastExit().destination.c_str(), station()->getLastExit().scene.c_str(),
+			                                            station()->getLastExit().movie);
+			const int t = run.change(kMax);
+			out += Common::String::format("; next %s movie %d", run.next.c_str(), run.movie);
+			showRoom(kStation);
+			out += Common::String::format("; back: clue owner %d, gives %d, opening %s, %s", isClueOwner("GUMMY") ? 1 : 0, station()->isGiving() ? 1 : 0,
+			                              opening().c_str(), who("GUMMY").c_str());
+			_script->skip();
+			int gives = -1, thanks = -1;
+			Common::String at;
+			for (uint k = 1; k <= kMax && thanks < 0; k++) {
+				tick1();
+				g = _script->getCharacter("GUMMY");
+				if (gives < 0 && g && g->getState() == Character::kStateAct) {
+					gives = k;
+					at = Common::String::format("%s steps %u, held %d", _currentRoom->getAnim(g->getSprite()).c_str(), _currentRoom->getStepCount(g->getSprite()),
+					                            station()->isBusy() ? 1 : 0);
+				}
+				if (station()->getLastExit().destination == "ROOM_Suspect_Chooser")
+					thanks = k;
+			}
+			out += Common::String::format("; gives at tick %d (%s); thanks at tick %d, scene '%s'", gives, at.c_str(), thanks, station()->getLastExit().scene.c_str());
+			(void)t;
+			debugC(3, kDebugScript, "station check dentures: %s", out.c_str());
+		}
+
+		// Hotspot 2's lines on its B and C; hotspot 3's C scares Scooby on its
+		// step 8.
+		{
+			newGameForCheck();
+			enterStation();
+			_script->skip();
+			auto clickRest = [&](int sprite) {
+				_script->clickClickable(sprite);
+				tick1();
+				const Common::String st = _script->getClickableState(sprite);
+				Common::String r = Common::String::format(" %c '%s' held %d", st.empty() ? '-' : st.lastChar(), _script->getScene().c_str(), _script->isBusy() ? 1 : 0);
+				for (uint t = 0; t < kMax && (_script->isScenePlaying() || _script->isClickablePlaying(sprite)); t++) {
+					if (_script->isScenePlaying())
+						_script->skip();
+					tick1();
+				}
+				return r;
+			};
+			Common::String out = "hotspot 2:";
+			const int h2 = Find::sprite(*this, "OBJ_P09_RAILROAD_STATION_HOTSPOT2");
+			for (uint k = 0; k < 3; k++)
+				out += clickRest(h2);
+			const int h3 = station()->getHotspot3();
+			out += "; hotspot 3:";
+			for (uint k = 0; k < 2; k++)
+				out += clickRest(h3);
+			_script->clickClickable(h3);
+			tick1();
+			int scared = -1;
+			for (uint t = 2; t <= kMax && scared < 0; t++) {
+				tick1();
+				Character *s = _script->getCharacter("SCOOBY");
+				if (s && s->getState() == Character::kStateScared)
+					scared = t;
+			}
+			out += Common::String::format("; C: Scooby scared at tick %d (step %u)", scared, _currentRoom->getStep(h3));
+			debugC(3, kDebugScript, "station check hotspots: %s", out.c_str());
 		}
 		_script->setGhostChance(&_randomSource, ConfMan.hasKey("ghost_chance") ? (uint)ConfMan.getInt("ghost_chance") : 30);
 	}

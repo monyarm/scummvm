@@ -28,6 +28,7 @@
 #include "scooby/office_rooms.h"
 #include "scooby/post_rooms.h"
 #include "scooby/stage_rooms.h"
+#include "scooby/station_rooms.h"
 #include "scooby/store_rooms.h"
 #include "scooby/menu_rooms.h"
 #include "scooby/options_rooms.h"
@@ -173,6 +174,8 @@ static RoomClass *buildRoomClass(ScoobyEngine &engine, const Common::String &roo
 		return hotel;
 	if (RoomClass *alley = createAlleyRoom(engine, room))
 		return alley;
+	if (RoomClass *station = createStationRoom(engine, room))
+		return station;
 	if (RoomClass *post = createPostRoom(engine, room))
 		return post;
 	if (RoomClass *office = createOfficeRoom(engine, room))
