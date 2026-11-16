@@ -29,6 +29,7 @@ MODULE_OBJS = \
 	sound.o \
 	signin_room.o \
 	sound_archive.o \
+	strongbox_rooms.o \
 	stage_rooms.o \
 	station_rooms.o \
 	store_rooms.o \

@@ -39,6 +39,7 @@
 #include "scooby/alley_rooms.h"
 #include "scooby/stage_rooms.h"
 #include "scooby/station_rooms.h"
+#include "scooby/strongbox_rooms.h"
 #include "scooby/store_rooms.h"
 #include "scooby/inventory.h"
 #include "scooby/room.h"
@@ -4271,6 +4272,56 @@ void ScoobyEngine::checkChases() {
 			for (uint i = 0; i < SheriffRoom::kAnswers; i++)
 				out += Common::String::format(" 4%c=%s", 'A' + i, at(sheriff()->getAnswer(i)).c_str());
 			debugC(3, kDebugScript, "sheriff points: %s", out.c_str());
+		}
+		_script->setGhostChance(&_randomSource, ConfMan.hasKey("ghost_chance") ? (uint)ConfMan.getInt("ghost_chance") : 30);
+	}
+	// The strong boxes, ROOM_SB1 to ROOM_SB5 (WP-053).
+	{
+		const char *const kVaultRoom = "ROOM_P16_Bank_Vault";
+		_script->setGhostChance(nullptr, 0);
+		{
+			Common::String out;
+			for (int n = 1; n <= 5; n++) {
+				RoomClass *c = createRoomClass(*this, Common::String::format("ROOM_SB%d", n));
+				out += Common::String::format("%sSB%d %s", n > 1 ? "; " : "", n, dynamic_cast<StrongBoxRoom *>(c) ? "strong box" : "-");
+				delete c;
+			}
+			debugC(3, kDebugScript, "strong box check classes: %s", out.c_str());
+		}
+		for (int n = 1; n <= 5; n++) {
+			const Common::String name = Common::String::format("ROOM_SB%d", n);
+			newGameForCheck();
+			fresh.room(kVaultRoom);
+			fresh.room(name);
+			StrongBoxRoom *box = dynamic_cast<StrongBoxRoom *>(_roomClass);
+			if (!box) {
+				debugC(3, kDebugScript, "strong box check SB%d: no class", n);
+				continue;
+			}
+			const int lid = box->getLid();
+			Common::String out = Common::String::format("%s %s mode %d step %u depth %d hit %d, steps %u; busy %d, countdown %d",
+			                                            lid >= 0 ? _currentRoom->getObjectName(lid).c_str() : "none", lid >= 0 ? _currentRoom->getAnim(lid).c_str() : "-",
+			                                            lid >= 0 ? _currentRoom->getMode(lid) : -1, lid >= 0 ? _currentRoom->getStep(lid) : 0,
+			                                            lid >= 0 ? _currentRoom->getDepth(lid) : 0, lid >= 0 ? _currentRoom->getHitType(lid) : -1,
+			                                            lid >= 0 ? _currentRoom->getStepCount(lid) : 0, box->isBusy() ? 1 : 0, box->getCountdown());
+			int opens = -1, scene = -1;
+			Common::String at;
+			for (uint t = 1; t <= kMax && scene < 0; t++) {
+				tick1();
+				if (opens < 0 && !box->getLastSound().empty()) {
+					opens = t;
+					at = Common::String::format("%s, lid mode %d", box->getLastSound().c_str(), lid >= 0 ? _currentRoom->getMode(lid) : -1);
+				}
+				if (!box->getLastScene().empty())
+					scene = t;
+			}
+			out += Common::String::format("; opens at tick %d (%s); '%s' at tick %d held %d", opens, at.c_str(), box->getLastScene().c_str(), scene,
+			                              _script->isBusy() ? 1 : 0);
+			_script->skip();
+			run.change(kMax);
+			out += Common::String::format("; skipped: out to %s '%s' movie %d, next %s movie %d", box->getLastExit().destination.c_str(),
+			                              box->getLastExit().scene.c_str(), box->getLastExit().movie, run.next.c_str(), run.movie);
+			debugC(3, kDebugScript, "strong box check SB%d: %s", n, out.c_str());
 		}
 		_script->setGhostChance(&_randomSource, ConfMan.hasKey("ghost_chance") ? (uint)ConfMan.getInt("ghost_chance") : 30);
 	}

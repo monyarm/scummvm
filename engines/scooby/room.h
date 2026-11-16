@@ -197,7 +197,7 @@ public:
 	/** 0x430C00: the widest and the tallest cel over the current sequence's steps. */
 	void getSize(uint sprite, int &width, int &height);
 	/** 0x430AA0 on the current sequence: set the mode and the step. */
-	void setPlayer(uint sprite, int mode, int startStep);
+	void setPlayer(uint sprite, int mode, int startStep, int ticksPerStep = 3);
 	/** The sprite of layer @p slot (0-9), or -1 if the room has none there. */
 	int getLayerSprite(uint slot) const { return slot < 10 ? _layerSprites[slot] : -1; }
 	/** Set the hit test: 1 for cels and masks, 2 for the step polygon, 0 for none. */

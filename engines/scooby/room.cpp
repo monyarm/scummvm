@@ -870,7 +870,7 @@ bool Room::hasStepPolygon(uint sprite) const {
 	return false;
 }
 
-void Room::setPlayer(uint sprite, int mode, int startStep) {
+void Room::setPlayer(uint sprite, int mode, int startStep, int ticksPerStep) {
 	// 0x430AA0 on the sequence the sprite has.
 	Sprite &s = _sprites[sprite];
 	if (!s.animated) {
@@ -879,7 +879,7 @@ void Room::setPlayer(uint sprite, int mode, int startStep) {
 	}
 	Player &p = s.player;
 	p.mode = mode;
-	p.ticksPerStep = p.countdown = kPlacementTicksPerStep;
+	p.ticksPerStep = p.countdown = ticksPerStep;
 	if (mode == 5) {
 		p.mode = 0;
 		p.step = p.steps - 1;
