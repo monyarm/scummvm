@@ -918,37 +918,63 @@ void ScoobyEngine::checkSignIn() {
 		"TunnelLit", "VaultOpen", "BagsRandomized", "ClockHour", "ClockMinute" };
 	Common::String story;
 	Common::String v;
-	for (uint i = 0; i < ARRAYSIZE(kFixed); i++)
-		story += Common::String::format(" %s=%s", kFixed[i], _profile.getKey(kFixed[i], "Game", v) ? v.c_str() : "-");
-	auto inRange = [&](const char *key, int hi) {
-		return _profile.getKey(key, "Game", v) && !v.empty() && atoi(v.c_str()) >= 0 && atoi(v.c_str()) <= hi &&
-		       Common::String::format("%d", atoi(v.c_str())) == v;
-	};
-	story += Common::String::format(" GraveLocation %s StrongBox %s", inRange("GraveLocation", 8) ? "ok" : "BAD", inRange("StrongBox", 3) ? "ok" : "BAD");
-	uint mask = 0;
-	bool levers = true;
-	for (uint i = 0; i < 4; i++) {
-		const Common::String key = Common::String::format("LeverAlias%u", i);
-		levers = levers && inRange(key.c_str(), 3);
-		if (levers)
-			mask |= 1 << atoi(v.c_str());
+	if (getGameId() != "showdown") {
+		// Phantom's (0x42E880, WP-057).
+		static const char *const kPhantomFixed[] = { "EwanPuzzle", "MariaPuzzle", "BradPuzzle", "SkullPuzzle", "SkullMovie",
+			"SkullPuzzleAttempted", "CrestPuzzle", "RedBallFound", "BlueBallFound", "BlueBallSeen", "YellowBallFound", "RedBallTaken",
+			"BlueBallTaken", "YellowBallTaken", "WellVisited", "MazeEntered", "PlaqueSeen", "Screaming" };
+		for (uint i = 0; i < ARRAYSIZE(kPhantomFixed); i++)
+			story += Common::String::format(" %s=%s", kPhantomFixed[i], _profile.getKey(kPhantomFixed[i], "Game", v) ? v.c_str() : "-");
+		static const char *const kPhantomVillains[] = { "MARIA", "BRAD", "EWAN", "WIZARD", "JESTER" };
+		bool villain = false;
+		if (_profile.getKey("Whodunit", "Game", v)) {
+			for (uint i = 0; i < ARRAYSIZE(kPhantomVillains); i++)
+				villain = villain || v == kPhantomVillains[i];
+		}
+		uint crest = 0;
+		bool digits = true;
+		for (uint i = 0; i < 4; i++) {
+			if (_profile.getKey(Common::String::format("CrestSequence%u", i), "Game", v) && v.size() == 1 && v[0] >= '1' && v[0] <= '4')
+				crest |= 1 << (v[0] - '1');
+			digits = digits && _profile.getKey(Common::String::format("SkullCombo%u", i), "Game", v) && v.size() == 1 && v[0] >= '0' && v[0] <= '3';
+		}
+		story += Common::String::format(" Whodunit %s CrestSequence %s SkullCombo %s", villain ? "ok" : "-", crest == 15 ? "ok" : "BAD", digits ? "ok" : "BAD");
+		if (!_profile.hasKey("Whodunit", "Game"))
+			story = " none";
+		debugC(3, kDebugScript, "sign in check story:%s", story.c_str());
+	} else {
+		for (uint i = 0; i < ARRAYSIZE(kFixed); i++)
+			story += Common::String::format(" %s=%s", kFixed[i], _profile.getKey(kFixed[i], "Game", v) ? v.c_str() : "-");
+		auto inRange = [&](const char *key, int hi) {
+			return _profile.getKey(key, "Game", v) && !v.empty() && atoi(v.c_str()) >= 0 && atoi(v.c_str()) <= hi &&
+			       Common::String::format("%d", atoi(v.c_str())) == v;
+		};
+		story += Common::String::format(" GraveLocation %s StrongBox %s", inRange("GraveLocation", 8) ? "ok" : "BAD", inRange("StrongBox", 3) ? "ok" : "BAD");
+		uint mask = 0;
+		bool levers = true;
+		for (uint i = 0; i < 4; i++) {
+			const Common::String key = Common::String::format("LeverAlias%u", i);
+			levers = levers && inRange(key.c_str(), 3);
+			if (levers)
+				mask |= 1 << atoi(v.c_str());
+		}
+		story += Common::String::format(" levers %s", levers && mask == 15 ? "ok" : "BAD");
+		static const char *const kVillains[] = { "ARTIE", "ICDOUBLE", "JENNY", "SHERIFF", "GUMMY" };
+		static const char *const kArtifacts[] = { "Bowl", "Deer", "Vase" };
+		bool villain = false, artifact = false;
+		if (_profile.getKey("Whodunit", "Game", v)) {
+			for (uint i = 0; i < ARRAYSIZE(kVillains); i++)
+				villain = villain || v == kVillains[i];
+		}
+		if (_profile.getKey("ArtifactType", "Game", v)) {
+			for (uint i = 0; i < ARRAYSIZE(kArtifacts); i++)
+				artifact = artifact || v == kArtifacts[i];
+		}
+		story += Common::String::format(" Whodunit %s ArtifactType %s", villain ? "ok" : "-", artifact ? "ok" : "-");
+		if (!_profile.hasKey("Whodunit", "Game"))
+			story = " none";
+		debugC(3, kDebugScript, "sign in check story:%s", story.c_str());
 	}
-	story += Common::String::format(" levers %s", levers && mask == 15 ? "ok" : "BAD");
-	static const char *const kVillains[] = { "ARTIE", "ICDOUBLE", "JENNY", "SHERIFF", "GUMMY" };
-	static const char *const kArtifacts[] = { "Bowl", "Deer", "Vase" };
-	bool villain = false, artifact = false;
-	if (_profile.getKey("Whodunit", "Game", v)) {
-		for (uint i = 0; i < ARRAYSIZE(kVillains); i++)
-			villain = villain || v == kVillains[i];
-	}
-	if (_profile.getKey("ArtifactType", "Game", v)) {
-		for (uint i = 0; i < ARRAYSIZE(kArtifacts); i++)
-			artifact = artifact || v == kArtifacts[i];
-	}
-	story += Common::String::format(" Whodunit %s ArtifactType %s", villain ? "ok" : "-", artifact ? "ok" : "-");
-	if (!_profile.hasKey("Whodunit", "Game"))
-		story = " none";
-	debugC(3, kDebugScript, "sign in check story:%s", story.c_str());
 
 	// Play with no name: Shaggy asks for one.
 	fresh();

@@ -632,7 +632,7 @@ bool Room::hasAnim(const Common::String &anim) const {
 	return _art.findName(anim, id) && (ArtNameType)(id >> 28) == kArtAnim;
 }
 
-bool Room::startAnim(uint sprite, const Common::String &anim, int mode, int startStep) {
+bool Room::startAnim(uint sprite, const Common::String &anim, int mode, int startStep, int ticksPerStep) {
 	Sprite &s = _sprites[sprite];
 	uint32 id;
 	if (!_art.findName(anim, id) || (ArtNameType)(id >> 28) != kArtAnim) {
@@ -645,7 +645,7 @@ bool Room::startAnim(uint sprite, const Common::String &anim, int mode, int star
 		s.anim = anim;
 		return false;
 	}
-	if (!s.block || !startSequence(s, id & 0x3FFFF, mode, kPlacementTicksPerStep, startStep)) {
+	if (!s.block || !startSequence(s, id & 0x3FFFF, mode, ticksPerStep, startStep)) {
 		warning("Room %s: cannot start %s on %s", _name.c_str(), anim.c_str(), s.object.c_str());
 		return false;
 	}
@@ -902,6 +902,33 @@ uint Room::addEngineSprite(int parent, const Common::String &obj, const Common::
 	s.y = _sprites[p].y + y;
 	const uint index = addSprite(p, s);
 	// 0x430A00: an unknown ANIM starts nothing and selects no frame.
+	if (!s.block || !startAnim(index, anim, 1, 0))
+		_sprites[index].anim = anim;
+	buildDrawList();
+	return index;
+}
+
+uint Room::addExitSprite(int parent, const Common::String &obj, const Common::String &anim, int depth) {
+	// 0x401850 with the room loaded: an exit at (0, 0) from its parent,
+	// playing its sequence in mode 1, hit by its step polygon.
+	Sprite s;
+	s.depth = depth;
+	s.frame = 0;
+	s.animated = false;
+	s.offsetX = s.offsetY = 0;
+	s.hidden = false;
+	s.hitType = 2;
+	s.kind = kKindExit;
+	s.object = obj;
+	s.anim = anim;
+	s.label = Common::String::format("exit %s", obj.c_str());
+	s.rollover = getIniString(obj, "rolloveranim");
+	s.destination = getIniString(obj, "destinationroom");
+	s.block = getObjectBlock(obj);
+	const uint p = parent < 0 ? 0 : parent;
+	s.x = _sprites[p].x;
+	s.y = _sprites[p].y;
+	const uint index = addSprite(p, s);
 	if (!s.block || !startAnim(index, anim, 1, 0))
 		_sprites[index].anim = anim;
 	buildDrawList();

@@ -121,6 +121,7 @@ public:
 	int getSnackBoxSprite() const { return _snackBox; }
 	/** Ask the snack box to flash (0x40D4D0): Town Center's exits before a snack. */
 	void flashSnackBox() { _snackFlash = true; }
+	bool isSnackFlashing() const { return _snackFlash; }
 
 	/**
 	 * Whether @p sprite is one of the toolbar's, or a room's inventory or

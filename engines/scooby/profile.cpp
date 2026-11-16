@@ -212,13 +212,39 @@ void ScoobyEngine::newGame() {
 	for (uint i = 0; i < classes.size(); i++)
 		classes[i]->reset();
 	_inventory->reset();
-	// Phantom's +0x4C, its story's values, isn't traced.
-	if (getGameId() == "showdown")
-		setStoryValues();
+	setStoryValues();
 	debugC(1, kDebugScript, "new game");
 }
 
 void ScoobyEngine::setStoryValues() {
+	if (getGameId() != "showdown") {
+		// Phantom's game vtable +0x4C (0x42E880), written as its 0x42FFE0
+		// names them: every puzzle and ball flag off, Jane screaming, the
+		// villain (rand() % 5), the crest's sequence 1-4 shuffled by five
+		// swaps of two rand() & 3 places, and the skull's four digits
+		// (rand() & 3 each).
+		static const char *const kNo[] = {
+			"EwanPuzzle", "MariaPuzzle", "BradPuzzle", "SkullPuzzle", "SkullMovie", "SkullPuzzleAttempted", "CrestPuzzle",
+			"RedBallFound", "BlueBallFound", "BlueBallSeen", "YellowBallFound", "RedBallTaken", "BlueBallTaken",
+			"YellowBallTaken", "WellVisited", "MazeEntered", "PlaqueSeen"
+		};
+		static const char *const kVillains[] = { "MARIA", "BRAD", "EWAN", "WIZARD", "JESTER" };
+		for (uint i = 0; i < ARRAYSIZE(kNo); i++)
+			_profile.setKey(kNo[i], "Game", "No");
+		_profile.setKey("Screaming", "Game", "Yes");
+		_profile.setKey("Whodunit", "Game", kVillains[_randomSource.getRandomNumber(4)]);
+		int crest[4] = { 1, 2, 3, 4 };
+		for (uint k = 0; k < 5; k++) {
+			const uint a = _randomSource.getRandomNumber(3);
+			const uint b = _randomSource.getRandomNumber(3);
+			SWAP(crest[a], crest[b]);
+		}
+		for (uint i = 0; i < 4; i++)
+			_profile.setKey(Common::String::format("CrestSequence%u", i), "Game", Common::String::format("%d", crest[i]));
+		for (uint i = 0; i < 4; i++)
+			_profile.setKey(Common::String::format("SkullCombo%u", i), "Game", Common::String::format("%u", _randomSource.getRandomNumber(3)));
+		return;
+	}
 	// 0x42DBC0, written to the profile's Game section as 0x42F3A0 names
 	// them: the puzzles' flags, the clock at 12:00, the grave (0-8), the
 	// strong box (0-3), the four levers' aliases (0-3, each once), the

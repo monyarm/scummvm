@@ -162,7 +162,7 @@ public:
 	 * sprite selects no frame, so it is neither drawn nor hit. Returns false
 	 * then.
 	 */
-	bool startAnim(uint sprite, const Common::String &anim, int mode, int startStep);
+	bool startAnim(uint sprite, const Common::String &anim, int mode, int startStep, int ticksPerStep = 3);
 	/** Whether the sprite selects a frame (0x4309C0); false after an unknown ANIM. */
 	bool hasFrame(uint sprite) const { return _sprites[sprite].block && getFrame(_sprites[sprite]) != 0; }
 	/** Show or hide a sprite (+0x14, 0x4313F0). */
@@ -194,6 +194,13 @@ public:
 	 * draw only their children. Returns its index.
 	 */
 	uint addGroupSprite(int parent, int depth, int x, int y, const Common::String &label);
+	/**
+	 * Build an exit after the room has loaded, as a class calls the exit
+	 * constructor (0x401850): @p obj playing @p anim under @p parent (-1 for
+	 * the root) at @p depth, its rollover and destination from object.ini,
+	 * hit by its step polygon. Returns its index.
+	 */
+	uint addExitSprite(int parent, const Common::String &obj, const Common::String &anim, int depth);
 	/** Move a sprite to (x, y) from its parent; its children follow. */
 	void setOffset(uint sprite, int x, int y);
 	/** A sprite's position from its parent (+0xC, +0x10). */

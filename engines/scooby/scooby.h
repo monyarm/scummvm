@@ -79,6 +79,7 @@ private:
 	void newGameForCheck();  // story_check.cpp
 	void checkChases();      // chase_check.cpp
 	void checkGhostSpot();   // ghost_spot_check.cpp
+	void checkDrawbridge();  // drawbridge_check.cpp
 	int _checkSprite = -1;   // a sprite a check waits on
 	bool _checking = false;
 	Music *_music = nullptr;
