@@ -107,6 +107,14 @@ void Sound::stop() {
 	}
 }
 
+void Sound::stopEffects() {
+	for (uint f = kSfx; f <= kVoice; f++) {
+		if (_mixer && _mixer->isSoundHandleActive(_channels[f].handle))
+			_mixer->stopHandle(_channels[f].handle);
+		_channels[f].name.clear();
+	}
+}
+
 bool Sound::isPlaying() const {
 	return _mixer->isSoundHandleActive(_channels[_last].handle);
 }

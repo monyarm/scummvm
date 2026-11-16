@@ -66,6 +66,8 @@ public:
 	bool play(const Common::String &name, bool background = false);
 	/** Stop every file's clip. */
 	void stop();
+	/** Stop the SFX and speech files' clips, not the music (0x434E10). */
+	void stopEffects();
 	/** Stop @p name if it is playing (0x434CB0, by id). */
 	void stopClip(const Common::String &name);
 

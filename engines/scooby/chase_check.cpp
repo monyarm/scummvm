@@ -31,6 +31,7 @@
 #include "scooby/gummy_rooms.h"
 #include "scooby/room_setup.h"
 #include "scooby/saloon_rooms.h"
+#include "scooby/sheriff_rooms.h"
 #include "scooby/hotel_rooms.h"
 #include "scooby/jail_rooms.h"
 #include "scooby/office_rooms.h"
@@ -4044,6 +4045,232 @@ void ScoobyEngine::checkChases() {
 			enterSaloon(kLive);
 			debugC(3, kDebugScript, "saloon points: ARTIE=%s HOTSPOT4K=%s (%s) HOTSPOT4A=%s KEY4=%s TO_P11=%s", a.c_str(), h4.c_str(), h4k.c_str(),
 			       at(saloon()->getHotspot(1)).c_str(), at(saloon()->getKey(1)).c_str(), at(Find::sprite(*this, "OBJ_P12_TO_P11")).c_str());
+		}
+		_script->setGhostChance(&_randomSource, ConfMan.hasKey("ghost_chance") ? (uint)ConfMan.getInt("ghost_chance") : 30);
+	}
+	// The Sheriff's quiz (WP-052).
+	{
+		const char *const kSheriffRoom = "ROOM_Sheriff";
+		const char *const kStreet1 = "ROOM_P03_Street1";
+		_script->setGhostChance(nullptr, 0);
+		{
+			RoomClass *c = createRoomClass(*this, kSheriffRoom);
+			debugC(3, kDebugScript, "sheriff check classes: Sheriff %s", dynamic_cast<SheriffRoom *>(c) ? "sheriff" : "-");
+			delete c;
+		}
+		auto sheriff = [&]() { return dynamic_cast<SheriffRoom *>(getRoomClass(kSheriffRoom)); };
+		auto sprite = [&](int s) {
+			if (s < 0)
+				return Common::String("none");
+			return Common::String::format("%s %s mode %d step %u depth %d hit %d%s", _currentRoom->getObjectName(s).c_str(), _currentRoom->getAnim(s).c_str(),
+			                              _currentRoom->getMode(s), _currentRoom->getStep(s), _currentRoom->getDepth(s), _currentRoom->getHitType(s),
+			                              _currentRoom->isRequiresObject(s) ? " requires" : "");
+		};
+		auto steps = [&]() {
+			Common::String r = Common::String::format("page step %u, answers", _currentRoom->getStep(sheriff()->getNotebook()));
+			for (uint i = 0; i < SheriffRoom::kAnswers; i++)
+				r += Common::String::format(" %u", _currentRoom->getStep(sheriff()->getAnswer(i)));
+			return r;
+		};
+		// A new game, the question set, from Street 1.
+		auto enterSheriff = [&](int q) {
+			newGameForCheck();
+			fresh.room(kStreet1);
+			sheriff()->setQuestion(q);
+			_hover = -1;
+			showRoom(kSheriffRoom);
+		};
+		// The sound waited for over at once, then a tick.
+		auto overTick = [&]() {
+			_sound->stopClip(sheriff()->getCurrent());
+			return tick1();
+		};
+		auto readAll = [&]() {
+			for (uint t = 0; t < 20 && sheriff()->getState() < 5; t++)
+				overTick();
+			overTick();
+		};
+
+		// Entry: the notebook and the answers; the page's sounds; drawn
+		// questions.
+		{
+			enterSheriff(0);
+			Common::String out = Common::String::format("notebook %s", sprite(sheriff()->getNotebook()).c_str());
+			for (uint i = 0; i < SheriffRoom::kAnswers; i++)
+				out += Common::String::format("; %c %s", 'A' + i, sprite(sheriff()->getAnswer(i)).c_str());
+			out += Common::String::format("; exit %d; question %d, state %d, busy %d; sounds '%s'", Find::sprite(*this, "OBJ_SHERIFF_EXIT") >= 0 ? 1 : 0,
+			                              sheriff()->getQuestion(), sheriff()->getState(), sheriff()->isBusy() ? 1 : 0, sheriff()->getQuestionSound().c_str());
+			for (uint i = 0; i < SheriffRoom::kAnswers; i++)
+				out += Common::String::format(" '%s'", sheriff()->getAnswerSound(i).c_str());
+			int bad = 0;
+			for (uint k = 0; k < 100; k++) {
+				newGameForCheck();
+				fresh.room(kStreet1);
+				showRoom(kSheriffRoom);
+				const int q = sheriff()->getQuestion();
+				bad += (q < 0 || q > 14 || q == 2 || q == 5) ? 1 : 0;
+			}
+			out += Common::String::format("; 100 drawn, page 3 or 6 or out of range %d", bad);
+			debugC(3, kDebugScript, "sheriff check entry: %s", out.c_str());
+		}
+
+		// The page read, then each answer, each lit up; then free.
+		{
+			enterSheriff(0);
+			tick1();
+			Common::String out = Common::String::format("tick 1: state %d, sound '%s', %s, busy %d", sheriff()->getState(), sheriff()->getCurrent().c_str(),
+			                                            steps().c_str(), sheriff()->isBusy() ? 1 : 0);
+			for (uint i = 0; i < SheriffRoom::kAnswers; i++) {
+				overTick();
+				out += Common::String::format("; %c: state %d, sound '%s', %s, busy %d", 'A' + i, sheriff()->getState(), sheriff()->getCurrent().c_str(),
+				                              steps().c_str(), sheriff()->isBusy() ? 1 : 0);
+			}
+			overTick();
+			out += Common::String::format("; free: state %d, sound '%s', %s, busy %d", sheriff()->getState(), sheriff()->getCurrent().c_str(), steps().c_str(),
+			                              sheriff()->isBusy() ? 1 : 0);
+			debugC(3, kDebugScript, "sheriff check reading: %s", out.c_str());
+
+			// Hovered: lit up, and its sound 10 ticks on, then 73 after it ends.
+			_hover = sheriff()->getAnswer(1);
+			tick1();
+			out = Common::String::format("B hovered: %s, sound '%s', countdown %d", steps().c_str(), sheriff()->getHoverSound().c_str(), sheriff()->getHoverCountdown());
+			int said = -1;
+			for (uint t = 2; t <= 200 && said < 0; t++) {
+				tick1();
+				if (!sheriff()->getLastSound().empty() && _sound->isClipPlaying(sheriff()->getHoverSound()))
+					said = t;
+			}
+			out += Common::String::format("; said at tick %d, countdown %d", said, sheriff()->getHoverCountdown());
+			_sound->stopClip(sheriff()->getHoverSound());
+			int again = -1;
+			for (uint t = 1; t <= 200 && again < 0; t++) {
+				tick1();
+				if (_sound->isClipPlaying(sheriff()->getHoverSound()))
+					again = t;
+			}
+			out += Common::String::format("; again %d ticks after it ends", again);
+			_sound->stopClip(sheriff()->getHoverSound());
+			_hover = sheriff()->getNotebook();
+			tick1();
+			out += Common::String::format("; the page hovered: %s, sound '%s', countdown %d", steps().c_str(), sheriff()->getHoverSound().c_str(),
+			                              sheriff()->getHoverCountdown());
+			_hover = -1;
+			tick1();
+			out += Common::String::format("; nothing: %s, sound '%s'", steps().c_str(), sheriff()->getHoverSound().c_str());
+			debugC(3, kDebugScript, "sheriff check hover: %s", out.c_str());
+		}
+
+		// A right answer, then a wrong one.
+		{
+			static const char *const kRights[] = { "Sheriff.NOTEBOOK_ANSWER_RIGHT_1", "Sheriff.NOTEBOOK_ANSWER_RIGHT_2", "Sheriff.NOTEBOOK_ANSWER_RIGHT_3" };
+			enterSheriff(0);
+			readAll();
+			const bool taken = _roomClass->click(sheriff()->getAnswer(2));
+			const Common::String &line = sheriff()->getCurrent();
+			bool known = false;
+			for (uint k = 0; k < 3; k++)
+				known = known || line == kRights[k];
+			const int q = sheriff()->getQuestion();
+			Common::String out = Common::String::format("page 1, C: taken %d, C step %u, one of RIGHT_1-3 %d, answered %d, next %d, drawn anew %d",
+			                                            taken ? 1 : 0, _currentRoom->getStep(sheriff()->getAnswer(2)), known ? 1 : 0,
+			                                            sheriff()->isAnswered(0) ? 1 : 0, sheriff()->isNext() ? 1 : 0, q != 0 && q != 2 && q != 5 ? 1 : 0);
+			tick1();
+			out += Common::String::format(", busy %d", sheriff()->isBusy() ? 1 : 0);
+			sheriff()->setQuestion(3);
+			overTick();
+			out += Common::String::format("; over, page 4: state %d, notebook %s", sheriff()->getState(), sprite(sheriff()->getNotebook()).c_str());
+			for (uint i = 0; i < SheriffRoom::kAnswers; i++)
+				out += Common::String::format("; %c %s", 'A' + i, sprite(sheriff()->getAnswer(i)).c_str());
+			readAll();
+			_roomClass->click(sheriff()->getAnswer(0));
+			out += Common::String::format("; page 4, A: '%s', wrong %d", sheriff()->getCurrent().c_str(), sheriff()->isWrong() ? 1 : 0);
+			overTick();
+			out += Common::String::format("; over: '%s', wrong %d, done %d", sheriff()->getCurrent().c_str(), sheriff()->isWrong() ? 1 : 0, sheriff()->isDone() ? 1 : 0);
+			const bool changed = overTick();
+			out += Common::String::format("; next %s %d", run.next.c_str(), changed ? 1 : 0);
+			showRoom(kStreet1);
+			out += Common::String::format("; left: SheriffPuzzle %d, answered %u, question %d", getGameFlag("SheriffPuzzle") ? 1 : 0, sheriff()->getAnsweredCount(),
+			                              sheriff()->getQuestion());
+			debugC(3, kDebugScript, "sheriff check answers: %s", out.c_str());
+		}
+
+		// The level's count right (level + 2): page 3, then Street 1, and the
+		// puzzle done.
+		{
+			Common::String out;
+			for (int level = 0; level < 3; level++) {
+				newGameForCheck();
+				setDifficulty(level);
+				fresh.room(kStreet1);
+				Common::INIFile ini;
+				for (int k = 0; k < level + 1; k++)
+					ini.setKey(Common::String::format("Question%d", k == 2 ? 14 : k), kSheriffRoom, "Yes");
+				ini.setKey("CurrentQuestion", kSheriffRoom, "3");
+				sheriff()->loadKeys(ini);
+				showRoom(kSheriffRoom);
+				readAll();
+				_roomClass->click(sheriff()->getAnswer(2));
+				overTick();
+				int frames = 0;
+				for (uint i = 0; i < SheriffRoom::kAnswers; i++)
+					frames += _currentRoom->hasFrame(sheriff()->getAnswer(i)) ? 1 : 0;
+				out += Common::String::format("%slevel %d, %u right: question %d, notebook %s, answers drawn %d", level ? "; " : "", level, sheriff()->getAnsweredCount(),
+				                              sheriff()->getQuestion(), _currentRoom->getAnim(sheriff()->getNotebook()).c_str(), frames);
+				overTick();
+				out += Common::String::format(", '%s', done %d", sheriff()->getCurrent().c_str(), sheriff()->isDone() ? 1 : 0);
+				const bool changed = overTick();
+				out += Common::String::format(", next %s %d", run.next.c_str(), changed ? 1 : 0);
+				showRoom(kStreet1);
+				out += Common::String::format(", SheriffPuzzle %d", getGameFlag("SheriffPuzzle") ? 1 : 0);
+			}
+			setDifficulty(0);
+			debugC(3, kDebugScript, "sheriff check done: %s", out.c_str());
+		}
+
+		// The keys.
+		{
+			auto list = [&](const Common::INIFile &ini) {
+				Common::String r, v;
+				if (ini.getKey("CurrentQuestion", kSheriffRoom, v))
+					r += " CurrentQuestion=" + v;
+				for (uint q = 0; q < SheriffRoom::kQuestions; q++) {
+					if (ini.getKey(Common::String::format("Question%u", q), kSheriffRoom, v) && v == "Yes")
+						r += Common::String::format(" Question%u=Yes", q);
+				}
+				return r;
+			};
+			newGameForCheck();
+			Common::INIFile a;
+			sheriff()->saveKeys(a);
+			Common::String out = "new game:" + list(a);
+			Common::INIFile in;
+			in.setKey("Question4", kSheriffRoom, "Yes");
+			sheriff()->loadKeys(in);
+			Common::INIFile b;
+			sheriff()->saveKeys(b);
+			out += "; read Question4 alone:" + list(b);
+			debugC(3, kDebugScript, "sheriff check keys: %s", out.c_str());
+		}
+
+		// Where the live run clicks (not compared).
+		{
+			auto at = [&](int s) {
+				for (int y = 4; y < 480 && s >= 0; y += 8) {
+					for (int x = 4; x < 640; x += 8) {
+						if (_currentRoom->hitTest(x, y) == s)
+							return Common::String::format("%d %d", x, y);
+					}
+				}
+				return Common::String("-");
+			};
+			enterSheriff(0);
+			Common::String out = Common::String::format("NOTEBOOK=%s", at(sheriff()->getNotebook()).c_str());
+			for (uint i = 0; i < SheriffRoom::kAnswers; i++)
+				out += Common::String::format(" %c=%s", 'A' + i, at(sheriff()->getAnswer(i)).c_str());
+			enterSheriff(3);
+			for (uint i = 0; i < SheriffRoom::kAnswers; i++)
+				out += Common::String::format(" 4%c=%s", 'A' + i, at(sheriff()->getAnswer(i)).c_str());
+			debugC(3, kDebugScript, "sheriff points: %s", out.c_str());
 		}
 		_script->setGhostChance(&_randomSource, ConfMan.hasKey("ghost_chance") ? (uint)ConfMan.getInt("ghost_chance") : 30);
 	}

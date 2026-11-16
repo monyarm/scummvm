@@ -25,6 +25,7 @@ MODULE_OBJS = \
 	room_setup.o \
 	saloon_rooms.o \
 	scooby.o \
+	sheriff_rooms.o \
 	sound.o \
 	signin_room.o \
 	sound_archive.o \
