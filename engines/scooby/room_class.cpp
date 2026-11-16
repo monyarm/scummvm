@@ -47,6 +47,7 @@
 #include "scooby/room_class.h"
 #include "scooby/scooby.h"
 #include "scooby/signin_room.h"
+#include "scooby/souvenir_rooms.h"
 #include "scooby/sound.h"
 #include "scooby/story_rooms.h"
 #include "scooby/tunnel_rooms.h"
@@ -174,6 +175,8 @@ static RoomClass *buildRoomClass(ScoobyEngine &engine, const Common::String &roo
 	// Phantom's drawbridge and town (drawbridge_rooms.cpp).
 	if (RoomClass *drawbridge = createDrawbridgeRoom(engine, room))
 		return drawbridge;
+	if (RoomClass *souvenir = createSouvenirRoom(engine, room))
+		return souvenir;
 	// Showdown's chase (chase_rooms.cpp).
 	if (RoomClass *chase = createChaseRoom(engine, room))
 		return chase;

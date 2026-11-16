@@ -156,6 +156,13 @@ public:
 	const Common::String &getOpening() const { return _opening; }
 	/** 0x40C6B0 and +0x10 = 0: this visit's opening, not played (room vtable +0x30). */
 	void setOpening(const Common::String &scene);
+	/**
+	 * Room vtable +0x3C (0x40C7B0), which the base entry calls last and a
+	 * class may call again after setting its opening: an opening someone
+	 * here has a first line of holds input; one nobody can say counts as
+	 * played.
+	 */
+	void checkOpening();
 	/** A room's state, by name; every room has one. */
 	Memory &getMemory(const Common::String &room) { return _memories.getOrCreateVal(room); }
 	const MemoryMap &getMemories() const { return _memories; }

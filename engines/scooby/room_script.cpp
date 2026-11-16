@@ -164,22 +164,26 @@ void RoomScript::setup(const Common::String &opening, uint snacksNeeded, const C
 		_opening = kGhostOpenings[draw(ARRAYSIZE(kGhostOpenings))];
 		_memory->openingPlayed = false;
 	}
-	// 0x40C7B0: an opening someone here has a first line of holds input until
-	// it starts; one nobody can say counts as played.
-	if (!_opening.empty() && !_memory->openingPlayed) {
-		bool lines = false;
-		for (uint i = 0; i < _characters.size() && !lines; i++)
-			lines = _sound.findClip(Common::String::format("%s1_%s", _opening.c_str(), _characters[i].getName().c_str())) != nullptr;
-		if (lines) {
-			_busy = true;
-		} else {
-			_opening.clear();
-			_memory->openingPlayed = true;
-		}
-	}
+	checkOpening();
 	_idleDelay = (draw(30) + 25) * Room::kTicksPerSecond;
 	debugC(1, kDebugScript, "room %s: opening '%s'%s, %u snacks needed, %u given", _room.getName().c_str(), _opening.c_str(),
 	       _memory->openingPlayed ? " (played)" : "", _snacksNeeded, _memory->snacksGiven);
+}
+
+void RoomScript::checkOpening() {
+	// 0x40C7B0: an opening someone here has a first line of holds input until
+	// it starts; one nobody can say counts as played.
+	if (!_memory || _opening.empty() || _memory->openingPlayed)
+		return;
+	bool lines = false;
+	for (uint i = 0; i < _characters.size() && !lines; i++)
+		lines = _sound.findClip(Common::String::format("%s1_%s", _opening.c_str(), _characters[i].getName().c_str())) != nullptr;
+	if (lines) {
+		_busy = true;
+	} else {
+		_opening.clear();
+		_memory->openingPlayed = true;
+	}
 }
 
 void RoomScript::setOpening(const Common::String &scene) {

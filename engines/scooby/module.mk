@@ -32,6 +32,8 @@ MODULE_OBJS = \
 	saloon_rooms.o \
 	scooby.o \
 	sheriff_rooms.o \
+	souvenir_check.o \
+	souvenir_rooms.o \
 	sound.o \
 	signin_room.o \
 	sound_archive.o \
