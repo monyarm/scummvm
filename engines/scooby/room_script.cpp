@@ -143,6 +143,11 @@ uint32 RoomScript::draw(uint n) {
 	return _rng ? _rng->getRandomNumber(n - 1) : 0;
 }
 
+void RoomScript::restartIdle() {
+	// (rand() % 30 + 25) * 36, as the room's own entry sets it.
+	_idleDelay = (draw(30) + 25) * Room::kTicksPerSecond;
+}
+
 void RoomScript::setup(const Common::String &opening, uint snacksNeeded, const Common::String &from) {
 	_memory = &getMemory(_room.getName());
 	_opening = opening;

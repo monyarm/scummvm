@@ -360,6 +360,25 @@ bool Room::load(const Common::String &name) {
 	for (uint slot = 0; slot < kRoomLayerCount; slot++)
 		_layerSprites[slot] = layers[slot];
 
+	// The class's own buffer sprite, made at its first claim (0x4370D0, 640
+	// by 480 at (0, 0)), before any placement is built.
+	int group = -1;
+	int groupDepth = 0;
+	if (_hook && _hook->wantsGroup(groupDepth) && layers[0] >= 0) {
+		Sprite g;
+		g.depth = groupDepth;
+		g.frame = 0;
+		g.animated = false;
+		g.x = g.y = g.offsetX = g.offsetY = 0;
+		g.hidden = false;
+		g.hitType = 1;
+		g.kind = kKindEngine;
+		g.label = "render entity";
+		g.player.mode = 0;
+		g.player.step = g.player.steps = 0;
+		group = addSprite(layers[0], g);
+	}
+
 	// One sprite per placement, started as its kind's constructor starts it.
 	const uint32 count = READ_LE_UINT32(&b[kRoomPlacementCount]);
 	const uint32 first = READ_LE_UINT32(&b[kRoomPlacementFirst]);
@@ -450,7 +469,9 @@ bool Room::load(const Common::String &name) {
 		}
 
 		// A sprite whose layer slot is empty attaches to the root.
-		const uint parent = (slot >= 0 && slot < (int)kRoomLayerCount && layers[slot] >= 0) ? layers[slot] : 0;
+		uint parent = (slot >= 0 && slot < (int)kRoomLayerCount && layers[slot] >= 0) ? layers[slot] : 0;
+		if (claim.group && group >= 0)
+			parent = group;
 		const uint index = addSprite(parent, s);
 		if (kind == kKindCharacter)
 			_characters.push_back(index);

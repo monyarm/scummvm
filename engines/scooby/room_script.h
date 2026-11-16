@@ -126,8 +126,12 @@ public:
 	void setup(const Common::String &opening, uint snacksNeeded, const Common::String &from);
 	/** A room's class setting the snacks it needs (+0x24) after setup(). */
 	void setSnacksNeeded(uint snacks) { _snacksNeeded = snacks; }
+	uint getSnacksNeeded() const { return _snacksNeeded; }
 	/** The ghost appears now, if the room has one (0x40A990, as a room's class calls it). */
 	bool showGhost() { return startGhost(); }
+	/** A room's class starting the idle timer (+0xB4) again: 25-54 seconds. */
+	void restartIdle();
+	int getIdleDelay() const { return _idleDelay; }
 	/** The room's class, or nullptr for the base class. */
 	void setHooks(RoomHooks *hooks) { _hooks = hooks; }
 	RoomHooks *getHooks() const { return _hooks; }

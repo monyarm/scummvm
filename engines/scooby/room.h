@@ -64,6 +64,7 @@ public:
 		Common::String anim; // the sequence, if not the placement's
 		Common::String required; // kRequires: the cursor it answers, if not its requiredanim=
 		int hitType = 1;     // kSprite: 0 never hit, 1 cels (graphics_Sprite_ctor 0x430D60), 2 step polygon
+		bool group = false;  // under the class's own buffer sprite (wantsGroup), not a layer
 	};
 
 	/** The room's class, offered each placement before the default path. */
@@ -71,6 +72,12 @@ public:
 	public:
 		virtual ~PlacementHook() {}
 		virtual void claimPlacement(const Common::String &object, Claim &claim) {}
+		/**
+		 * Whether the class builds a buffer sprite of its own (0x4370D0) under
+		 * layer 0 before the placements, at @p depth, for claims with group
+		 * set: the saloon's RENDER_ENTITY.
+		 */
+		virtual bool wantsGroup(int &depth) { return false; }
 	};
 	/** The class offered the placements of the next load(), or nullptr. */
 	void setPlacementHook(PlacementHook *hook) { _hook = hook; }
@@ -196,6 +203,8 @@ public:
 	/** Set the hit test: 1 for cels and masks, 2 for the step polygon, 0 for none. */
 	void setHitType(uint sprite, int type) { _sprites[sprite].hitType = type; }
 	int getHitType(uint sprite) const { return _sprites[sprite].hitType; }
+	/** The sprite's parent: a layer, a buffer sprite, or 0 for the root. */
+	int getParent(uint sprite) const { return _sprites[sprite].parent; }
 	/** A requires object's cursor set by its room's class, or empty for its requiredanim=. */
 	const Common::String &getRequired(uint sprite) const { return _sprites[sprite].required; }
 	/** Whether any step of the sprite's sequence has a polygon (0x436FC0). */

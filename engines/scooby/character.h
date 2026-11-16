@@ -45,6 +45,7 @@ public:
 		kStateStay = 7, // keep the last step
 		kStateTalk = 8, // TALKS, its step set by lip sync
 		kStateSpecial = 0xD, // another object's ANIM_<object>1 once, then idle (0x406130)
+		kStateSpecialLoop = 0xE, // another object's ANIM_<object>1, looping, until another state (0x406190)
 		kStateAct = 0xF, // ANIM_<NAME><set><action> once, then idle (0x4061F0)
 		kStateActLoop = 0x10, // ANIM_<NAME><set><action>, looping (0x406210)
 		kStateScared = 0x11, // SCARED once, with Global.Scared.<NAME>, then idle
@@ -81,6 +82,16 @@ public:
 	 * once, then go idle as before (0x406130, state 0xD): Shaggy pumping.
 	 */
 	void special(Room &room, Sound &sound, const Common::String &object);
+	/**
+	 * Become @p object and loop its sequence ANIM_<object without OBJ_>1
+	 * until another state (0x406190, state 0xE): Artie gagged.
+	 */
+	void specialLoop(Room &room, Sound &sound, const Common::String &object);
+	/**
+	 * The set (+0x60): "_" and @p digit, or none for 0 (0x406230). The next
+	 * state change shows it: Artie in his chains, OBJ_ARTIE_3.
+	 */
+	void setSet(char digit);
 	/** Play ANIM_<NAME><set>@p action looping, until another state (0x406210, state 0x10). */
 	void actLoop(Room &room, Sound &sound, const Common::String &action);
 	/** The sequence act() plays. */

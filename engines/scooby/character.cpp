@@ -120,6 +120,13 @@ void Character::setState(Room &room, Sound &sound, int state) {
 		anim = Common::String("ANIM_") + Common::String(_action.c_str() + MIN<uint>(4, _action.size())) + "1";
 		_next = kStateIdle;
 		break;
+	case kStateSpecialLoop:
+		// 0x405190 state 0xE: as 0xD, looping, until another state.
+		obj = _action;
+		anim = Common::String("ANIM_") + Common::String(_action.c_str() + MIN<uint>(4, _action.size())) + "1";
+		mode = kModeLoop;
+		_next = kStateSpecialLoop;
+		break;
 	case kStateActLoop:
 		// 0x405190 state 0x10: the action, looping, until another state.
 		anim = getActAnim(_action);
@@ -142,7 +149,7 @@ void Character::setState(Room &room, Sound &sound, int state) {
 		room.setSequence(_sprite, obj, anim, mode, -1);
 
 	_state = state;
-	_toNext = state != kStateIdle && state != kStateTalk && state != kStateActLoop;
+	_toNext = state != kStateIdle && state != kStateTalk && state != kStateActLoop && state != kStateSpecialLoop;
 }
 
 void Character::update(Room &room, Sound &sound) {
@@ -187,6 +194,17 @@ void Character::special(Room &room, Sound &sound, const Common::String &object) 
 	// 0x406130
 	_action = object;
 	setState(room, sound, kStateSpecial);
+}
+
+void Character::specialLoop(Room &room, Sound &sound, const Common::String &object) {
+	// 0x406190
+	_action = object;
+	setState(room, sound, kStateSpecialLoop);
+}
+
+void Character::setSet(char digit) {
+	// 0x406230
+	_set = digit ? Common::String::format("_%c", digit) : Common::String();
 }
 
 void Character::actLoop(Room &room, Sound &sound, const Common::String &action) {

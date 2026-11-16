@@ -23,6 +23,7 @@ MODULE_OBJS = \
 	room.o \
 	room_script.o \
 	room_setup.o \
+	saloon_rooms.o \
 	scooby.o \
 	sound.o \
 	signin_room.o \

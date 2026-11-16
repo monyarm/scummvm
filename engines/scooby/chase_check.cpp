@@ -29,6 +29,8 @@
 #include "scooby/chase_rooms.h"
 #include "scooby/detection.h"
 #include "scooby/gummy_rooms.h"
+#include "scooby/room_setup.h"
+#include "scooby/saloon_rooms.h"
 #include "scooby/hotel_rooms.h"
 #include "scooby/jail_rooms.h"
 #include "scooby/office_rooms.h"
@@ -3568,6 +3570,480 @@ void ScoobyEngine::checkChases() {
 			                              d == "ANIM_GUMMYSLEEP_DONKEYBLINK" || d == "ANIM_GUMMYSLEEP_DONKEYIDLE" ? "ANIM_GUMMYSLEEP_DONKEY[BLINK|IDLE]" : d.c_str(),
 			                              _currentRoom->getMode(gummy()->getDonkey()), nb >= 108 && nb <= 360 && nb % 36 == 0 ? 1 : 0);
 			debugC(3, kDebugScript, "gummy check timers: %s", out.c_str());
+		}
+		_script->setGhostChance(&_randomSource, ConfMan.hasKey("ghost_chance") ? (uint)ConfMan.getInt("ghost_chance") : 30);
+	}
+	// The saloon and Artie's chains (WP-051).
+	{
+		const char *const kSaloon = "ROOM_P12_Saloon";
+		const char *const kArtieRoom = "ROOM_Artie";
+		const char *const kStreet3 = "ROOM_P11_Street3";
+		const char *const kBullObj = "OBJ_P12_SALOON_MECHBULL";
+		const char *const kPump = "OBJ_INV_PUMP_HANDLE";
+		_script->setGhostChance(nullptr, 0);
+		{
+			RoomClass *s = createRoomClass(*this, kSaloon);
+			RoomClass *a = createRoomClass(*this, kArtieRoom);
+			debugC(3, kDebugScript, "saloon check classes: Saloon %s; Artie %s", dynamic_cast<SaloonRoom *>(s) ? "saloon" : "-",
+			       dynamic_cast<ArtieRoom *>(a) ? "artie" : "-");
+			delete s;
+			delete a;
+		}
+		auto saloon = [&]() { return dynamic_cast<SaloonRoom *>(getRoomClass(kSaloon)); };
+		auto artieRoom = [&]() { return dynamic_cast<ArtieRoom *>(getRoomClass(kArtieRoom)); };
+		int group = -1;
+		auto findGroup = [&]() {
+			group = -1;
+			for (uint s = 0; s < _currentRoom->getSpriteCount(); s++) {
+				if (_currentRoom->getLabel(s) == "render entity")
+					group = s;
+			}
+		};
+		auto placed = [&](const char *object) {
+			const int s = Find::sprite(*this, object);
+			if (s < 0)
+				return Common::String::format("%s none", object + 4);
+			return Common::String::format("%s %s mode %d depth %d hit %d%s%s%s%s", object + 4, _currentRoom->getAnim(s).c_str(), _currentRoom->getMode(s),
+			                              _currentRoom->getDepth(s), _currentRoom->getHitType(s), _currentRoom->isHidden(s) ? " hidden" : "",
+			                              _currentRoom->isRequiresObject(s) ? " requires" : "", _currentRoom->isClickable(s) ? " clickable" : "",
+			                              group >= 0 && _currentRoom->getParent(s) == group ? " group" : "");
+		};
+		auto who = [&](const char *name) {
+			Character *c = _script->getCharacter(name);
+			if (!c)
+				return Common::String::format("%s none", name);
+			return Common::String::format("%s state %d %s %s mode %d", name, c->getState(), _currentRoom->getObjectName(c->getSprite()).c_str(),
+			                              _currentRoom->getAnim(c->getSprite()).c_str(), _currentRoom->getMode(c->getSprite()));
+		};
+		auto inSlot = [&](const char *item) {
+			for (uint i = 0; i < Inventory::kSlotCount; i++) {
+				if (_inventory->getSlot(i) == item)
+					return 1;
+			}
+			return 0;
+		};
+		auto inSet = [&](const char *const *set, uint n) {
+			const Common::String &sc = _script->getScene();
+			for (uint i = 0; i < n; i++) {
+				if (sc == set[i])
+					return 1;
+			}
+			return 0;
+		};
+		// The class's keys from a profile, before the visit.
+		auto load = [&](const char *const *keys) {
+			Common::INIFile ini;
+			for (uint i = 0; keys[i]; i += 2)
+				ini.setKey(keys[i], kSaloon, keys[i + 1]);
+			saloon()->loadKeys(ini);
+		};
+		// A new game, the keys behind hotspots 4, 5 and 8, from Street 3. The
+		// class's keys are read there: leaving the saloon (0x414820) would
+		// set ClickableOpen again.
+		const uint kKeyMask = 0x26;
+		auto enterSaloon = [&](const char *const *keys) {
+			newGameForCheck();
+			saloon()->hideKeys(kKeyMask);
+			fresh.room(kStreet3);
+			if (keys)
+				load(keys);
+			showRoom(kSaloon);
+			findGroup();
+		};
+		// Ticks until @p sprite's clickable is at rest, skipping scenes.
+		auto rest = [&](int sprite) {
+			for (uint t = 0; t < kMax && (_script->isClickablePlaying(sprite) || _script->isScenePlaying()); t++) {
+				if (_script->isScenePlaying())
+					_script->skip();
+				tick1();
+			}
+		};
+		static const char *const kFour[] = { "Saloon.360A1_", "Saloon.360A2_", "Saloon.360A3_", "Saloon.Must_Free_Artie_" };
+		static const char *const kThree[] = { "Saloon.340A2_", "Saloon.G3_", "Saloon.360D3_" };
+		static const char *const kG[] = { "Saloon.360G_", "Saloon.360G2_", "Saloon.360G3_" };
+		static const char *const kC[] = { "Saloon.360C_", "Saloon.360C3_" };
+		static const char *const kSaloonObjs[] = {
+			"OBJ_P12_SALOON_HOTSPOT1", "OBJ_P12_SALOON_HOTSPOT2", "OBJ_P12_SALOON_HOTSPOT3", "OBJ_P12_SALOON_HOTSPOT4", "OBJ_P12_SALOON_HOTSPOT5",
+			"OBJ_P12_SALOON_HOTSPOT6", "OBJ_P12_SALOON_HOTSPOT7", "OBJ_P12_SALOON_HOTSPOT8", "OBJ_SALOON_KEY_HOTSPOT3", "OBJ_SALOON_KEY_HOTSPOT4",
+			"OBJ_SALOON_KEY_HOTSPOT5", "OBJ_SALOON_KEY_HOTSPOT6", "OBJ_SALOON_KEY_HOTSPOT7", "OBJ_SALOON_KEY_HOTSPOT8", "OBJ_P12_SALOON_OPEN_DOOR",
+			"OBJ_P12_SALOON_CHAND", "OBJ_P12_SALOON_MECHBULL", "OBJ_P12_SALOON_PIE_NOON"
+		};
+
+		// Entry, Artie gagged: the render entity and what is built under it;
+		// the hotspots' states and open hands; Artie; the opening and the
+		// class's values.
+		{
+			enterSaloon(nullptr);
+			Common::String out = Common::String::format("render entity depth %d under layer 0 %d", group >= 0 ? _currentRoom->getDepth(group) : 0,
+			                                            group >= 0 && _currentRoom->getParent(group) == _currentRoom->getLayerSprite(0) ? 1 : 0);
+			for (uint i = 0; i < ARRAYSIZE(kSaloonObjs); i++)
+				out += "; " + placed(kSaloonObjs[i]);
+			out += "; states";
+			for (uint k = 0; k < SaloonRoom::kKeys; k++) {
+				const Common::String st = _script->getClickableState(saloon()->getHotspot(k));
+				out += Common::String::format(" %c", st.empty() ? '-' : st.lastChar());
+			}
+			out += Common::String::format("; open hands: hotspot 2 '%s', 3-8", _currentRoom->getRollover(Find::sprite(*this, "OBJ_P12_SALOON_HOTSPOT2")).c_str());
+			for (uint k = 0; k < SaloonRoom::kKeys; k++)
+				out += Common::String::format(" '%s'", _currentRoom->getRollover(saloon()->getHotspot(k)).c_str());
+			Character *artie = _script->getCharacter("ARTIE");
+			Character *daphne = _script->getCharacter("DAPHNE");
+			out += Common::String::format("; %s set %s; DAPHNE state %d; opening '%s'%s; masked %d, chained %d, moan %d, music waiting %d, snacks needed %u",
+			                              who("ARTIE").c_str(), artie ? artie->getSet().c_str() : "-", daphne ? daphne->getState() : -1,
+			                              _script->getOpening().c_str(), _script->getMemory(kSaloon).openingPlayed ? " played" : "",
+			                              saloon()->isMasked() ? 1 : 0, saloon()->getChained(), saloon()->getMoan(), saloon()->isMusicWaiting() ? 1 : 0,
+			                              _script->getSnacksNeeded());
+			debugC(3, kDebugScript, "saloon check entry: %s", out.c_str());
+		}
+
+		// Gagged, every exit keeps the gang here with one of four lines, held.
+		{
+			enterSaloon(nullptr);
+			_script->skip();
+			static const char *const kExits[] = { "OBJ_P12_TO_P17", "OBJ_P12_TO_P11", "OBJ_P12_TO_P05" };
+			Common::String out;
+			for (uint i = 0; i < ARRAYSIZE(kExits); i++) {
+				clickExit(Find::sprite(*this, kExits[i]));
+				out += Common::String::format("%s%s: one of the four %d, held %d", i ? "; " : "", kExits[i] + 4, inSet(kFour, 4), _script->isBusy() ? 1 : 0);
+				_script->skip();
+				tick1();
+			}
+			debugC(3, kDebugScript, "saloon check exits: %s", out.c_str());
+		}
+
+		// The gag: Artie clicked with the arrow, Velma takes it off.
+		enterSaloon(nullptr);
+		_script->skip();
+		{
+			Character *artie = _script->getCharacter("ARTIE");
+			const bool taken = artie && _roomClass->click(artie->getSprite());
+			tick1();
+			Character *velma = _script->getCharacter("VELMA");
+			Common::String out = Common::String::format("taken %d; tick 1: ungag %d, busy %d, %s steps %u", taken ? 1 : 0, saloon()->isUngagging() ? 1 : 0,
+			                                            saloon()->isBusy() ? 1 : 0, who("VELMA").c_str(),
+			                                            velma ? _currentRoom->getStepCount(velma->getSprite()) : 0);
+			int line = -1, idle = -1, done = -1;
+			Common::String sound, artieAt;
+			bool moaning = true;
+			for (uint t = 2; t <= kMax && done < 0; t++) {
+				tick1();
+				if (line < 0 && saloon()->isVelmaSpoken()) {
+					line = t;
+					sound = saloon()->getLastSound();
+				}
+				artie = _script->getCharacter("ARTIE");
+				if (idle < 0 && artie && artie->getState() == Character::kStateIdle) {
+					idle = t;
+					artieAt = who("ARTIE");
+					moaning = getGameFlag("MoaningActive");
+				}
+				if (!saloon()->isUngagging())
+					done = t;
+			}
+			uint hands = 0;
+			for (uint k = 0; k < SaloonRoom::kKeys; k++)
+				hands += _currentRoom->getRollover(saloon()->getHotspot(k)) == "ANIM_CURSOROPEN" ? 1 : 0;
+			out += Common::String::format("; her line at tick %d: %s; Artie idle at tick %d: %s, MoaningActive %d; done at tick %d: masked %d, scene '%s' held %d, open hands %u",
+			                              line, sound.c_str(), idle, artieAt.c_str(), moaning ? 1 : 0, done, saloon()->isMasked() ? 1 : 0,
+			                              _script->getScene().c_str(), _script->isBusy() ? 1 : 0, hands);
+			debugC(3, kDebugScript, "saloon check gag: %s", out.c_str());
+		}
+
+		// Hotspots 3-8 clicked in turn: a key behind one shows when it stops.
+		{
+			Common::String out;
+			for (uint k = 0; k < SaloonRoom::kKeys; k++) {
+				const int h = saloon()->getHotspot(k);
+				rest(h);
+				_script->clickClickable(h);
+				tick1();
+				out += Common::String::format("%s%u: %s, then %s", k ? "; " : "", k + 3, _script->getClickLog().c_str(), _script->getClickableState(h).c_str());
+				int stop = -1;
+				for (uint t = 2; t <= kMax && stop < 0; t++) {
+					tick1();
+					if (!_script->isClickablePlaying(h))
+						stop = t;
+				}
+				const int key = saloon()->getKey(k);
+				if (saloon()->isKeyVisible(k))
+					out += Common::String::format(", stops at tick %d, its key shown %d at depth %d, one of the 360G lines %d", stop, key >= 0 && !_currentRoom->isHidden(key) ? 1 : 0,
+					                              key >= 0 ? _currentRoom->getDepth(key) : 0, inSet(kG, 3));
+				else
+					out += Common::String::format(", stops at tick %d, no key", stop);
+			}
+			debugC(3, kDebugScript, "saloon check keys: %s", out.c_str());
+		}
+
+		// Three keys showing: an exit keeps the gang here with one of three
+		// lines. Each key used: ROOM_Artie, a chain off, back.
+		{
+			_script->skip();
+			clickExit(Find::sprite(*this, "OBJ_P12_TO_P11"));
+			Common::String out = Common::String::format("three keys showing: one of the three %d, held %d", inSet(kThree, 3), _script->isBusy() ? 1 : 0);
+			_script->skip();
+			tick1();
+			static const uint kUse[] = { 1, 2, 5 };
+			for (uint i = 0; i < ARRAYSIZE(kUse); i++) {
+				const uint k = kUse[i];
+				if (i == 2) {
+					clickExit(Find::sprite(*this, "OBJ_P12_TO_P11"));
+					out += Common::String::format("; one key showing: one of the first two %d, held %d", inSet(kThree, 2), _script->isBusy() ? 1 : 0);
+					_script->skip();
+					tick1();
+				}
+				_script->clickClickable(saloon()->getKey(k));
+				tick1();
+				out += Common::String::format("; key %u: hidden %d, chained %d, out to %s '%s'", k + 3, _currentRoom->isHidden(saloon()->getKey(k)) ? 1 : 0,
+				                              saloon()->getChained(), saloon()->getLastExit().destination.c_str(), saloon()->getLastExit().scene.c_str());
+				run.change(kMax);
+				out += Common::String::format(", next %s", run.next.c_str());
+				showRoom(run.next);
+				const int c = artieRoom()->getChains();
+				out += Common::String::format("; chains %s mode %d step %u depth %d hit %d, busy %d", c >= 0 ? _currentRoom->getAnim(c).c_str() : "none",
+				                              c >= 0 ? _currentRoom->getMode(c) : -1, c >= 0 ? _currentRoom->getStep(c) : 0, c >= 0 ? _currentRoom->getDepth(c) : 0,
+				                              c >= 0 ? _currentRoom->getHitType(c) : -1, artieRoom()->isBusy() ? 1 : 0);
+				int played = -1, change = -1;
+				for (uint t = 1; t <= kMax && change < 0; t++) {
+					if (tick1())
+						change = t;
+					if (played < 0 && !artieRoom()->getLastSound().empty())
+						played = t;
+				}
+				out += Common::String::format(", played at tick %d with %s, steps %u; ChainsLocked %d; next %s movie %d at tick %d", played,
+				                              artieRoom()->getLastSound().c_str(), c >= 0 ? _currentRoom->getStepCount(c) : 0, artieRoom()->getChainsLocked(),
+				                              run.next.c_str(), run.movie, change);
+				showRoom(kSaloon);
+				findGroup();
+				Character *artie = _script->getCharacter("ARTIE");
+				out += Common::String::format("; back: chained %d, %s depth %d", saloon()->getChained(), who("ARTIE").c_str(),
+				                              artie ? _currentRoom->getDepth(artie->getSprite()) : 0);
+				if (i < 2) {
+					out += ", keys showing";
+					for (uint j = 0; j < SaloonRoom::kKeys; j++) {
+						if (saloon()->isKeyVisible(j))
+							out += Common::String::format(" %u", j + 3);
+					}
+				}
+			}
+			// Free: his clue, met, and he gives it when idle; the thanks.
+			out += Common::String::format("; one of 360C_, 360C3_ %d held %d, clue owner %d, met %d, gives %d; Pie Noon built %d", inSet(kC, 2), _script->isBusy() ? 1 : 0,
+			                              isClueOwner("ARTIE") ? 1 : 0, _inventory->hasMetSuspect("ARTIE") ? 1 : 0, saloon()->isGiving() ? 1 : 0,
+			                              Find::sprite(*this, "OBJ_P12_SALOON_PIE_NOON") >= 0 ? 1 : 0);
+			int gives = -1, thanks = -1;
+			Common::String at;
+			for (uint t = 1; t <= kMax && thanks < 0; t++) {
+				if (_script->isScenePlaying())
+					_script->skip();
+				tick1();
+				Character *artie = _script->getCharacter("ARTIE");
+				if (gives < 0 && artie && artie->getState() == Character::kStateAct) {
+					gives = t;
+					at = Common::String::format("%s steps %u, held %d", _currentRoom->getAnim(artie->getSprite()).c_str(),
+					                            _currentRoom->getStepCount(artie->getSprite()), saloon()->isBusy() ? 1 : 0);
+				}
+				if (saloon()->getLastExit().destination == "ROOM_Suspect_Chooser")
+					thanks = t;
+			}
+			out += Common::String::format("; gives (%s), then the thanks: %s '%s'", at.c_str(), saloon()->getLastExit().destination.c_str(),
+			                              saloon()->getLastExit().scene.c_str());
+			(void)gives;
+			debugC(3, kDebugScript, "saloon check chains: %s", out.c_str());
+		}
+
+		// The piano: Piano_ the first time; the music group stops while it
+		// plays its tune, and starts again once it stops.
+		{
+			enterSaloon(nullptr);
+			_script->skip();
+			tick1();
+			const int p = saloon()->getPiano();
+			Common::String out = Common::String::format("on entry: group %d, waiting %d", getMusic()->getGroup(), saloon()->isMusicWaiting() ? 1 : 0);
+			for (uint k = 0; k < 4; k++) {
+				rest(p);
+				_script->clickClickable(p);
+				tick1();
+				out += Common::String::format("; click %u: %s; played %d, scene '%s', then %s, group %d, waiting %d", k + 1, _script->getClickLog().c_str(),
+				                              saloon()->isPianoPlayed() ? 1 : 0, _script->getScene().c_str(), _script->getClickableState(p).c_str(),
+				                              getMusic()->getGroup(), saloon()->isMusicWaiting() ? 1 : 0);
+				rest(p);
+				out += Common::String::format(", stopped: group %d, waiting %d", getMusic()->getGroup(), saloon()->isMusicWaiting() ? 1 : 0);
+			}
+			debugC(3, kDebugScript, "saloon check piano: %s", out.c_str());
+		}
+
+		// The bull: without the nickel, three lines in turn; Shaggy clicked
+		// with it, movie 5 and the saloon again, the pump handle.
+		{
+			enterSaloon(nullptr);
+			_script->skip();
+			Common::String out = "without the nickel:";
+			for (uint k = 0; k < 4; k++) {
+				_script->sendEvent(kBullObj, false);
+				out += Common::String::format(" '%s' held %d", _script->getScene().c_str(), _script->isBusy() ? 1 : 0);
+				_script->skip();
+				tick1();
+			}
+			_inventory->addItem("OBJ_INV_NICKEL", "ANIM_TOOLBARBuffalo_Nickel", "ANIM_CURSORBuffalo_Nickel");
+			_inventory->setCursor("ANIM_CURSORBuffalo_Nickel");
+			Character *shaggy = _script->getCharacter("SHAGGY");
+			const bool taken = shaggy && _roomClass->click(shaggy->getSprite());
+			const bool changed = tick1();
+			out += Common::String::format("; Shaggy with the nickel: taken %d, next %s movie %d at tick 1 %d; nickel had %d held %d, cursor %s, BullRidden %d",
+			                              taken ? 1 : 0, run.next.c_str(), run.movie, changed ? 1 : 0, _inventory->hasItem("OBJ_INV_NICKEL") ? 1 : 0,
+			                              inSlot("OBJ_INV_NICKEL"), _inventory->getCursor().c_str(), saloon()->isBullRidden() ? 1 : 0);
+			showRoom(kSaloon);
+			findGroup();
+			out += Common::String::format("; back: %s; %s; pump handle had %d in a slot %d", placed(kBullObj).c_str(), placed("OBJ_P12_SALOON_CHAND").c_str(),
+			                              _inventory->hasItem(kPump) ? 1 : 0, inSlot(kPump));
+			_script->skip();
+			_script->sendEvent(kBullObj, false);
+			out += Common::String::format("; then '%s' held %d", _script->getScene().c_str(), _script->isBusy() ? 1 : 0);
+			_script->skip();
+			debugC(3, kDebugScript, "saloon check bull: %s", out.c_str());
+		}
+
+		// The moans, while the story has them; the idle line once Artie is free.
+		{
+			enterSaloon(nullptr);
+			_script->skip();
+			int moan = -1;
+			for (uint t = 1; t <= 200 && moan < 0; t++) {
+				tick1();
+				if (!saloon()->getLastSound().empty())
+					moan = t;
+			}
+			const Common::String s = saloon()->getLastSound();
+			const bool known = s == "Saloon.Moan.1 found 1" || s == "Saloon.Moan.2 found 1" || s == "Saloon.Moan.3 found 1" || s == "Saloon.Moan.4 found 1";
+			const int c = saloon()->getMoan();
+			Common::String out = Common::String::format("moan at tick %d: %s, count in 180-504 by 36 %d", moan, known ? "Saloon.Moan.[1-4] found 1" : s.c_str(),
+			                                            c >= 180 && c <= 504 && c % 36 == 0 ? 1 : 0);
+			setGameFlag("MoaningActive", false);
+			for (int t = 0; t < c + 5; t++)
+				tick1();
+			out += Common::String::format("; without moans, count %d after it + 5 ticks", saloon()->getMoan());
+			saloon()->idle();
+			out += Common::String::format("; idle, chained: '%s'", _script->getScene().c_str());
+			static const char *const kFree[] = { "ArtieMasked", "No", "ArtieChained", "0", nullptr };
+			load(kFree);
+			saloon()->idle();
+			out += Common::String::format("; idle, free: '%s' held %d", _script->getScene().c_str(), _script->isBusy() ? 1 : 0);
+			_script->skip();
+			debugC(3, kDebugScript, "saloon check moans: %s", out.c_str());
+		}
+
+		// Artie free: the stage waits for the level's snacks; Pie Noon is open.
+		{
+			static const char *const kFree[] = { "ArtieMasked", "No", "ArtieChained", "0", nullptr };
+			Common::String out;
+			for (int level = 0; level < 3; level++) {
+				newGameForCheck();
+				setDifficulty(level);
+				saloon()->hideKeys(0);
+				load(kFree);
+				setGameString("ClueOwners0", "ARTIE");
+				fresh.room(kStreet3);
+				showRoom(kSaloon);
+				findGroup();
+				_script->skip();
+				if (level == 0)
+					out += Common::String::format("Pie Noon built %d; ", Find::sprite(*this, "OBJ_P12_SALOON_PIE_NOON") >= 0 ? 1 : 0);
+				clickExit(Find::sprite(*this, "OBJ_P12_TO_P05"));
+				out += Common::String::format("level %d, %u snacks needed: '%s' held %d", level, _script->getSnacksNeeded(), _script->getScene().c_str(),
+				                              _script->isBusy() ? 1 : 0);
+				_script->skip();
+				tick1();
+				_script->getMemory(kSaloon).snacksGiven = level + 2;
+				clickExit(Find::sprite(*this, "OBJ_P12_TO_P05"));
+				run.change(kMax);
+				out += Common::String::format(", with them next %s; ", run.next.c_str());
+			}
+			setDifficulty(0);
+			newGameForCheck();
+			saloon()->hideKeys(0);
+			load(kFree);
+			setGameString("ClueOwners0", "ARTIE");
+			fresh.room(kStreet3);
+			showRoom(kSaloon);
+			_script->skip();
+			clickExit(Find::sprite(*this, "OBJ_P12_TO_P11"));
+			run.change(kMax);
+			out += Common::String::format("to Street 3: next %s", run.next.c_str());
+			debugC(3, kDebugScript, "saloon check stage: %s", out.c_str());
+		}
+
+		// The class's keys: written, read back, and what a visit makes of them.
+		{
+			auto list = [&](const Common::INIFile &ini, const char *section) {
+				static const char *const kNames[] = { "ArtieMasked", "ArtieChained", "ShaggyPiano", "BullRidden", "ChainsLocked" };
+				Common::String r;
+				Common::String v;
+				for (uint i = 0; i < ARRAYSIZE(kNames); i++) {
+					if (ini.getKey(kNames[i], section, v))
+						r += Common::String::format(" %s=%s", kNames[i], v.c_str());
+				}
+				for (uint k = 0; k < SaloonRoom::kKeys; k++) {
+					if (ini.getKey(Common::String::format("ClickableOpen%u", k), section, v))
+						r += Common::String::format(" ClickableOpen%u=%s", k, v.c_str());
+				}
+				for (uint k = 0; k < SaloonRoom::kKeys; k++) {
+					if (ini.getKey(Common::String::format("KeyHidden%u", k), section, v))
+						r += Common::String::format(" KeyHidden%u=%s", k, v.c_str());
+					if (ini.getKey(Common::String::format("KeyVisible%u", k), section, v))
+						r += Common::String::format(" KeyVisible%u=%s", k, v.c_str());
+				}
+				return r;
+			};
+			newGameForCheck();
+			Common::INIFile saved;
+			saloon()->saveKeys(saved);
+			artieRoom()->saveKeys(saved);
+			Common::String out = "new game:" + list(saved, kSaloon) + ";" + list(saved, kArtieRoom);
+			static const char *const kKeysLoaded[] = { "ArtieMasked", "No", "ArtieChained", "2", "ShaggyPiano", "Yes", "ClickableOpen0", "Yes",
+			                                           "KeyHidden1", "Yes", "KeyVisible5", "Yes", nullptr };
+			enterSaloon(kKeysLoaded);
+			_script->skip();
+			Character *artie = _script->getCharacter("ARTIE");
+			out += Common::String::format("; read: %s depth %d; piano %s; hotspot 3 %s; hotspot 4 %s; key 8 shown %d depth %d; open hands %d",
+			                              who("ARTIE").c_str(), artie ? _currentRoom->getDepth(artie->getSprite()) : 0,
+			                              _script->getClickableState(saloon()->getPiano()).c_str(), placed("OBJ_P12_SALOON_HOTSPOT3").c_str(),
+			                              placed("OBJ_P12_SALOON_HOTSPOT4").c_str(), _currentRoom->isHidden(saloon()->getKey(5)) ? 0 : 1,
+			                              _currentRoom->getDepth(saloon()->getKey(5)),
+			                              _currentRoom->getRollover(saloon()->getHotspot(0)) == "ANIM_CURSOROPEN" ? 1 : 0);
+			const int h6 = saloon()->getHotspot(3);
+			_script->clickClickable(h6);
+			tick1();
+			rest(h6);
+			fresh.room(kStreet3);
+			Common::INIFile again;
+			saloon()->saveKeys(again);
+			out += "; hotspot 6 clicked, then left:" + list(again, kSaloon);
+			debugC(3, kDebugScript, "saloon check saved: %s", out.c_str());
+		}
+
+		// Where the live run clicks (not compared).
+		{
+			auto at = [&](int sprite) {
+				for (int y = 4; y < 480 && sprite >= 0; y += 8) {
+					for (int x = 4; x < 640; x += 8) {
+						if (_currentRoom->hitTest(x, y) == sprite)
+							return Common::String::format("%d %d", x, y);
+					}
+				}
+				return Common::String("-");
+			};
+			enterSaloon(nullptr);
+			Character *artie = _script->getCharacter("ARTIE");
+			const Common::String a = at(artie ? artie->getSprite() : -1);
+			static const char *const kHidden[] = { "ArtieMasked", "No", "ArtieChained", "3", "KeyHidden1", "Yes", nullptr };
+			enterSaloon(kHidden);
+			Common::String h4 = at(saloon()->getHotspot(1));
+			const int h4s = saloon()->getHotspot(1);
+			const Common::String h4k = Common::String::format("%s hit %d frame %d", _currentRoom->getAnim(h4s).c_str(), _currentRoom->getHitType(h4s),
+			                                                  _currentRoom->hasFrame(h4s) ? 1 : 0);
+			static const char *const kLive[] = { "ArtieMasked", "No", "ArtieChained", "3", "KeyVisible1", "Yes", nullptr };
+			enterSaloon(kLive);
+			debugC(3, kDebugScript, "saloon points: ARTIE=%s HOTSPOT4K=%s (%s) HOTSPOT4A=%s KEY4=%s TO_P11=%s", a.c_str(), h4.c_str(), h4k.c_str(),
+			       at(saloon()->getHotspot(1)).c_str(), at(saloon()->getKey(1)).c_str(), at(Find::sprite(*this, "OBJ_P12_TO_P11")).c_str());
 		}
 		_script->setGhostChance(&_randomSource, ConfMan.hasKey("ghost_chance") ? (uint)ConfMan.getInt("ghost_chance") : 30);
 	}
