@@ -560,6 +560,10 @@ bool Room::load(const Common::String &name) {
 			s.destination = getIniString(obj, "destinationroom");
 		} else if (kind == kKindClickable) {
 			s.rollover = "ANIM_CURSOROPEN";
+		} else if (kind == kKindCharacter) {
+			// 0x4062E0: the open hand for the arrow (+0xB5, set by the
+			// character's constructor), as a click on it may start an idle.
+			s.rollover = "ANIM_CURSOROPEN";
 		}
 
 		uint32 objId, animId;

@@ -148,8 +148,13 @@ Common::Error ScoobyEngine::run() {
 		checkAccusation();
 		checkMusicFade();
 		checkChases();
+		checkIdles();
 		checkAllMovies();
 	}
+	// The characters' idles draw from the game's random source. The checks
+	// above run without them, as they run without the ghost, but the idle
+	// check, which gives them a source of its own.
+	_script->setIdleRandom(&_randomSource);
 
 	// The game starts in Scooby.ini's WesternStartRoom (Phantom:
 	// MedievalStartRoom), ROOM_Title_Screen by default. A "start_room" key in
@@ -349,6 +354,10 @@ bool ScoobyEngine::handleMouse(bool click, const Common::Point &p) {
 	}
 	updateHover(p.x, p.y);
 	debugC(1, kDebugInput, "click at %d,%d on %s", p.x, p.y, _hover >= 0 ? _currentRoom->getLabel(_hover).c_str() : "-");
+	// A character's own update sees a click with the arrow on it (0x404B70),
+	// whatever the room's class then does with the click.
+	if (_hover >= 0 && _inventory->isDefaultCursor())
+		_script->clickCharacter(_hover);
 	// A room class's own objects (the menus' buttons) first.
 	if (_roomClass && _roomClass->click(_hover))
 		return true;

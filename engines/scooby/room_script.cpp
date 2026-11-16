@@ -81,12 +81,15 @@ RoomScript::RoomScript(Room &room, Sound &sound, const Common::INIFile &objectIn
 void RoomScript::enter() {
 	// The constructor's switch to IDLE_MASTER (0x4048E0) is skipped: 258 of
 	// the 261 character placements already play it, and the other three are
-	// set pieces their rooms' own code drives.
+	// set pieces their rooms' own code drives. Its idle countdown is kept,
+	// drawn in placement order, then the narrator's.
 	_characters.clear();
 	const Common::Array<uint> &sprites = _room.getCharacters();
 	for (uint i = 0; i < sprites.size(); i++)
 		_characters.push_back(Character(_room.getObjectName(sprites[i]), sprites[i]));
 	_characters.push_back(Character(kNarrator, -1));
+	for (uint i = 0; i < _characters.size(); i++)
+		_characters[i].startIdles(this);
 
 	_scene.clear();
 	_line = 0;
@@ -146,6 +149,50 @@ uint32 RoomScript::draw(uint n) {
 void RoomScript::restartIdle() {
 	// (rand() % 30 + 25) * 36, as the room's own entry sets it.
 	_idleDelay = (draw(30) + 25) * Room::kTicksPerSecond;
+}
+
+Common::String RoomHooks::idleLine(RoomScript &script, const Common::String &name) {
+	return script.getBaseIdleLine(name);
+}
+
+Common::String RoomScript::getIdleLine(const Common::String &name) {
+	return _hooks ? _hooks->idleLine(*this, name) : getBaseIdleLine(name);
+}
+
+Common::String RoomScript::getBaseIdleLine(const Common::String &name) {
+	// 0x40CB50: the room's name without its first five letters (ROOM_).
+	const Common::String &room = _room.getName();
+	Common::String line = Common::String(room.c_str() + MIN<uint>(5, room.size())) + ".Idle." + name;
+	if (_sound.findClip(line))
+		return line;
+	// Else r = rand() % r from 9: at 0 Global.Idle.<NAME>; above it the
+	// literal Global.Idle%d.<NAME>, tried and not found.
+	uint r = 9;
+	do {
+		r = _idleRandom ? _idleRandom->getRandomNumber(r - 1) : 0;
+		line = (r == 0 ? Common::String("Global.Idle.") : Common::String("Global.Idle%d.")) + name;
+	} while (!_sound.findClip(line) && r != 0);
+	return line;
+}
+
+void RoomScript::logState(const Character &c) {
+	if (!_stateLog)
+		return;
+	const int s = c.getSprite();
+	const Common::String &line = c.getState() == Character::kStateTalk ? c.getClipName() : c.getIdleSound();
+	_stateLog->push_back(Common::String::format("%s %d %s mode %d line %s countdown %d", c.getName().c_str(), c.getState(),
+	                                            s >= 0 ? _room.getAnim(s).c_str() : "-", s >= 0 ? _room.getMode(s) : 0,
+	                                            line.empty() ? "-" : line.c_str(), c.getIdleCountdown()));
+}
+
+bool RoomScript::clickCharacter(uint sprite) {
+	for (uint i = 0; i < _characters.size(); i++) {
+		if (_characters[i].getSprite() == (int)sprite) {
+			_characters[i].click();
+			return true;
+		}
+	}
+	return false;
 }
 
 void RoomScript::setup(const Common::String &opening, uint snacksNeeded, const Common::String &from) {

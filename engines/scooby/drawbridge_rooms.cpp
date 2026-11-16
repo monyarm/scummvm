@@ -270,6 +270,15 @@ void DrawbridgeRoom::event(const Common::String &object, bool success) {
 	_engine.getScript()->startScene(scene, false);
 }
 
+Common::String DrawbridgeRoom::idleLine(RoomScript &script, const Common::String &name) {
+	// 0x4272D0: the base line, but Velma's own here is Global.Idle.VELMA
+	// once the puzzle is done (+0xFC).
+	const Common::String line = script.getBaseIdleLine(name);
+	if (line == "P01_Drawbridge.Idle.VELMA" && _puzzleDone)
+		return "Global.Idle.VELMA";
+	return line;
+}
+
 bool DrawbridgeRoom::leaveBy(const Common::String &exitObject) {
 	// 0x426EA0: with no snack eaten here, Drawbridge.110A_ plays, blocking,
 	// and the snack box flashes, instead of leaving.

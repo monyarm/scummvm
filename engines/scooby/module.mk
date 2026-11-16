@@ -17,6 +17,7 @@ MODULE_OBJS = \
 	ghost_spot_room.o \
 	gummy_rooms.o \
 	hotel_rooms.o \
+	idle_check.o \
 	inventory.o \
 	jail_rooms.o \
 	menu_rooms.o \

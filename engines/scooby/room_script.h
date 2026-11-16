@@ -37,6 +37,7 @@ class RandomSource;
 namespace Scooby {
 
 class Room;
+class RoomScript;
 class Sound;
 
 /**
@@ -76,6 +77,12 @@ public:
 	 * click's event: @p sprite is the clickable.
 	 */
 	virtual void clicked(uint sprite) {}
+	/**
+	 * The idle line for the character @p name (room vtable +0x28), which a
+	 * character's state 4 says. The base class's is @p script's
+	 * getBaseIdleLine (0x40CB50).
+	 */
+	virtual Common::String idleLine(RoomScript &script, const Common::String &name);
 };
 
 /**
@@ -137,6 +144,34 @@ public:
 	RoomHooks *getHooks() const { return _hooks; }
 	/** For the ghost spot's openings and the idle timer (the original's rand()). */
 	void setRandom(Common::RandomSource *random) { _rng = random; }
+	/**
+	 * The characters' idles draw from @p random (the original's rand()):
+	 * their countdowns, which idle, and the idle line. Without one (the
+	 * checks but the idle check), characters stay in IDLE_MASTER.
+	 */
+	void setIdleRandom(Common::RandomSource *random) { _idleRandom = random; }
+	Common::RandomSource *getIdleRandom() const { return _idleRandom; }
+	/** The line a character's state 4 says: the room's class's (+0x28), or the base one. */
+	Common::String getIdleLine(const Common::String &name);
+	/**
+	 * 0x40CB50: <room without ROOM_>.Idle.<NAME> if it is on the disc, else
+	 * Global.Idle.<NAME>, after one try of Global.Idle%d.<NAME> (0x431EB0
+	 * joins strings without formatting) for each r = rand() % r from 9
+	 * down to 0.
+	 */
+	Common::String getBaseIdleLine(const Common::String &name);
+	/**
+	 * A click with the arrow on a character's sprite, seen by its update on
+	 * the next tick (0x404B70). Returns false if no character has it.
+	 */
+	bool clickCharacter(uint sprite);
+	/**
+	 * For the idle check: each state change of a character that sets its
+	 * countdown goes in @p log as "NAME state ANIM mode m line L countdown
+	 * c" (nullptr: none kept).
+	 */
+	void setStateLog(Common::Array<Common::String> *log) { _stateLog = log; }
+	void logState(const Character &c);
 	/** An object tells the room's class (game +0x40). */
 	void sendEvent(const Common::String &object, bool success);
 	/** An exit clicked: the room's class first (vtable +0x24), else startExit(). */
@@ -315,6 +350,8 @@ private:
 	// The base room's own fields.
 	RoomHooks *_hooks = nullptr;
 	Common::RandomSource *_rng = nullptr;
+	Common::RandomSource *_idleRandom = nullptr;
+	Common::Array<Common::String> *_stateLog = nullptr;
 	MemoryMap _memories;
 	Memory *_memory = nullptr;       // the current room's
 	Common::String _opening;         // +0x78

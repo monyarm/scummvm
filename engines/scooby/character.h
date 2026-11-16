@@ -27,20 +27,25 @@
 namespace Scooby {
 
 class Room;
+class RoomScript;
 class Sound;
 
 /**
  * A Gen 1 character (Scooby.exe 0x4048E0): a placement such as OBJ_FRED_A,
  * named FRED with the set _A, or the room's invisible narrator. Its state
  * picks the sequence it plays and, when that changes, the object holding it
- * (0x405190). Only the states the exit transition, the ghost and the story
- * rooms need are here.
+ * (0x405190). Only the states the exit transition, the ghost, the story
+ * rooms and the idles need are here.
  */
 class Character {
 public:
 	enum State {
 		kStateWalk = 0, // walk off, or turn in place: once, then stay
 		kStateEndWalk = 1, // ENDWALK_<direction>: walk in, once, then idle
+		kStateIdlePrimary = 2, // IDLE_P<n> once, with Global.Idle.<NAME>_P<n><set>, then idle; BLINK two times in three
+		kStateIdleSecondary = 3, // IDLE_S<n> once, with Global.Idle.<NAME>_S<n><set>, then idle
+		kStateIdleLine = 4, // the room's idle line (room vtable +0x28), said with the speech lock
+		kStateBlink = 5, // BLINK once, then idle
 		kStateIdle = 6, // IDLE_MASTER, looping
 		kStateStay = 7, // keep the last step
 		kStateTalk = 8, // TALKS, its step set by lip sync
@@ -66,12 +71,29 @@ public:
 
 	/**
 	 * Speak a clip (0x404DB0): at once if idle, else when the character is
-	 * next idle.
+	 * next idle. With @p takeLock, only if the speech lock is free: the
+	 * character lets it go once it stops talking (+0xB4), and a line said
+	 * at once starts the room's idle timer again.
 	 */
-	void say(Room &room, Sound &sound, const Common::String &clip);
+	void say(Room &room, Sound &sound, const Common::String &clip, bool takeLock = false);
 
-	/** Talking, or with a line waiting (0x406060). */
+	/** Talking, with a line waiting, or Scooby in his second idle (0x406060). */
 	bool isBusy() const;
+
+	/**
+	 * The idles, for a character in @p script's room: the countdown (+0x5C)
+	 * and its cap (+0x98), as the constructor and the placement set them
+	 * (0x4048E0, 0x4091FF, 0x409670). They run only while the script has an
+	 * idle random source.
+	 */
+	void startIdles(RoomScript *script);
+	/** Clicked with the arrow (+0x08 and game +0x20 bit 4), seen by the next update. */
+	void click() { _clicked = true; }
+	int getIdleCountdown() const { return _countdown; }
+	int getIdleCap() const { return _idleCap; }
+	/** The Global.Idle line the last idle (state 2 or 3) played, or empty. */
+	const Common::String &getIdleSound() const { return _idleSound; }
+	bool holdsSpeechLock() const { return _holdsLock; }
 	/** The line being spoken, or last spoken (+0x7C). */
 	const Common::String &getClipName() const { return _clip; }
 
@@ -114,6 +136,14 @@ public:
 	void walkIn(Room &room, Sound &sound, const Common::String &direction);
 
 private:
+	/** rand() % @p n from the script's idle source. */
+	uint idleDraw(uint n);
+	/**
+	 * 0x405CE0: @p prefix and the first digit that makes an ANIM, the digit
+	 * r + 1 as r = rand() % r goes down from 9 to 0. Returns 0 if none does.
+	 */
+	int findIdle(Room &room, const Common::String &prefix, Common::String &anim);
+
 	Common::String _name;
 	Common::String _set;
 	int _sprite;
@@ -126,6 +156,12 @@ private:
 	Common::String _action;    // +0x8C
 	Common::String _inFrom;    // +0xAC: the walk-in's direction
 	int _depth = 0;            // +0x9C: the depth to go back to after it
+	RoomScript *_script = nullptr;
+	int _countdown = 0;        // +0x5C: ticks to the next idle
+	int _idleCap = 0;          // +0x98: the countdown's most
+	bool _holdsLock = false;   // +0xB4: talking with the speech lock
+	bool _clicked = false;     // +0x08 with game +0x20 bit 4
+	Common::String _idleSound;
 };
 
 } // End of namespace Scooby

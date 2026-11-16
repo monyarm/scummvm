@@ -46,6 +46,7 @@ public:
 	void saveKeys(Common::INIFile &profile) override;                              // 0x427010
 	void loadKeys(const Common::INIFile &profile) override;                        // 0x427140
 	void actorUpdate(uint sprite) override;                                        // the flags' +0x0C, 0x427430
+	Common::String idleLine(RoomScript &script, const Common::String &name) override; // 0x4272D0
 
 	static const uint kFlags = 4;
 
