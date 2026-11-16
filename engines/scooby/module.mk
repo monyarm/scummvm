@@ -11,6 +11,8 @@ MODULE_OBJS = \
 	corral_rooms.o \
 	character.o \
 	clues.o \
+	ghost_spot_check.o \
+	ghost_spot_room.o \
 	gummy_rooms.o \
 	hotel_rooms.o \
 	inventory.o \

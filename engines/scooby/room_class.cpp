@@ -23,6 +23,7 @@
 
 #include "scooby/alley_rooms.h"
 #include "scooby/detection.h"
+#include "scooby/ghost_spot_room.h"
 #include "scooby/gummy_rooms.h"
 #include "scooby/hotel_rooms.h"
 #include "scooby/jail_rooms.h"
@@ -167,6 +168,8 @@ static RoomClass *buildRoomClass(ScoobyEngine &engine, const Common::String &roo
 		return new SuspectChooserRoom(engine);
 	if (room == "ROOM_Big_Head")
 		return new BigHeadRoom(engine);
+	if (room == "ROOM_Ghost_Spot")
+		return new GhostSpotRoom(engine);
 	// Showdown's chase (chase_rooms.cpp).
 	if (RoomClass *chase = createChaseRoom(engine, room))
 		return chase;
