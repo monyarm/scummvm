@@ -1503,6 +1503,10 @@ bool ScoobyEngine::showRoom(const Common::String &name) {
 	// The room left hears of it (vtable +0x10, from the room unload 0x435CD0).
 	if (_roomClass)
 		_roomClass->roomLeft();
+	// Then the unload stops the effects and the voice lines, not the music
+	// (0x434E10).
+	if (_sound)
+		_sound->stopEffects();
 	// The room's own class sees each placement first (vtable +0x18).
 	RoomClass *roomClass = _inventory ? getRoomClass(name) : nullptr;
 	_currentRoom->setPlacementHook(roomClass);

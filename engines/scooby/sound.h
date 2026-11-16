@@ -57,18 +57,27 @@ public:
 
 	/**
 	 * Play a clip on the mixer channel for its file (SFX, speech or music),
-	 * at its own volume, looping if its loop flag is set. Speech and music
-	 * have one handle each, so a clip stops the one its file played before,
-	 * and a voice line doesn't stop the music. Sfx.dat's clips each have
-	 * their own (0x43CC20): another effect plays on, and the same one starts
-	 * again. Returns false if the clip isn't found.
+	 * at its own volume, looping if its loop flag is set. By the file's type
+	 * (0x43CC20):
+	 * - Sfx.dat's clips each have a handle of their own: another effect
+	 *   plays on, and the same one starts again.
+	 * - Voice.dat's clips get a new stream each play, and other lines play
+	 *   on. A line played again starts over on a new stream; the old one plays
+	 *   on to its end, out of reach of the clip's name.
+	 * - Music.dat has one handle: a track stops the one before.
+	 * Voice and music share the driver's four streams (0x4428A0); with all
+	 * four playing, a line or track plays nothing.
+	 * Returns false if the clip isn't found.
 	 * A @p background clip (the room's music) doesn't become the clip
 	 * played last.
 	 */
 	bool play(const Common::String &name, bool background = false);
 	/** Stop every file's clip. */
 	void stop();
-	/** Stop the SFX and speech files' clips, not the music (0x434E10). */
+	/**
+	 * Stop the SFX and speech files' clips, not the music (0x434E10). A voice
+	 * line its clip's name no longer reaches plays on.
+	 */
 	void stopEffects();
 	/** Stop @p name if it is playing (0x434CB0, by id). */
 	void stopClip(const Common::String &name);
@@ -133,6 +142,8 @@ private:
 		byte volume = 0;          // the clip's own, for the mixer
 		byte lipSyncFps;
 		Common::Array<byte> lipSync;
+		/** False once the same clip plays again: its name finds the new stream. */
+		bool named = true;
 	};
 
 	const Channel *findChannel(const Common::String &name) const;
@@ -142,7 +153,12 @@ private:
 	/** Sfx.dat clips still playing that a later Sfx.dat clip left alone (0x43CC20). */
 	Common::Array<Channel> _sfxEarlier;
 	static const uint kSfxEarlier = 16;
-	void stopEarlierEffects();
+	/** Voice.dat lines still playing from before the one played last (0x43CC20). */
+	Common::Array<Channel> _voiceEarlier;
+	/** The driver's stream slots, which voice and music share (0x4428A0). */
+	static const uint kStreams = 4;
+	uint streamsPlaying() const;
+	void stopEarlierEffects(bool unnamed);
 
 	/** The music's channel volume: its clip's, at the music's percent (0x43C940). */
 	void applyMusicPercent();

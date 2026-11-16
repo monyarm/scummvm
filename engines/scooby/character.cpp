@@ -134,9 +134,11 @@ void Character::setState(Room &room, Sound &sound, int state) {
 		_next = kStateActLoop;
 		break;
 	case kStateStayScared:
-		// The line being spoken stops; each file has one handle, so the
-		// scared line replaces it on the speech channel.
+		// The line being spoken stops (0x434CB0 on +0x7C), and
+		// Global.Scared.<NAME> plays.
 		anim = Common::String::format("ANIM_%s%sSTAY_SCARED", _name.c_str(), _set.c_str());
+		if (!_clip.empty())
+			sound.stopClip(_clip);
 		_clip = Common::String::format("Global.Scared.%s", _name.c_str());
 		sound.play(_clip);
 		_next = kStateStay;

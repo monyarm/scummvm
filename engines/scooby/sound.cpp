@@ -100,12 +100,44 @@ bool Sound::play(const Common::String &name, bool background) {
 			_sfxEarlier.push_back(c);
 			c.handle = Audio::SoundHandle();
 		}
+	} else if (f == kVoice) {
+		// 0x43CC20 makes each Voice.dat play a stream of its own (0x4428A0)
+		// and frees no other clip's, so earlier lines play on to their ends.
+		// A line played again gets a new stream too: its name then finds the
+		// new one, and the old one plays on out of reach.
+		for (uint i = 0; i < _voiceEarlier.size();) {
+			if (!_mixer->isSoundHandleActive(_voiceEarlier[i].handle)) {
+				_voiceEarlier.remove_at(i);
+				continue;
+			}
+			if (_voiceEarlier[i].name.equalsIgnoreCase(clip->name))
+				_voiceEarlier[i].named = false;
+			i++;
+		}
+		if (_mixer->isSoundHandleActive(c.handle)) {
+			_voiceEarlier.push_back(c);
+			_voiceEarlier.back().named = !c.name.equalsIgnoreCase(clip->name);
+			c.handle = Audio::SoundHandle();
+		}
 	}
 	if (_mixer->isSoundHandleActive(c.handle))
 		_mixer->stopHandle(c.handle);
 	c.lipSyncFps = clip->lipSyncFps;
 	if (!_archives[f].readLipSync(*clip, c.lipSync))
 		c.lipSync.clear();
+
+	if (f != kSfx && streamsPlaying() >= kStreams) {
+		// The driver has four streams (0x4428A0). With all four playing the
+		// original logs "Failed to create stream", and the clip plays nothing.
+		// The mixer's 32 slots hold these four and the effects.
+		delete stream;
+		c.name = clip->name;
+		c.lipSync.clear();
+		if (!background)
+			_last = f;
+		debugC(1, kDebugAudio, "Failed to create stream for %s: %u streams playing", clip->name.c_str(), kStreams);
+		return true;
+	}
 
 	// The volume byte is a percentage. Looping is the flag at +0x0C, an
 	// inference that fits the 10 music tracks and 3 ambient effects that set
@@ -123,16 +155,37 @@ bool Sound::play(const Common::String &name, bool background) {
 	return true;
 }
 
-void Sound::stopEarlierEffects() {
+uint Sound::streamsPlaying() const {
+	uint n = 0;
+	for (uint f = kVoice; f <= kMusic; f++)
+		n += _mixer->isSoundHandleActive(_channels[f].handle) ? 1 : 0;
+	for (uint i = 0; i < _voiceEarlier.size(); i++)
+		n += _mixer->isSoundHandleActive(_voiceEarlier[i].handle) ? 1 : 0;
+	return n;
+}
+
+void Sound::stopEarlierEffects(bool unnamed) {
 	for (uint i = 0; i < _sfxEarlier.size(); i++) {
 		if (_mixer && _mixer->isSoundHandleActive(_sfxEarlier[i].handle))
 			_mixer->stopHandle(_sfxEarlier[i].handle);
 	}
 	_sfxEarlier.clear();
+	// 0x43C850 frees the streams the clips' names hold; a line played over
+	// by itself has none, and plays on.
+	for (uint i = 0; i < _voiceEarlier.size();) {
+		const bool active = _mixer && _mixer->isSoundHandleActive(_voiceEarlier[i].handle);
+		if (active && !_voiceEarlier[i].named && !unnamed) {
+			i++;
+			continue;
+		}
+		if (active)
+			_mixer->stopHandle(_voiceEarlier[i].handle);
+		_voiceEarlier.remove_at(i);
+	}
 }
 
 void Sound::stop() {
-	stopEarlierEffects();
+	stopEarlierEffects(true);
 	for (uint f = 0; f < kFileCount; f++) {
 		if (_mixer && _mixer->isSoundHandleActive(_channels[f].handle))
 			_mixer->stopHandle(_channels[f].handle);
@@ -141,7 +194,7 @@ void Sound::stop() {
 }
 
 void Sound::stopEffects() {
-	stopEarlierEffects();
+	stopEarlierEffects(false);
 	for (uint f = kSfx; f <= kVoice; f++) {
 		if (_mixer && _mixer->isSoundHandleActive(_channels[f].handle))
 			_mixer->stopHandle(_channels[f].handle);
@@ -166,6 +219,12 @@ const Sound::Channel *Sound::findChannel(const Common::String &name) const {
 	for (uint i = 0; i < _sfxEarlier.size(); i++) {
 		const Channel &c = _sfxEarlier[i];
 		if (c.name.equalsIgnoreCase(name) && _mixer->isSoundHandleActive(c.handle))
+			return &c;
+	}
+	// The original reads a clip by its id, which holds its newest stream.
+	for (uint i = 0; i < _voiceEarlier.size(); i++) {
+		const Channel &c = _voiceEarlier[i];
+		if (c.named && c.name.equalsIgnoreCase(name) && _mixer->isSoundHandleActive(c.handle))
 			return &c;
 	}
 	return nullptr;
