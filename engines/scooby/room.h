@@ -145,6 +145,8 @@ public:
 	bool isStopped(uint sprite) const { return !_sprites[sprite].animated || _sprites[sprite].player.mode == 0; }
 	/** Show @p step of the sprite's sequence, clamped to its last step. */
 	void setStep(uint sprite, uint32 step);
+	/** Set the step with no limit, as 0x41B2C0 does: a step past the last shows the frame its reference reads, if any. */
+	void setStepPast(uint sprite, uint32 step);
 
 	/** A placement the default path built as a clickableobject (0x408DC0). */
 	bool isClickable(uint sprite) const { return _sprites[sprite].kind == kKindClickable; }
@@ -239,9 +241,18 @@ public:
 	 * walk.
 	 */
 	void setActor(uint sprite, Actor *actor);
-	/** Pause a sprite and its subtree (+0x30): neither player nor update runs. */
+	/** Mark a sprite done (+0x30): its subtree is skipped by the walk, and in a room with actors deleted after it (0x431190). */
 	void setPaused(uint sprite, bool paused) { _sprites[sprite].paused = paused; }
 	bool isPaused(uint sprite) const { return _sprites[sprite].paused; }
+	/** Take a sprite and its subtree out of the tree (a sprite deleted): neither drawn, hit nor ticked. */
+	void detachSprite(uint sprite);
+	bool isDetached(uint sprite) const { return _sprites[sprite].detached; }
+	/** A sprite's own hit test at (x, y) (its vtable +0x14): its polygon or its cels, by its hit type. */
+	bool hitsPoint(uint sprite, int x, int y);
+	/** The current frame's first cel: its place on the surface and its size. False with no frame. */
+	bool getFrameRect(uint sprite, int &x, int &y, int &width, int &height);
+	/** The width of the first cel of @p step's frame in the sprite's sequence, or 0. */
+	int getStepCelWidth(uint sprite, uint step);
 
 	/** Show the OBJ_CURSOR sprite playing @p anim at (x, y); an empty name hides it. */
 	bool setCursor(const Common::String &anim);
@@ -299,11 +310,14 @@ private:
 		Common::Array<uint> children; // indexes into _sprites, by descending depth
 		Actor *actor = nullptr;       // its update, if it has one
 		bool paused = false;          // +0x30: its subtree isn't ticked
+		bool detached = false;        // deleted: out of the tree
 	};
 
 	uint addSprite(uint parent, const Sprite &sprite);
 	void frontToBack(uint index, Common::Array<uint> &out) const;
-	void walkTick(uint index, Common::Array<bool> &done, bool &changed);
+	void walkTick(uint index, bool &changed);
+	/** The child after @p child among its parent's children, or -1. */
+	int nextSibling(uint child) const;
 	void insertChild(uint parent, uint index);
 	void placeSubtree(uint index);
 	void buildDrawList();

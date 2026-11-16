@@ -57,9 +57,11 @@ public:
 
 	/**
 	 * Play a clip on the mixer channel for its file (SFX, speech or music),
-	 * at its own volume, looping if its loop flag is set. Each file has one
-	 * handle, so a clip stops the one its file played before, and a voice
-	 * line doesn't stop the music. Returns false if the clip isn't found.
+	 * at its own volume, looping if its loop flag is set. Speech and music
+	 * have one handle each, so a clip stops the one its file played before,
+	 * and a voice line doesn't stop the music. Sfx.dat's clips each have
+	 * their own (0x43CC20): another effect plays on, and the same one starts
+	 * again. Returns false if the clip isn't found.
 	 * A @p background clip (the room's music) doesn't become the clip
 	 * played last.
 	 */
@@ -137,6 +139,10 @@ private:
 
 	Channel _channels[kFileCount];
 	File _last;
+	/** Sfx.dat clips still playing that a later Sfx.dat clip left alone (0x43CC20). */
+	Common::Array<Channel> _sfxEarlier;
+	static const uint kSfxEarlier = 16;
+	void stopEarlierEffects();
 
 	/** The music's channel volume: its clip's, at the music's percent (0x43C940). */
 	void applyMusicPercent();

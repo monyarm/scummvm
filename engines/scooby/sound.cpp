@@ -77,6 +77,30 @@ bool Sound::play(const Common::String &name, bool background) {
 		return false;
 
 	Channel &c = _channels[f];
+	if (f == kSfx) {
+		// 0x43CC20 gives each Sfx.dat clip a buffer of its own: another
+		// clip goes on playing, and the same clip starts again.
+		for (uint i = 0; i < _sfxEarlier.size();) {
+			if (!_mixer->isSoundHandleActive(_sfxEarlier[i].handle)) {
+				_sfxEarlier.remove_at(i);
+			} else if (_sfxEarlier[i].name.equalsIgnoreCase(clip->name)) {
+				_mixer->stopHandle(_sfxEarlier[i].handle);
+				_sfxEarlier.remove_at(i);
+			} else {
+				i++;
+			}
+		}
+		if (_mixer->isSoundHandleActive(c.handle) && !c.name.equalsIgnoreCase(clip->name)) {
+			// The mixer has 32 slots, DirectSound no such limit: past
+			// kSfxEarlier effects at once, the oldest stops.
+			if (_sfxEarlier.size() >= kSfxEarlier) {
+				_mixer->stopHandle(_sfxEarlier[0].handle);
+				_sfxEarlier.remove_at(0);
+			}
+			_sfxEarlier.push_back(c);
+			c.handle = Audio::SoundHandle();
+		}
+	}
 	if (_mixer->isSoundHandleActive(c.handle))
 		_mixer->stopHandle(c.handle);
 	c.lipSyncFps = clip->lipSyncFps;
@@ -99,7 +123,16 @@ bool Sound::play(const Common::String &name, bool background) {
 	return true;
 }
 
+void Sound::stopEarlierEffects() {
+	for (uint i = 0; i < _sfxEarlier.size(); i++) {
+		if (_mixer && _mixer->isSoundHandleActive(_sfxEarlier[i].handle))
+			_mixer->stopHandle(_sfxEarlier[i].handle);
+	}
+	_sfxEarlier.clear();
+}
+
 void Sound::stop() {
+	stopEarlierEffects();
 	for (uint f = 0; f < kFileCount; f++) {
 		if (_mixer && _mixer->isSoundHandleActive(_channels[f].handle))
 			_mixer->stopHandle(_channels[f].handle);
@@ -108,6 +141,7 @@ void Sound::stop() {
 }
 
 void Sound::stopEffects() {
+	stopEarlierEffects();
 	for (uint f = kSfx; f <= kVoice; f++) {
 		if (_mixer && _mixer->isSoundHandleActive(_channels[f].handle))
 			_mixer->stopHandle(_channels[f].handle);
@@ -127,6 +161,11 @@ const Sound::Channel *Sound::findChannel(const Common::String &name) const {
 	for (uint f = 0; f < kFileCount; f++) {
 		const Channel &c = _channels[f];
 		if (!c.name.empty() && c.name.equalsIgnoreCase(name) && _mixer->isSoundHandleActive(c.handle))
+			return &c;
+	}
+	for (uint i = 0; i < _sfxEarlier.size(); i++) {
+		const Channel &c = _sfxEarlier[i];
+		if (c.name.equalsIgnoreCase(name) && _mixer->isSoundHandleActive(c.handle))
 			return &c;
 	}
 	return nullptr;
@@ -204,9 +243,9 @@ void Sound::setFilePercent(const Common::String &name, uint percent) {
 		return;
 	}
 	_filePercent[f] = percent;
-	const Channel &c = _channels[f];
-	if (_mixer && !c.name.empty() && c.name.equalsIgnoreCase(name) && _mixer->isSoundHandleActive(c.handle))
-		_mixer->setChannelVolume(c.handle, (byte)(c.volume * percent / 100));
+	const Channel *c = findChannel(name);
+	if (_mixer && c)
+		_mixer->setChannelVolume(c->handle, (byte)(c->volume * percent / 100));
 	debugC(1, kDebugAudio, "%s's file at %u%%", name.c_str(), percent);
 }
 

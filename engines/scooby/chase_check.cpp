@@ -28,6 +28,7 @@
 #include "scooby/character.h"
 #include "scooby/chase_rooms.h"
 #include "scooby/corral_rooms.h"
+#include "scooby/pienoon_rooms.h"
 #include "scooby/detection.h"
 #include "scooby/gummy_rooms.h"
 #include "scooby/room_setup.h"
@@ -4501,6 +4502,452 @@ void ScoobyEngine::checkChases() {
 			       scooby, rascal, _currentRoom->getStep(c->getScoobyPile()), _currentRoom->getStep(c->getRascalPile()), paused,
 			       _inventory->getSnacks() == 1 + ringers ? 1 : 0, run.next.c_str(), run.movie);
 		}
+		setDifficulty(0);
+		_script->setGhostChance(&_randomSource, ConfMan.hasKey("ghost_chance") ? (uint)ConfMan.getInt("ghost_chance") : 30);
+	}
+	// Pie Noon (WP-055).
+	{
+		const char *const kPie = "ROOM_P32_Pie_Noon";
+		_script->setGhostChance(nullptr, 0);
+		{
+			RoomClass *c = createRoomClass(*this, kPie);
+			debugC(3, kDebugScript, "pie noon check classes: Pie Noon %s", dynamic_cast<PieNoonRoom *>(c) ? "pie noon" : "-");
+			delete c;
+		}
+		auto pie = [&]() { return dynamic_cast<PieNoonRoom *>(_roomClass); };
+		auto bare = [&](int s) {
+			return Common::String::format("%s %s mode %d step %u depth %d hit %d", _currentRoom->getObjectName(s).c_str(), _currentRoom->getAnim(s).c_str(),
+			                              _currentRoom->getMode(s), _currentRoom->getStep(s), _currentRoom->getDepth(s), _currentRoom->getHitType(s));
+		};
+		auto sprite = [&](int s) {
+			if (s < 0)
+				return Common::String("none");
+			return bare(s) + Common::String::format(" at %d %d", _currentRoom->getOffsetX(s), _currentRoom->getOffsetY(s));
+		};
+		auto enterPie = [&](int level) {
+			newGameForCheck();
+			setDifficulty(level);
+			_mouseDown = false;
+			_mousePos = Common::Point(4, 400);
+			fresh.room(kPie);
+		};
+		// The sounds played whose names start with @p a or @p b, each number
+		// after @p mask shown as n (a random pick).
+		auto sounds = [&](const char *a, const char *b, const char *mask) {
+			const Common::String all = pie()->getSounds();
+			Common::String out;
+			uint start = 0;
+			while (start < all.size()) {
+				const char *at = strstr(all.c_str() + start, ", ");
+				const uint end = at ? (uint)(at - all.c_str()) : all.size();
+				Common::String e(all.c_str() + start, end - start);
+				if (e.hasPrefix(a) || (b && e.hasPrefix(b))) {
+					const char *m = mask ? strstr(e.c_str(), mask) : nullptr;
+					if (m && Common::isDigit(m[strlen(mask)]))
+						e.setChar('n', (m - e.c_str()) + strlen(mask));
+					if (!out.empty())
+						out += ", ";
+					out += e;
+				}
+				start = end + 2;
+			}
+			return out;
+		};
+		auto count = [&](const char *what) {
+			int n = 0;
+			for (const char *at = strstr(pie()->getSounds().c_str(), what); at; at = strstr(at + 1, what))
+				n++;
+			return n;
+		};
+		auto pies = [&]() {
+			int n = 0;
+			for (uint i = 0; i < PieNoonRoom::kPies; i++)
+				n += pie()->getPie(i) ? 1 : 0;
+			return n;
+		};
+		auto traj = [&](Common::String &out, uint t, const PieNoonRoom::Pie *p) {
+			if (p)
+				out += Common::String::format("%s%u:%.3f/%u/%d", out.empty() ? "" : " ", t, p->z, p->step, (int)p->size);
+		};
+
+		// The stage.
+		{
+			enterPie(0);
+			PieNoonRoom *c = pie();
+			Common::String out = Common::String::format("Scooby %g-%g at %g; ghost %g %g %g %g at %g; starts", c->getScoobyMin(), c->getScoobyMax(),
+			                                            c->getScoobyY(), c->getGhostX(0), c->getGhostX(1), c->getGhostX(2), c->getGhostX(3), c->getGhostY());
+			for (uint i = 0; i < 5; i++)
+				out += Common::String::format(" (%g,%g)", c->getStartX(i), c->getStartY(i));
+			out += Common::String::format("; slopes %.7f %.7f %.7f %.7f; lanes", c->getSlope(0), c->getSlope(1), c->getSlope(2), c->getSlope(3));
+			for (uint l = 0; l < 3; l++)
+				out += Common::String::format("%s %u %.4f-%.4f at %g", l ? "," : "", l, c->getLaneA(l), c->getLaneB(l), c->getLaneY(l));
+			out += "; edges";
+			const float zs[3] = { c->getGhostY(), c->getLaneY(1), c->getScoobyY() };
+			for (uint k = 0; k < 3; k++)
+				out += Common::String::format("%s %g: %.4f %.4f %.4f %.4f", k ? "," : "", zs[k], c->leftInner(zs[k]), c->rightInner(zs[k]), c->leftOuter(zs[k]),
+				                              c->rightOuter(zs[k]));
+			debugC(3, kDebugScript, "pie noon check stage: %s", out.c_str());
+
+			// Entry.
+			static const char *const kOverlays[4] = { "FR", "FL", "BR", "BL" };
+			out = "overlays";
+			for (uint i = 0; i < 4; i++)
+				out += Common::String::format("%s %s %s", i ? "," : "", kOverlays[i], sprite(c->getOverlay(i)).c_str());
+			int built = 0;
+			for (uint s = 0; s < _currentRoom->getSpriteCount(); s++) {
+				const Common::String &o = _currentRoom->getObjectName(s);
+				if (!_currentRoom->isEngineSprite(s) && (o == "OBJ_PIE_NOON_SCOOBY" || o == "OBJ_PIE_NOON_GHOST" || o == "OBJ_PIE_NOON_FRED" ||
+				                                         o == "OBJ_PIE_NOON_VELMA" || o == "OBJ_PIE_NOON_SHAGGY" || o == "OBJ_PIE_NOON_DAPHNE"))
+					built++;
+			}
+			out += Common::String::format("; clock %s; tens %s; ones %s; Scooby %s state %d right %d throws %d; ghost %s state %d countdown %d right %d hidden %d",
+			                              sprite(c->getClock()).c_str(), sprite(c->getTens()).c_str(), sprite(c->getOnes()).c_str(), sprite(c->getScooby()).c_str(),
+			                              c->getScoobyState(), c->isScoobyRight() ? 1 : 0, c->getThrows(), sprite(c->getGhost()).c_str(), c->getGhostState(),
+			                              c->getGhostCountdown(), c->isGhostRight() ? 1 : 0, c->isGhostHidden() ? 1 : 0);
+			out += Common::String::format("; placements built %d; lanes %d %d %d, timers %d %d %d; intro %d, chime %d; sounds %s", built, c->getLaneState(0),
+			                              c->getLaneState(1), c->getLaneState(2), c->getLaneTimer(0), c->getLaneTimer(1), c->getLaneTimer(2), c->isIntro() ? 1 : 0,
+			                              c->isChiming() ? 1 : 0, sounds("Pie_Noon.", nullptr, nullptr).c_str());
+			debugC(3, kDebugScript, "pie noon check entry: %s", out.c_str());
+		}
+		{
+			Common::String out;
+			for (int level = 0; level < 3; level++) {
+				enterPie(level);
+				out += Common::String::format("%s%d step %u", level ? ", " : "", level, _currentRoom->getStep(pie()->getClock()));
+			}
+			debugC(3, kDebugScript, "pie noon check clock levels: %s", out.c_str());
+		}
+
+		// The ghost's states, from idle to the right.
+		{
+			static const int kStates[] = { 1, 2, 5, 4, 6, 7, 8 };
+			Common::String out;
+			for (uint k = 0; k < ARRAYSIZE(kStates); k++) {
+				enterPie(0);
+				PieNoonRoom *c = pie();
+				c->clearSounds();
+				c->setGhost(kStates[k]);
+				const int g = c->getGhost();
+				Common::String smoke = "none";
+				if (c->getSmoke() >= 0) {
+					smoke = bare(c->getSmoke()) + Common::String::format(" at its place %d", _currentRoom->getOffsetX(c->getSmoke()) == (int)c->getGhostXNow() &&
+					                                                                           _currentRoom->getOffsetY(c->getSmoke()) == (int)c->getGhostY() ? 1 : 0);
+					if (kStates[k] == 7)
+						smoke += Common::String::format(", along its row %d", c->getGhostX(0) <= c->getGhostXNow() && c->getGhostXNow() <= c->getGhostX(3) ? 1 : 0);
+				}
+				out += Common::String::format("%s%d: state %d %s mode %d countdown %d right %d hidden %d, smoke %s; sounds %s", k ? "; " : "", kStates[k],
+				                              c->getGhostState(), _currentRoom->getAnim(g).c_str(), _currentRoom->getMode(g), c->getGhostCountdown(),
+				                              c->isGhostRight() ? 1 : 0, c->isGhostHidden() ? 1 : 0, smoke.c_str(), sounds("Pie_Noon.", nullptr, "Good_Job.").c_str());
+			}
+			debugC(3, kDebugScript, "pie noon check ghost: %s", out.c_str());
+		}
+
+		// Runners across their lanes.
+		{
+			struct Cross {
+				uint which, lane;
+				bool right;
+			};
+			static const Cross kCross[] = { { PieNoonRoom::kFred, 1, true }, { PieNoonRoom::kVelma, 0, false } };
+			Common::String out;
+			for (uint k = 0; k < ARRAYSIZE(kCross); k++) {
+				enterPie(0);
+				PieNoonRoom *c = pie();
+				c->spawnRunner(kCross[k].which, kCross[k].lane, kCross[k].right);
+				const PieNoonRoom::Runner *r = c->getRunner(kCross[k].which);
+				const int s = r->sprite;
+				out += Common::String::format("%s%s lane %u %s: %s, speed %.4f, target %.4f", k ? "; " : "", r->name.c_str(), kCross[k].lane,
+				                              kCross[k].right ? "right" : "left", sprite(s).c_str(), r->speed, r->target);
+				int gone = -1;
+				for (uint t = 1; t <= 400 && gone < 0; t++) {
+					tick1();
+					if (!c->getRunner(kCross[k].which))
+						gone = t;
+				}
+				out += Common::String::format("; gone at tick %d, deleted %d, slot free %d", gone, _currentRoom->isDetached(s) ? 1 : 0,
+				                              c->getRunner(kCross[k].which) ? 0 : 1);
+			}
+			debugC(3, kDebugScript, "pie noon check runners: %s", out.c_str());
+		}
+
+		// A pie from Scooby's row at the ghost.
+		{
+			enterPie(0);
+			PieNoonRoom *c = pie();
+			const int i = c->throwPie(276, c->getScoobyY());
+			Common::String path;
+			int hit = -1;
+			for (uint t = 1; t <= 60 && hit < 0; t++) {
+				tick1();
+				traj(path, t, c->getPie(i));
+				if (c->getGhostState() == 1)
+					hit = t;
+			}
+			const PieNoonRoom::Pie *p = c->getPie(i);
+			const int g = c->getGhost();
+			Common::String out = Common::String::format("from 276: %s; at tick %d ghost state %d %s countdown %d; sounds %s; snacks %u, counter %u %u; pie %s mode %d depth %d",
+			                                            path.c_str(), hit, c->getGhostState(), _currentRoom->getAnim(g).c_str(), c->getGhostCountdown(),
+			                                            sounds("Pie_Noon.Ghost_", "Pie_Noon.Good_Job", "Good_Job.").c_str(), _inventory->getSnacks(),
+			                                            _currentRoom->getStep(c->getTens()), _currentRoom->getStep(c->getOnes()),
+			                                            p ? _currentRoom->getAnim(p->sprite).c_str() : "none", p ? _currentRoom->getMode(p->sprite) : -1,
+			                                            p ? _currentRoom->getDepth(p->sprite) : -1);
+			int gone = -1, out1 = -1, to = -1;
+			for (uint t = hit + 1; t <= (uint)hit + 60 && (gone < 0 || out1 < 0); t++) {
+				tick1();
+				if (gone < 0 && !c->getPie(i))
+					gone = t;
+				if (out1 < 0 && c->getGhostState() != 1) {
+					out1 = t;
+					to = c->getGhostState();
+				}
+			}
+			out += Common::String::format("; pie gone at tick %d; ghost out of its hit at tick %d to 4 or 5 %d", gone, out1, to == 4 || to == 5 ? 1 : 0);
+			debugC(3, kDebugScript, "pie noon check ghost hit: %s", out.c_str());
+		}
+
+		// Pies from Scooby's row at runners.
+		{
+			struct Throw {
+				uint which, lane;
+				bool right;
+				uint k;
+				int x;
+			};
+			// Earlier checks may have splatted: the splats' count from 0 here.
+			PieNoonRoom::setSplat(0);
+			static const Throw kThrows[] = { { PieNoonRoom::kFred, 1, true, 38, 362 }, { PieNoonRoom::kDaphne, 2, false, 30, 326 } };
+			Common::String out;
+			for (uint n = 0; n < ARRAYSIZE(kThrows); n++) {
+				const Throw &th = kThrows[n];
+				enterPie(0);
+				PieNoonRoom *c = pie();
+				c->spawnRunner(th.which, th.lane, th.right);
+				const Common::String name = c->getRunner(th.which)->name;
+				const Common::String miss = Common::String::format("Pie_Noon.%s_Miss", name.c_str());
+				for (uint t = 1; t <= th.k; t++)
+					tick1();
+				const int i = c->throwPie(th.x, c->getScoobyY());
+				Common::String misses;
+				int hit = -1;
+				float at = 0;
+				for (uint t = th.k + 1; t <= th.k + 60 && hit < 0; t++) {
+					const int m = count("_Miss found");
+					tick1();
+					if (count("_Miss found") > m)
+						misses += Common::String::format("%s%u", misses.empty() ? "" : " ", t);
+					const PieNoonRoom::Runner *r = c->getRunner(th.which);
+					if (r && r->state == 1) {
+						hit = t;
+						at = r->x;
+					}
+				}
+				const PieNoonRoom::Runner *r = c->getRunner(th.which);
+				const PieNoonRoom::Pie *p = c->getPie(i);
+				const Common::String prefix = Common::String::format("Pie_Noon.%s_", name.c_str());
+				out += Common::String::format("%s%s lane %u %s, thrown at tick %u from %d: misses at %s (%s found %d); hit at tick %d at %.2f; %s mode %d flash %d state %d; "
+				                              "sounds %s; pie %s mode %d depth %d",
+				                              n ? "; " : "", name.c_str(), th.lane, th.right ? "right" : "left", th.k, th.x, misses.empty() ? "none" : misses.c_str(),
+				                              miss.c_str(), _sound->findClip(miss) ? 1 : 0, hit, at, r ? _currentRoom->getAnim(r->sprite).c_str() : "none",
+				                              r ? _currentRoom->getMode(r->sprite) : -1, r ? r->flash : -1, r ? r->state : -1,
+				                              sounds(prefix.c_str(), "Pie_Noon.Splat", "_Hit.").c_str(), p ? _currentRoom->getAnim(p->sprite).c_str() : "none",
+				                              p ? _currentRoom->getMode(p->sprite) : -1, p ? _currentRoom->getDepth(p->sprite) : -1);
+				int gone = -1, again = -1, gone2 = -1;
+				uint most = 0;
+				for (uint t = hit + 1; t <= (uint)hit + 400 && gone2 < 0; t++) {
+					tick1();
+					if (gone < 0 && !c->getPie(i))
+						gone = t;
+					r = c->getRunner(th.which);
+					if (again < 0) {
+						if (r && r->state == 1)
+							most = r->hitTicks;
+						else
+							again = t;
+					}
+					if (!r)
+						gone2 = t;
+				}
+				out += Common::String::format("; pie gone at tick %d; running again at tick %d after %u hit ticks; gone at tick %d", gone, again, most, gone2);
+			}
+			debugC(3, kDebugScript, "pie noon check runner hit: %s", out.c_str());
+		}
+
+		// A pie from the ghost's row at Scooby, standing at the left.
+		{
+			enterPie(0);
+			PieNoonRoom *c = pie();
+			const int i = c->throwPie(240, c->getGhostY());
+			Common::String path;
+			int hit = -1;
+			for (uint t = 1; t <= 60 && hit < 0; t++) {
+				tick1();
+				traj(path, t, c->getPie(i));
+				if (c->getScoobyState() == 0)
+					hit = t;
+			}
+			const PieNoonRoom::Pie *p = c->getPie(i);
+			const int s = c->getScooby();
+			Common::String out = Common::String::format("from 240: %s; at tick %d Scooby state %d %s mode %d; sounds %s; pie %s mode %d depth %d", path.c_str(), hit,
+			                                            c->getScoobyState(), _currentRoom->getAnim(s).c_str(), _currentRoom->getMode(s), sounds("Pie_Noon.Scooby_", nullptr, nullptr).c_str(),
+			                                            p ? _currentRoom->getAnim(p->sprite).c_str() : "none", p ? _currentRoom->getMode(p->sprite) : -1,
+			                                            p ? _currentRoom->getDepth(p->sprite) : -1);
+			int gone = -1, lick = -1, walk = -1;
+			Common::String lickSound, walkLine;
+			for (uint t = hit + 1; t <= (uint)hit + 200 && (gone < 0 || walk < 0); t++) {
+				tick1();
+				if (gone < 0 && !c->getPie(i))
+					gone = t;
+				if (lick < 0 && c->getScoobyState() == 1) {
+					lick = t;
+					lickSound = sounds("Pie_Noon.Scooby_Lick", nullptr, nullptr);
+				}
+				if (lick >= 0 && walk < 0 && c->getScoobyState() == 3) {
+					walk = t;
+					walkLine = Common::String::format("%s mode %d state %d", _currentRoom->getAnim(s).c_str(), _currentRoom->getMode(s), c->getScoobyState());
+				}
+			}
+			out += Common::String::format("; licking at tick %d, %s; walking at tick %d %s; pie gone at tick %d", lick, lickSound.c_str(), walk, walkLine.c_str(), gone);
+			debugC(3, kDebugScript, "pie noon check Scooby hit: %s", out.c_str());
+		}
+
+		// Scooby after the mouse, and his throws.
+		{
+			enterPie(0);
+			PieNoonRoom *c = pie();
+			const int s = c->getScooby();
+			_mousePos = Common::Point(104, 400);
+			Common::String xs;
+			int walking = -1, stopped = -1;
+			uint stepAt = 0;
+			for (uint t = 1; t <= 8; t++) {
+				tick1();
+				xs += Common::String::format("%s%g", xs.empty() ? "" : " ", c->getScoobyX());
+				if (walking < 0 && _currentRoom->getMode(s) == 1)
+					walking = t;
+				if (walking >= 0 && stopped < 0 && _currentRoom->getMode(s) == 0) {
+					stopped = t;
+					stepAt = _currentRoom->getStep(s);
+				}
+			}
+			_mouseDown = true;
+			tick1();
+			_mouseDown = false;
+			Common::String out = Common::String::format("x %s; walking from tick %d, stopped at tick %d on step %u; pressed in the intro: state %d, pies %d",
+			                                            xs.c_str(), walking, stopped, stepAt, c->getScoobyState(), pies());
+			for (uint t = 10; t <= 216; t++)
+				tick1();
+			// The ghost out of the way of his throws.
+			c->setGhost(8);
+			// Press, throw; held until he walks again; let go a tick; press until he throws.
+			uint t = 216;
+			c->clearSounds();
+			_mouseDown = true;
+			tick1();
+			t++;
+			const PieNoonRoom::Pie *p = nullptr;
+			for (uint i = 0; i < PieNoonRoom::kPies && !p; i++)
+				p = c->getPie(i);
+			out += Common::String::format("; tick %u: state %d %s mode %d, throws %d, %s, a pie at z %g x %.2f", t, c->getScoobyState(), _currentRoom->getAnim(s).c_str(),
+			                              _currentRoom->getMode(s), c->getThrows(), sounds("Pie_Noon.Scooby_Throw", nullptr, nullptr).c_str(), p ? p->z : -1.0f, p ? p->x : -1.0f);
+			for (uint round = 0; round < 2; round++) {
+				int walk = -1;
+				while (walk < 0 && t < 400) {
+					tick1();
+					t++;
+					if (c->getScoobyState() == 3)
+						walk = t;
+				}
+				if (round == 0)
+					out += Common::String::format("; held: state %d %s right %d at tick %d, pies %d", c->getScoobyState(), _currentRoom->getAnim(s).c_str(),
+					                              c->isScoobyRight() ? 1 : 0, walk, pies());
+				_mouseDown = false;
+				tick1();
+				t++;
+				_mouseDown = true;
+				c->clearSounds();
+				int thrown = -1;
+				while (thrown < 0 && t < 400) {
+					tick1();
+					t++;
+					if (c->getScoobyState() == 2)
+						thrown = t;
+				}
+				out += Common::String::format("; tick %d: %s, throws %d, %s", thrown, _currentRoom->getAnim(s).c_str(), c->getThrows(),
+				                              sounds("Pie_Noon.Scooby_Throw", nullptr, nullptr).c_str());
+			}
+			_mouseDown = false;
+			debugC(3, kDebugScript, "pie noon check Scooby walk: %s", out.c_str());
+		}
+
+		// The ghost's throw after the intro.
+		{
+			enterPie(0);
+			PieNoonRoom *c = pie();
+			for (uint t = 1; t <= 216; t++)
+				tick1();
+			c->setGhost(0);
+			const bool right = c->isGhostRight();
+			c->setGhost(2);
+			const Common::String want = Common::String::format("ANIM_PIE_NOON_GHOSTTHROW_%s_TO_%s", right ? "RIGHT" : "LEFT", right ? "LEFT" : "RIGHT");
+			Common::String out = Common::String::format("at tick 216: its side's THROW %d, turned %d", _currentRoom->getAnim(c->getGhost()) == want ? 1 : 0,
+			                                            c->isGhostRight() != right ? 1 : 0);
+			const float gx = c->getGhostXNow();
+			c->clearSounds();
+			int thrown = -1, idle = -1;
+			for (uint t = 217; t <= 300 && idle < 0; t++) {
+				tick1();
+				if (thrown < 0 && pies()) {
+					thrown = t;
+					const PieNoonRoom::Pie *p = nullptr;
+					for (uint i = 0; i < PieNoonRoom::kPies && !p; i++)
+						p = c->getPie(i);
+					const float u = (gx - c->getGhostX(0)) / (c->getGhostX(3) - c->getGhostX(0));
+					out += Common::String::format("; tick %d: a ghost pie %d from its place %d, z %.3f; sounds %s; next Lookout in 5-9 throws %d", t, p->ghost ? 1 : 0,
+					                              ABS(p->u - u) < 1e-6f ? 1 : 0, p->z, sounds("Pie_Noon.Ghost_Throw", "Pie_Noon.Lookout", "Lookout.").c_str(),
+					                              c->getLookout() >= 5 && c->getLookout() <= 9 ? 1 : 0);
+				}
+				if (thrown >= 0 && c->getGhostState() == 0)
+					idle = t;
+			}
+			out += Common::String::format("; idle again at tick %d", idle);
+			debugC(3, kDebugScript, "pie noon check ghost throw: %s", out.c_str());
+		}
+
+		// The clock, the gang on stage, the chime, the saloon.
+		{
+			enterPie(0);
+			PieNoonRoom *c = pie();
+			const int clock = c->getClock();
+			Common::String out;
+			int velma = -1;
+			for (uint t = 1; t <= 3000 && !c->isChiming(); t++) {
+				const bool intro = c->isIntro();
+				tick1();
+				if (intro && !c->isIntro())
+					out = Common::String::format("intro over at tick %u, clock mode %d step %u", t, _currentRoom->getMode(clock), _currentRoom->getStep(clock));
+				const PieNoonRoom::Runner *r = c->getRunner(PieNoonRoom::kVelma);
+				if (velma < 0 && r) {
+					velma = t;
+					out += Common::String::format("; VELMA on at tick %u, her lane's timer %d and its side %d", t, c->getLaneTimer(r->lane),
+					                              c->getLaneState(r->lane) == (r->right ? 1 : 0) ? 1 : 0);
+				}
+				if (c->isChiming()) {
+					const int ticks = count("Pie_Noon.Clock_Tick found 1"), tocks = count("Pie_Noon.Clock_Tock found 1");
+					out += Common::String::format("; chime at tick %u, clock mode %d step %u, %d ticks and tocks (%d Pie_Noon.Clock_Tick found 1, %d Pie_Noon.Clock_Tock found 1), %s",
+					                              t, _currentRoom->getMode(clock), _currentRoom->getStep(clock), count("Pie_Noon.Clock_T"), ticks, tocks,
+					                              sounds("Pie_Noon.Clock_Chime", nullptr, nullptr).c_str());
+				}
+			}
+			out += Common::String::format("; still here while it plays %d", _sound->isClipPlaying("Pie_Noon.Clock_Chime") && _currentRoom->getName() == kPie ? 1 : 0);
+			_sound->stopClip("Pie_Noon.Clock_Chime");
+			tick1();
+			const Common::String next = run.next;
+			if (!next.empty())
+				showRoom(next);
+			out += Common::String::format("; the chime stopped: next %s; left: Scooby %d, tens %d, ones %d", next.c_str(), c->getScooby(), c->getTens(), c->getOnes());
+			debugC(3, kDebugScript, "pie noon check clock: %s", out.c_str());
+		}
+		_mousePos = Common::Point(0, 0);
 		setDifficulty(0);
 		_script->setGhostChance(&_randomSource, ConfMan.hasKey("ghost_chance") ? (uint)ConfMan.getInt("ghost_chance") : 30);
 	}

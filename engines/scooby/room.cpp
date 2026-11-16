@@ -175,38 +175,95 @@ void Room::setActor(uint sprite, Actor *actor) {
 	_sprites[sprite].actor = actor;
 }
 
-void Room::walkTick(uint index, Common::Array<bool> &done, bool &changed) {
+int Room::nextSibling(uint child) const {
+	const Common::Array<uint> &siblings = _sprites[_sprites[child].parent].children;
+	for (uint k = 0; k + 1 < siblings.size(); k++) {
+		if (siblings[k] == child)
+			return siblings[k + 1];
+	}
+	return -1;
+}
+
+void Room::walkTick(uint index, bool &changed) {
 	// 0x431130 in 0x431000's order: the children at or above this sprite's
 	// depth, then the sprite (its player +0x08, its update +0x0C), then the
-	// rest; a paused subtree is skipped. The children are read live: one
-	// added behind the sprite being walked is reached, one added in front
-	// is not, and none is walked twice.
+	// rest; a paused subtree is skipped. As in the original's list, each
+	// child's next sibling is read before the child is walked: one added
+	// right after it is not reached this tick, one added further on is.
 	if (_sprites[index].paused)
 		return;
-	bool self = false;
-	for (uint k = 0; k < _sprites[index].children.size(); k++) {
-		const uint c = _sprites[index].children[k];
-		if (!self && _sprites[index].depth > _sprites[c].depth) {
-			self = true;
-			if (done.size() <= index)
-				done.resize(_sprites.size());
-			done[index] = true;
-			changed = tickPlayer(_sprites[index]) || changed;
-			if (_sprites[index].actor)
-				_sprites[index].actor->actorUpdate(index);
+	int cur = _sprites[index].children.empty() ? -1 : (int)_sprites[index].children[0];
+	while (cur >= 0 && _sprites[index].depth <= _sprites[cur].depth) {
+		const int next = nextSibling(cur);
+		walkTick(cur, changed);
+		cur = next;
+	}
+	changed = tickPlayer(_sprites[index]) || changed;
+	if (_sprites[index].actor)
+		_sprites[index].actor->actorUpdate(index);
+	while (cur >= 0) {
+		const int next = nextSibling(cur);
+		walkTick(cur, changed);
+		cur = next;
+	}
+}
+
+void Room::detachSprite(uint sprite) {
+	Sprite &s = _sprites[sprite];
+	if (s.detached || sprite == 0)
+		return;
+	Common::Array<uint> &siblings = _sprites[s.parent].children;
+	for (uint k = 0; k < siblings.size(); k++) {
+		if (siblings[k] == sprite) {
+			siblings.remove_at(k);
+			break;
 		}
-		if (c < done.size() && done[c])
-			continue;
-		walkTick(c, done, changed);
 	}
-	if (!self) {
-		if (done.size() <= index)
-			done.resize(_sprites.size());
-		done[index] = true;
-		changed = tickPlayer(_sprites[index]) || changed;
-		if (_sprites[index].actor)
-			_sprites[index].actor->actorUpdate(index);
+	if (s.actor) {
+		s.actor = nullptr;
+		_actors--;
 	}
+	s.detached = true;
+	s.hidden = true;
+	buildDrawList();
+}
+
+bool Room::hitsPoint(uint sprite, int x, int y) {
+	Sprite &s = _sprites[sprite];
+	if (s.detached || s.hidden || s.hitType == 0)
+		return false;
+	return s.hitType == 2 ? hitPolygon(s, x, y) : hitCels(s, x, y);
+}
+
+bool Room::getFrameRect(uint sprite, int &x, int &y, int &width, int &height) {
+	x = y = width = height = 0;
+	Sprite &s = _sprites[sprite];
+	if (!s.block)
+		return false;
+	const uint32 frame = getFrame(s);
+	if (!frame || !READ_LE_UINT16(&s.block->data[frame + 4]))
+		return false;
+	const byte *entry = &s.block->data[frame + kFrameHeaderSize];
+	const Cel *cel = getCel(*s.block, READ_LE_UINT32(entry + 4));
+	if (!cel)
+		return false;
+	x = s.x + (int16)READ_LE_UINT16(entry);
+	y = s.y + (int16)READ_LE_UINT16(entry + 2);
+	width = cel->getWidth();
+	height = cel->getHeight();
+	return true;
+}
+
+int Room::getStepCelWidth(uint sprite, uint step) {
+	Sprite &s = _sprites[sprite];
+	if (!s.animated || !s.block)
+		return 0;
+	const uint32 saved = s.player.step;
+	s.player.step = step;
+	int width, height;
+	getFirstCelSize(sprite, width, height);
+	s.player.step = saved;
+	return width;
 }
 
 int Room::getIniInt(const Common::String &section, const char *key) const {
@@ -628,6 +685,11 @@ void Room::setStep(uint sprite, uint32 step) {
 		p.step = MIN<uint32>(step, p.steps - 1);
 }
 
+void Room::setStepPast(uint sprite, uint32 step) {
+	if (_sprites[sprite].animated)
+		_sprites[sprite].player.step = step;
+}
+
 bool Room::tickPlayer(Sprite &s) {
 	Player &p = s.player;
 	if (!s.animated || p.mode == 0 || --p.countdown != 0)
@@ -665,12 +727,17 @@ bool Room::tickPlayer(Sprite &s) {
 bool Room::tick() {
 	// 0x431130 ticks the tree front to back; each sprite's player is
 	// independent, so the order doesn't change the result. Hidden sprites
-	// still tick: only a paused subtree (+0x30) is skipped.
+	// still tick: only a subtree marked done (+0x30) is skipped. Then
+	// 0x431190 deletes each one marked done, before the draw.
 	bool changed = false;
 	if (_actors) {
-		Common::Array<bool> done;
-		done.resize(_sprites.size());
-		walkTick(0, done, changed);
+		walkTick(0, changed);
+		for (uint i = 1; i < _sprites.size(); i++) {
+			if (_sprites[i].paused && !_sprites[i].detached) {
+				detachSprite(i);
+				changed = true;
+			}
+		}
 	} else {
 		for (uint i = 0; i < _sprites.size(); i++)
 			changed = tickPlayer(_sprites[i]) || changed;
@@ -684,12 +751,25 @@ uint32 Room::getFrame(const Sprite &s) const {
 	if (!s.animated)
 		return s.frame;
 	const Common::Array<byte> &object = s.block->data;
-	const uint32 ref = READ_LE_UINT32(&object[s.player.record + kSequenceHeaderSize + kStepSize * s.player.step + kStepFrameRef]);
+	const uint32 at = s.player.record + kSequenceHeaderSize + kStepSize * s.player.step + kStepFrameRef;
+	if (s.player.step >= s.player.steps) {
+		// 0x4309C0 reads a step past the last as any other: the frame
+		// reference is whatever follows the sequence (Pie Noon's pies step one
+		// past their last). Here only a frame that is really there is shown.
+		if (!inBlock(object, at, 4))
+			return 0;
+		const uint32 index = READ_LE_UINT32(&object[at]) & 0x3FFFF;
+		if (index >= READ_LE_UINT32(&object[kObjectFrameCount]))
+			return 0;
+		const uint32 frame = READ_LE_UINT32(&object[READ_LE_UINT32(&object[kObjectFrameTable]) + 4 * index]);
+		return isFrameRecord(object, frame) ? frame : 0;
+	}
+	const uint32 ref = READ_LE_UINT32(&object[at]);
 	return READ_LE_UINT32(&object[READ_LE_UINT32(&object[kObjectFrameTable]) + 4 * (ref & 0x3FFFF)]);
 }
 
 uint32 Room::getPolygon(const Sprite &s) const {
-	if (!s.animated)
+	if (!s.animated || s.player.step >= s.player.steps)
 		return 0;
 	const uint32 polygon = READ_LE_UINT32(&s.block->data[s.player.record + kSequenceHeaderSize + kStepSize * s.player.step + kStepPolygon]);
 	if (!polygon && s.firstStepHit)
