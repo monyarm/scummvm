@@ -40,6 +40,8 @@ MODULE_OBJS = \
 	maria_rooms.o \
 	menu_rooms.o \
 	office_rooms.o \
+	passage_check.o \
+	passage_rooms.o \
 	options_rooms.o \
 	post_rooms.o \
 	pienoon_rooms.o \
