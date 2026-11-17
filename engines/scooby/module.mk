@@ -55,6 +55,8 @@ MODULE_OBJS = \
 	throne_check.o \
 	throne_rooms.o \
 	station_rooms.o \
+	storage_check.o \
+	storage_rooms.o \
 	store_rooms.o \
 	story_check.o \
 	story_rooms.o \

@@ -88,6 +88,7 @@ private:
 	void checkMaria();       // maria_check.cpp
 	void checkKitchen();     // kitchen_check.cpp
 	void checkEwan();        // ewan_check.cpp
+	void checkStorage();     // storage_check.cpp
 	void checkIdles();       // idle_check.cpp
 	int _checkSprite = -1;   // a sprite a check waits on
 	bool _checking = false;
