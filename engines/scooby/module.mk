@@ -9,6 +9,8 @@ MODULE_OBJS = \
 	armory_rooms.o \
 	art_archive.o \
 	boot_hill_rooms.o \
+	brad_check.o \
+	brad_rooms.o \
 	cel.o \
 	chase_check.o \
 	chase_rooms.o \

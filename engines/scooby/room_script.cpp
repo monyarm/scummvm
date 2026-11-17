@@ -401,9 +401,8 @@ void RoomScript::advanceClickable(Clickable &c) {
 
 void RoomScript::tickClickable(Clickable &c) {
 	// 0x401440, once a tick after the sprite's player. A click while the
-	// object is playing is ignored.
-	// 0x401440: a click queued by code (+0x80) is taken once it isn't
-	// playing, wherever the mouse is.
+	// object is playing is ignored. A click queued by code (0x401840, +0x80)
+	// is taken once it isn't playing, wherever the mouse is.
 	if (!c.playing && c.queued) {
 		c.queued--;
 		c.clicked = true;

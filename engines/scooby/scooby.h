@@ -91,6 +91,7 @@ private:
 	void checkStorage();     // storage_check.cpp
 	void checkArmory();      // armory_check.cpp
 	void checkArenas();      // arena_check.cpp
+	void checkBrad();        // brad_check.cpp
 	void checkIdles();       // idle_check.cpp
 	int _checkSprite = -1;   // a sprite a check waits on
 	bool _checking = false;
