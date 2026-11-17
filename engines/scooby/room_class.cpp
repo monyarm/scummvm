@@ -31,6 +31,7 @@
 #include "scooby/gummy_rooms.h"
 #include "scooby/hotel_rooms.h"
 #include "scooby/jail_rooms.h"
+#include "scooby/kitchen_rooms.h"
 #include "scooby/maria_rooms.h"
 #include "scooby/office_rooms.h"
 #include "scooby/post_rooms.h"
@@ -192,6 +193,8 @@ static RoomClass *buildRoomClass(ScoobyEngine &engine, const Common::String &roo
 		return dining;
 	if (RoomClass *maria = createMariaRoom(engine, room))
 		return maria;
+	if (RoomClass *kitchen = createKitchenRoom(engine, room))
+		return kitchen;
 	// Showdown's chase (chase_rooms.cpp).
 	if (RoomClass *chase = createChaseRoom(engine, room))
 		return chase;

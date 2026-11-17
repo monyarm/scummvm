@@ -26,6 +26,8 @@ MODULE_OBJS = \
 	idle_check.o \
 	inventory.o \
 	jail_rooms.o \
+	kitchen_check.o \
+	kitchen_rooms.o \
 	maria_check.o \
 	maria_rooms.o \
 	menu_rooms.o \

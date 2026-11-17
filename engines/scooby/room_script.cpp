@@ -257,8 +257,10 @@ void RoomScript::takeExit(const Exit &exit) {
 		return;
 	}
 	Exit e = exit;
-	if (_hooks)
+	if (_hooks) {
 		_hooks->leaving(e.destination, e.scene);
+		_hooks->exitMovie(e.destination, e.movie);
+	}
 	startExit(e);
 }
 

@@ -61,6 +61,8 @@ public:
 	 * one: it may change the exit's @p scene for @p destination.
 	 */
 	virtual void leaving(const Common::String &destination, Common::String &scene) {}
+	/** The same handler (+0x24) may change the exit's @p movie for @p destination. */
+	virtual void exitMovie(const Common::String &destination, int &movie) {}
 	/**
 	 * Room vtable +0x30, first in the base entry (0x40B920): the class may
 	 * set its opening for this visit (RoomScript::setOpening).
