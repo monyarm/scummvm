@@ -125,6 +125,7 @@ void RoomScript::enter() {
 		c.state = _room.getAnim(s);
 		c.playing = false;
 		c.clicked = false;
+		c.queued = 0;
 		if (_clickableStates.contains(c.object)) {
 			c.state = _clickableStates[c.object];
 			_room.startAnim(s, c.state, kModeStopped, -1);
@@ -342,6 +343,18 @@ bool RoomScript::clickClickable(uint sprite) {
 	return true;
 }
 
+bool RoomScript::queueClickable(uint sprite) {
+	Clickable *c = findClickable(sprite);
+	if (!c)
+		return false;
+	c->queued++;
+	return true;
+}
+
+bool RoomScript::isSpeakerBusy() const {
+	return _speaker >= 0 && _characters[_speaker].isBusy();
+}
+
 bool RoomScript::isClickablePlaying(uint sprite) const {
 	for (uint i = 0; i < _clickables.size(); i++) {
 		if (_clickables[i].sprite == sprite)
@@ -389,6 +402,12 @@ void RoomScript::advanceClickable(Clickable &c) {
 void RoomScript::tickClickable(Clickable &c) {
 	// 0x401440, once a tick after the sprite's player. A click while the
 	// object is playing is ignored.
+	// 0x401440: a click queued by code (+0x80) is taken once it isn't
+	// playing, wherever the mouse is.
+	if (!c.playing && c.queued) {
+		c.queued--;
+		c.clicked = true;
+	}
 	const bool clicked = c.clicked;
 	c.clicked = false;
 	if (clicked && !c.playing) {
@@ -507,7 +526,9 @@ void RoomScript::tick() {
 		_ghostDone = true;
 		debugC(1, kDebugScript, "the ghost is gone at tick %u: going to %s", _tick, kGhostRoom);
 	}
-	if (!_scene.empty()) {
+	// Room vtable +0x38: a class may hold the scene player for the tick.
+	const bool held = _hooks && _hooks->holdScene();
+	if (!_scene.empty() && !held) {
 		// 0x40C810: the idle timer starts again while a scene plays.
 		_idleDelay = (draw(30) + 25) * Room::kTicksPerSecond;
 		tickScene();

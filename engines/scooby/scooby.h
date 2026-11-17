@@ -90,6 +90,7 @@ private:
 	void checkEwan();        // ewan_check.cpp
 	void checkStorage();     // storage_check.cpp
 	void checkArmory();      // armory_check.cpp
+	void checkArenas();      // arena_check.cpp
 	void checkIdles();       // idle_check.cpp
 	int _checkSprite = -1;   // a sprite a check waits on
 	bool _checking = false;
@@ -239,12 +240,12 @@ public:
 	 * then go to @p next: game +0x220, +0x228 and +0x230, then game vtable
 	 * +0x04. An empty scene leaves the last one, as the original does.
 	 */
-	void startBigHead(const Common::String &scene, const Common::String &background, const Common::String &next) {
+	void startBigHead(const Common::String &scene, const Common::String &background, const Common::String &next, int movie = -1) {
 		if (!scene.empty())
 			_bigHeadScene = scene;
 		_bigHeadBackground = background;
 		_bigHeadNext = next;
-		requestRoom("ROOM_Big_Head");
+		requestRoom("ROOM_Big_Head", movie);
 	}
 	const Common::String &getBigHeadScene() const { return _bigHeadScene; }
 	const Common::String &getBigHeadBackground() const { return _bigHeadBackground; }

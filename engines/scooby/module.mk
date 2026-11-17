@@ -3,6 +3,8 @@ MODULE := engines/scooby
 MODULE_OBJS = \
 	accusation_rooms.o \
 	alley_rooms.o \
+	arena_check.o \
+	arena_rooms.o \
 	armory_check.o \
 	armory_rooms.o \
 	art_archive.o \

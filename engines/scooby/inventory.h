@@ -168,6 +168,8 @@ public:
 	Common::String takeLog();
 	/** The toolbar's sprites as "label anim x,y wxh", front to back. */
 	Common::String describeToolbar() const;
+	/** 0x407C00: a parked toolbar drives in, as a room's class asks. */
+	void openToolbar();
 
 private:
 	enum Role {
@@ -206,7 +208,6 @@ private:
 	void setRole(int sprite, Role role, int index);
 	void startVan(const char *anim, int mode);
 	void hideToolbar();               // 0x407CC0
-	void openToolbar();               // 0x407C00
 	void clickToolbar(int index);     // 0x406A70
 	void updateToolbar();             // 0x407120
 	void updatePickup(int sprite, Pickup &p, bool clicked);  // 0x402B00

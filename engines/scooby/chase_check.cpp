@@ -82,6 +82,8 @@ void ScoobyEngine::checkChases() {
 	checkStorage();
 	// Phantom's king's armory and its slide (WP-068).
 	checkArmory();
+	// Phantom's two arenas (WP-069).
+	checkArenas();
 	static const char *const kRooms[] = {
 		"ROOM_P24_Chase_B1", "ROOM_P25_Chase_B2", "ROOM_P26_Chase_B3", "ROOM_P27_Chase_B4", "ROOM_P28_Chase_B5",
 		"ROOM_P29_Chase_B6", "ROOM_P33_Chase_C1", "ROOM_P37_Chase_C2", "ROOM_P38_Chase_C3", "ROOM_P39_Chase_C4",

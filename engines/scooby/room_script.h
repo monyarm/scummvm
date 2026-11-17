@@ -64,6 +64,11 @@ public:
 	/** The same handler (+0x24) may change the exit's @p movie for @p destination. */
 	virtual void exitMovie(const Common::String &destination, int &movie) {}
 	/**
+	 * Room vtable +0x38, every tick before the base scene player (0x40C810),
+	 * which a class may hold for the tick by returning true.
+	 */
+	virtual bool holdScene() { return false; }
+	/**
 	 * Room vtable +0x30, first in the base entry (0x40B920): the class may
 	 * set its opening for this visit (RoomScript::setOpening).
 	 */
@@ -227,6 +232,9 @@ public:
 	bool isScenePlaying() const { return !_scene.empty(); }
 	/** The scene playing, or empty. */
 	const Common::String &getScene() const { return _scene; }
+	/** The scene's line said last (+0x1C), and whether its speaker still talks (0x406060). */
+	int getLine() const { return _line; }
+	bool isSpeakerBusy() const;
 
 	/**
 	 * The speech lock (game +0x15C): a scene holds it while it plays, and
@@ -271,6 +279,8 @@ public:
 	 * tick (0x401440). Returns false if the sprite isn't a clickable.
 	 */
 	bool clickClickable(uint sprite);
+	/** 0x401840: queue a click on @p sprite, taken once it isn't playing. */
+	bool queueClickable(uint sprite);
 	/** Whether the clickable on @p sprite is playing its click. */
 	bool isClickablePlaying(uint sprite) const;
 	/** The clickable's state ANIM name (+0x60), or empty. */
@@ -304,6 +314,7 @@ private:
 		Common::String sound;  // +0x68: SFX_ and the state without ANIM_
 		bool playing;          // +0x70
 		bool clicked;          // a click waiting for the update
+		uint queued;           // +0x80: clicks queued by code (0x401840)
 	};
 
 	Character *findCharacter(const char *name);
