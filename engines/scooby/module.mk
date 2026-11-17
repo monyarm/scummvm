@@ -15,6 +15,8 @@ MODULE_OBJS = \
 	dining_rooms.o \
 	doors_check.o \
 	doors_rooms.o \
+	ewan_check.o \
+	ewan_rooms.o \
 	drawbridge_check.o \
 	drawbridge_rooms.o \
 	garden_check.o \
