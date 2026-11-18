@@ -25,6 +25,8 @@ MODULE_OBJS = \
 	ewan_rooms.o \
 	drawbridge_check.o \
 	drawbridge_rooms.o \
+	gallery_check.o \
+	gallery_rooms.o \
 	garden_check.o \
 	garden_rooms.o \
 	ghost_spot_check.o \
