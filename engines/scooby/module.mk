@@ -38,6 +38,8 @@ MODULE_OBJS = \
 	jail_rooms.o \
 	kitchen_check.o \
 	kitchen_rooms.o \
+	kst_check.o \
+	kst_rooms.o \
 	maria_check.o \
 	maria_rooms.o \
 	menu_rooms.o \
