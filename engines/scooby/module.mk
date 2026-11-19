@@ -41,6 +41,8 @@ MODULE_OBJS = \
 	kst_check.o \
 	kst_rooms.o \
 	maze_check.o \
+	maze_interior_check.o \
+	maze_interior_rooms.o \
 	maze_rooms.o \
 	maria_check.o \
 	maria_rooms.o \

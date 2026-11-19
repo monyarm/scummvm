@@ -196,7 +196,11 @@ void HedgeMazeRoom::enter(const Common::String &from) {
 	const int level = _engine.getDifficulty();
 
 	if (from == "ROOM_P06_Garden" || from == "ROOM_P23_Maze_Center" || from == "ROOM_P27_Below_Balcony") {
-		const Start s = computeStart(from, level, false);
+		// From the centre the start cell depends on how the centre was reached
+		// (MazeCenterFromGarden, the centre's game+0x289); it is ignored for the
+		// other sources.
+		const bool centerFlag = from == "ROOM_P23_Maze_Center" && _engine.getGameFlag("MazeCenterFromGarden");
+		const Start s = computeStart(from, level, centerFlag);
 		_x = s.x;
 		_y = s.y;
 		_dir = s.dir;

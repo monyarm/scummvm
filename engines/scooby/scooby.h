@@ -96,6 +96,7 @@ private:
 	void checkGallery();     // gallery_check.cpp
 	void checkKST();         // kst_check.cpp
 	void checkMaze();        // maze_check.cpp
+	void checkMazeInterior(); // maze_interior_check.cpp
 	void checkIdles();       // idle_check.cpp
 	int _checkSprite = -1;   // a sprite a check waits on
 	bool _checking = false;
