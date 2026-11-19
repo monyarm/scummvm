@@ -64,6 +64,21 @@ const SoundArchive::Clip *Sound::findClip(const Common::String &name, File *file
 	return nullptr;
 }
 
+bool Sound::hasClipPrefix(const Common::String &prefix) const {
+	Common::String lower = prefix;
+	lower.toLowercase();
+	for (uint f = 0; f < kFileCount; f++) {
+		const Common::Array<SoundArchive::Clip> &clips = _archives[f].getClips();
+		for (uint i = 0; i < clips.size(); i++) {
+			Common::String name = clips[i].name;
+			name.toLowercase();
+			if (name.hasPrefix(lower))
+				return true;
+		}
+	}
+	return false;
+}
+
 bool Sound::play(const Common::String &name, bool background) {
 	File f;
 	const SoundArchive::Clip *clip = findClip(name, &f);

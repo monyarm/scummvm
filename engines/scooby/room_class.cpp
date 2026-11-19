@@ -33,6 +33,7 @@
 #include "scooby/ewan_rooms.h"
 #include "scooby/gallery_rooms.h"
 #include "scooby/kst_rooms.h"
+#include "scooby/maze_rooms.h"
 #include "scooby/garden_rooms.h"
 #include "scooby/ghost_spot_room.h"
 #include "scooby/gummy_rooms.h"
@@ -219,6 +220,8 @@ static RoomClass *buildRoomClass(ScoobyEngine &engine, const Common::String &roo
 		return gallery;
 	if (RoomClass *kst = createKstRoom(engine, room))
 		return kst;
+	if (RoomClass *maze = createMazeRoom(engine, room))
+		return maze;
 	// Showdown's chase (chase_rooms.cpp).
 	if (RoomClass *chase = createChaseRoom(engine, room))
 		return chase;

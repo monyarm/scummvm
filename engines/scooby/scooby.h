@@ -95,6 +95,7 @@ private:
 	void checkPassages();    // passage_check.cpp
 	void checkGallery();     // gallery_check.cpp
 	void checkKST();         // kst_check.cpp
+	void checkMaze();        // maze_check.cpp
 	void checkIdles();       // idle_check.cpp
 	int _checkSprite = -1;   // a sprite a check waits on
 	bool _checking = false;

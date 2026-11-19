@@ -56,6 +56,13 @@ public:
 	const SoundArchive::Clip *findClip(const Common::String &name, File *file = nullptr) const;
 
 	/**
+	 * Whether any clip's name begins with @p prefix (case-insensitively). A
+	 * voice line the game names by its id (the maze's "Hedge_Maze.240A_") ships
+	 * under that id plus a speaker suffix, so an exact findClip misses it.
+	 */
+	bool hasClipPrefix(const Common::String &prefix) const;
+
+	/**
 	 * Play a clip on the mixer channel for its file (SFX, speech or music),
 	 * at its own volume, looping if its loop flag is set. By the file's type
 	 * (0x43CC20):
