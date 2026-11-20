@@ -90,6 +90,13 @@ public:
 	 * getBaseIdleLine (0x40CB50).
 	 */
 	virtual Common::String idleLine(RoomScript &script, const Common::String &name);
+	/**
+	 * The room reverberates (the room's own byte +0x29, set by the class
+	 * constructor): the wrong-item lines use the characters' echo variants and
+	 * Fred, who has none, stays silent (0x4098B0). No room of the base class
+	 * sets it; the Mermaid's cavern does.
+	 */
+	virtual bool isEcho() const { return false; }
 };
 
 /**
