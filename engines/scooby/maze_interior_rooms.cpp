@@ -299,13 +299,14 @@ void WellInMazeRoom::reset() {
 }
 
 void WellInMazeRoom::claimPlacement(const Common::String &object, Room::Claim &claim) {
-	// 0x42CA20: the yellow ball is gone once used; the climb (the well, its rope
-	// and the way to P21) waits on the rope being used — the rope then shows as a
-	// sprite and the way out and the well become the default clickables.
-	const bool ballUsed = _engine.getGameFlag("YellowBallTaken");
+	// 0x42CA20: the yellow ball is gone once found (game+0x25d — the flag the well
+	// sets on pickup and the Jester reads to take it, 0x412B80); the climb (the
+	// well, its rope and the way to P21) waits on the rope being used — the rope
+	// then shows as a sprite and the way out and the well become the clickables.
+	const bool ballFound = _engine.getGameFlag("YellowBallFound");
 	const bool ropeUsed = used(_engine, "OBJ_INV_ROPE");
 	if (object == "OBJ_INV_BALL_YELLOW") {
-		if (ballUsed)
+		if (ballFound)
 			claim.build = Room::Claim::kSkip;
 	} else if (object == "OBJ_P22_TO_P21") {
 		if (!ropeUsed)
@@ -346,13 +347,13 @@ void WellInMazeRoom::tick() {
 
 void WellInMazeRoom::event(const Common::String &object, bool success) {
 	// 0x42C8E0: the yellow ball shown plays movie 66 the first time (4 after) and
-	// is marked used, queuing the return; the rope used on the well plays movie 59
-	// and spends the rope; a plain click on the well cycles its three lines.
+	// is marked found (game+0x25d), queuing the return; the rope used on the well
+	// plays movie 59 and spends the rope; a plain click cycles its three lines.
 	RoomScript &script = *_engine.getScript();
 	if (object == "OBJ_INV_BALL_YELLOW") {
 		const int movie = _engine.getGameFlag("YellowBallFound") ? kMovieBallAgain : kMovieBallFirst;
 		_engine.requestRoom(kWell, movie);
-		_engine.setGameFlag("YellowBallTaken", true);
+		_engine.setGameFlag("YellowBallFound", true);
 		_returnPending = true;
 		debugC(1, kDebugScript, "well: the yellow ball, movie %d", movie);
 		return;

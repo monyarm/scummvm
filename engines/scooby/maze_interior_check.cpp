@@ -172,7 +172,7 @@ void ScoobyEngine::checkMazeInterior() {
 		const Room::Claim p21Dry = claimOf(rc, "OBJ_P22_TO_P21");
 		const Room::Claim ropeDry = claimOf(rc, "OBJ_P22_WELL_ROPE");
 		const Room::Claim wellDry = claimOf(rc, "OBJ_P22_WELL");
-		setGameFlag("YellowBallTaken", true);
+		setGameFlag("YellowBallFound", true);
 		const Room::Claim ballUsed = claimOf(rc, "OBJ_INV_BALL_YELLOW");
 		_inventory->addItem("OBJ_INV_ROPE", "ANIM_TOOLBARROPE", "ANIM_CURSORROPE");
 		_inventory->removeItem("OBJ_INV_ROPE"); // used
