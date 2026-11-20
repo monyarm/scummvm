@@ -69,6 +69,7 @@
 #include "scooby/throne_rooms.h"
 #include "scooby/tunnel_rooms.h"
 #include "scooby/vault_rooms.h"
+#include "scooby/wizards_rooms.h"
 
 namespace Scooby {
 
@@ -228,6 +229,8 @@ static RoomClass *buildRoomClass(ScoobyEngine &engine, const Common::String &roo
 		return mazeInterior;
 	if (RoomClass *belowBalcony = createBelowBalconyRoom(engine, room))
 		return belowBalcony;
+	if (RoomClass *wizards = createWizardsRoom(engine, room))
+		return wizards;
 	// Showdown's chase (chase_rooms.cpp).
 	if (RoomClass *chase = createChaseRoom(engine, room))
 		return chase;
