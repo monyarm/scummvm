@@ -81,6 +81,8 @@ MODULE_OBJS = \
 	toolbar_rooms.o \
 	tunnel_rooms.o \
 	vault_rooms.o \
+	wizards_check.o \
+	wizards_rooms.o \
 	console.o \
 	metaengine.o \
 	movie.o

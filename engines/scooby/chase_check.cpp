@@ -98,6 +98,8 @@ void ScoobyEngine::checkChases() {
 	checkMazeInterior();
 	// Phantom's below-the-balcony and its door (WP-076).
 	checkBelowBalcony();
+	// Phantom's wizard's skull and library (WP-077).
+	checkWizards();
 	static const char *const kRooms[] = {
 		"ROOM_P24_Chase_B1", "ROOM_P25_Chase_B2", "ROOM_P26_Chase_B3", "ROOM_P27_Chase_B4", "ROOM_P28_Chase_B5",
 		"ROOM_P29_Chase_B6", "ROOM_P33_Chase_C1", "ROOM_P37_Chase_C2", "ROOM_P38_Chase_C3", "ROOM_P39_Chase_C4",
