@@ -114,7 +114,7 @@ void SuspectChooserRoom::enter(const Common::String &from) {
 		_clueButtons[i] = _hotspots[i] = -1;
 	for (uint i = 0; i < 5; i++)
 		_pictures[i] = -1;
-	_finalHotspot = _finalButton = _info = -1;
+	_finalHotspot = _finalButton = _info = _exit = -1;
 	_intro.clear();
 	// Back from the accusation's movie: the verdict.
 	if (from == "ROOM_Suspect_Chooser") {
@@ -163,8 +163,16 @@ void SuspectChooserRoom::enter(const Common::String &from) {
 			} else {
 				room.setHidden(s, true);
 			}
-		} else if (final && anim.size() >= 8 && anim.hasSuffix("EXITICON")) {
-			room.setHidden(s, true);
+		} else if (anim.size() >= 8 && anim.hasSuffix("EXITICON")) {
+			// The way back (0x427100): gone once the final clue is found; until
+			// then a button whose click returns the gang where the board was
+			// opened from (leaveBy, below). The port gave it art and the exit
+			// cursor but never wired the click, so opening the board from any
+			// room's magnifier trapped the player (the WP-079 soft-lock).
+			if (final)
+				room.setHidden(s, true);
+			else
+				_exit = addButton(s);
 		}
 	}
 
@@ -238,6 +246,14 @@ void SuspectChooserRoom::showInfo() {
 }
 
 void SuspectChooserRoom::onClick(int button) {
+	// The way back: the exit's click returns the gang where the board was
+	// opened from (0x426F30). It is a button so the click reaches here at all
+	// — its exit object carries no fixed destination (the return room is the
+	// dynamic _from), so the engine's generic exit dispatch never fires on it.
+	if (button == _exit) {
+		leaveBy("OBJ_SUSPECT_CLUES_EXIT");
+		return;
+	}
 	for (uint i = 0; i < 5; i++) {
 		if (button == _pictures[i]) {
 			clickSuspect(i);

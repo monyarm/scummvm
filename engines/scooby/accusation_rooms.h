@@ -56,6 +56,8 @@ public:
 	int getHotspotButton(uint i) const { return _hotspots[i]; }
 	int getFinalHotspot() const { return _finalHotspot; }
 	int getFinalButton() const { return _finalButton; }
+	/** The back-exit button (OBJ_SUSPECT_CLUES_EXIT), or -1 once the final clue is found. */
+	int getExitButton() const { return _exit; }
 	int getInfoSprite() const { return _info; }
 	int getIdle() const { return _idle; }
 	int getPictureButton(uint picture) const { return picture < 5 ? _pictures[picture] : -1; }
@@ -81,6 +83,7 @@ private:
 	int _hotspots[kClues];          // +0xCC
 	int _finalHotspot = -1;         // +0xE0
 	int _finalButton = -1;          // +0xE4
+	int _exit = -1;                 // the back-exit button (OBJ_SUSPECT_CLUES_EXIT)
 	int _info = -1;                 // +0x100: a sprite
 	int _pictures[5];               // button indexes, by picture
 	bool _right = false;            // +0xFC
