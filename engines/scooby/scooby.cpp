@@ -1321,15 +1321,22 @@ void ScoobyEngine::checkAccusation() {
 	tickOnce(next, movie);
 	debugC(3, kDebugScript, "accusation check new clue: busy %d, then %s, busy %d", busy, sc->getLastLine().c_str(), sc->isBusy());
 
-	// The way back.
+	// The way back, driven by a CLICK on the exit button — the path the real
+	// game uses. A direct sc->leaveBy(...) here passed while the shipped build
+	// soft-locked, because the exit had art and the exit cursor but was never
+	// wired to a click handler (WP-080): a regression shows as "button -1 ...
+	// to -".
 	setup(false);
 	sc = open();
 	next.clear();
-	sc->leaveBy("OBJ_SUSPECT_CLUES_EXIT");
+	const int exitButton = sc->getExitButton();
+	_hover = exitButton >= 0 ? sc->getButtonSprite(exitButton) : -1;
+	sc->click(_hover);
+	_hover = -1;
 	uint t = 0;
 	while (t < 100 && !tickOnce(next, movie))
 		t++;
-	debugC(3, kDebugScript, "accusation check exit: to %s", next.c_str());
+	debugC(3, kDebugScript, "accusation check exit: button %d, click to %s", exitButton, next.empty() ? "-" : next.c_str());
 
 	// Each suspect accused: the movie, then the reveal.
 	Common::String accused;
