@@ -55,6 +55,8 @@ MODULE_OBJS = \
 	options_rooms.o \
 	post_rooms.o \
 	pienoon_rooms.o \
+	princess_check.o \
+	princess_rooms.o \
 	profile.o \
 	room_class.o \
 	room.o \

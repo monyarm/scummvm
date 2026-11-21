@@ -81,6 +81,11 @@ static const char *const kWrongSpeakers[4][2] = {
 	{ "VELMA", "Global.WRONGV_" },
 	{ "SCOOBY", "Global.WRONGSC_" }
 };
+// In an echo room (0x4098B0): the three with an echo line say it; Fred, who has
+// none, is passed over. Index 0 (Fred) is unused — he never reaches it.
+static const char *const kWrongSpeakersEcho[4] = {
+	"", "Global.WRONGS_Echo_", "Global.WRONGV_Echo_", "Global.WRONGSC_Echo_"
+};
 static const char *const kWrongNarrator = "Global.WRONGN_";
 
 Inventory::Inventory(Room &room, Sound &sound, RoomScript &script, const Common::INIFile &objectIni) :
@@ -656,10 +661,16 @@ void Inventory::tickGame() {
 	if (_cursor != kScrappyCursor) {
 		Common::String scene = kWrongNarrator;
 		if (_gangHere) {
+			// 0x4098B0: an echo room (the room's class, +0x29) takes the echo
+			// lines and passes over Fred, who has none.
+			const RoomHooks *hooks = _script.getHooks();
+			const bool echo = hooks && hooks->isEcho();
 			for (uint tries = 0; tries < 1000; tries++) {
 				const uint r = _random ? _random->getRandomNumber(3) : tries % 4;
+				if (r == 0 && echo)
+					continue; // Fred stays silent where the room echoes
 				if (_script.hasCharacter(kWrongSpeakers[r][0])) {
-					scene = kWrongSpeakers[r][1];
+					scene = echo ? kWrongSpeakersEcho[r] : kWrongSpeakers[r][1];
 					break;
 				}
 			}
