@@ -25,12 +25,46 @@
 #include "common/random.h"
 #include "common/language.h"
 #include "common/ustr.h"
-#include "hollywood/runaway/animation.h"
 #include "hollywood/runaway/audio.h"
 #include "hollywood/runaway/graphics.h"
+#include "hollywood/runaway/speech.h"
 #include "hollywood/scene_text_store.h"
 
+namespace Common {
+struct Event;
+}
+
 namespace Hollywood {
+
+void dimRunawayViewport(Graphics::ManagedSurface &screen, uint brightness, uint maximum = 1000);
+
+// Shared input policy for full-screen sequences, including films hosted by rooms.
+class RunawayPresentation {
+public:
+	virtual ~RunawayPresentation() {}
+	// Returns true when the pause menu is requested.
+	bool handlePresentationEvent(const Common::Event &event);
+	void processPresentationInput(uint32 now);
+
+	// The engine owns one mouse state across consecutive and nested presentations.
+	class MouseState {
+	public:
+		~MouseState();
+		Common::Point update(bool active);
+
+	private:
+		Common::Point _position;
+		bool _active = false, _wasVisible = false;
+	};
+
+protected:
+	virtual void skipPresentation(uint32 now) = 0;
+	virtual void skipPresentationSpeech(uint32 now) {}
+	virtual bool clickSkipsPresentation() const { return false; }
+
+private:
+	bool _skipRequested = false, _skipSpeechRequested = false;
+};
 
 class RunawayCredits {
 public:
@@ -47,7 +81,8 @@ private:
 
 class RunawayInterrogation {
 public:
-	explicit RunawayInterrogation(Audio::Mixer *mixer) : _audio(mixer), _random("runawayInterrogation") {}
+	explicit RunawayInterrogation(Audio::Mixer *mixer) :
+		_audio(mixer), _random("runawayInterrogation"), _speech(_audio, _random, RunawaySpeech::kTextLipSync) {}
 	bool load();
 	void start(uint32 now);
 	void update(uint32 now);
@@ -56,14 +91,14 @@ public:
 	void draw(Graphics::ManagedSurface &screen) const;
 	bool finished() const { return _phrase >= _phraseCount; }
 	bool speaking() const { return _row != 0; }
-	const Common::U32String &subtitle() const { return _subtitle; }
+	const Common::U32String &subtitle() const { return _speech.subtitle(); }
 
 private:
 	void nextPhrase();
 	void showSpeechRow();
 	RunawayAudio _audio;
 	Common::RandomSource _random;
-	RunawayLipSync _lipSync;
+	RunawaySpeech _speech;
 	SceneTextStore _text;
 	Graphics::ManagedSurface _background;
 	RunawayAnimation _actors[3];
@@ -71,11 +106,10 @@ private:
 	bool _idle[3] = {};
 	byte _speakers[4] = {}, _phrase = 0, _phraseCount = 0;
 	uint16 _row = 0, _lastRow = 0, _sample = 0;
-	uint32 _now = 0, _deadline = 0, _lastTick[3] = {};
-	Common::U32String _subtitle;
+	uint32 _now = 0, _lastTick[3] = {};
 };
 
-class RunawayEnding {
+class RunawayEnding : public RunawayPresentation {
 public:
 	RunawayEnding(Audio::Mixer *mixer, Common::Language language) : _audio(mixer), _random("runawayEnding"), _language(language) {}
 	bool load();
@@ -86,6 +120,9 @@ public:
 	bool finished() const { return _stage == kFinished; }
 
 private:
+	void skipPresentation(uint32 now) override { skip(now); }
+	bool clickSkipsPresentation() const override { return true; }
+
 	enum Stage { kOutside, kSlideshow, kCard, kFinished };
 	void nextSlide(uint32 now);
 	RunawayAudio _audio;

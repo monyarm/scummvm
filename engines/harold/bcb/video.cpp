@@ -23,6 +23,7 @@
 #include "audio/decoders/wave.h"
 #include "common/system.h"
 #include "common/textconsole.h"
+#include "graphics/cursorman.h"
 #include "graphics/screen.h"
 #include "graphics/surface.h"
 #include "harold/bcb/bcb.h"
@@ -38,7 +39,7 @@ bool BCBEngine::playNumberedMovie(int movieId, bool blankScreenMovie) {
 	stopActiveMovie();
 	_sceneChoiceActive = false;
 	_mapControlsActive = false;
-	_activeMovieOnBlankScreen = blankScreenMovie;
+	_activeMovieOnBlankScreen = blankScreenMovie || stateDword(kStateClearDisplayBeforeMediaCheckFlag) != 0;
 	loadTimedCaptionRecord(movieId);
 
 	const Common::String movieName = Common::String::format("mov%04d.avi", movieId);
@@ -62,6 +63,10 @@ bool BCBEngine::playNumberedMovie(int movieId, bool blankScreenMovie) {
 	_activeMovieVideo->start();
 	_activeMoviePaused = false;
 	_activeMovieDispatchOnFinish = true;
+	if (blankScreenMovie || _currentDisplayState == 0) {
+		_activeMovieCursorWasVisible = CursorMan.showMouse(false);
+		_activeMovieCursorHidden = true;
+	}
 	drawMovieControlStrip();
 	return true;
 }
@@ -82,11 +87,11 @@ void BCBEngine::drawMapSubmodeMovieBackdrop(bool present) {
 	const Graphics::Surface *map = getUiBitmap("16mmap.bmp");
 	if (map) {
 		const Common::Rect sourceRect(kMapSubmodeMovieBackdropSourceX, kMapSubmodeMovieBackdropSourceY,
-									  kMapSubmodeMovieBackdropSourceX + 0x1a4, kMapSubmodeMovieBackdropSourceY + 0x11e);
+			kMapSubmodeMovieBackdropSourceX + 0x1a4, kMapSubmodeMovieBackdropSourceY + 0x11e);
 		if (sourceRect.right <= map->w && sourceRect.bottom <= map->h)
 			_screen->copyRectToSurface(map->getBasePtr(sourceRect.left, sourceRect.top), map->pitch,
-									   kMapSubmodeMovieBackdropRect.left, kMapSubmodeMovieBackdropRect.top,
-									   sourceRect.width(), sourceRect.height());
+				kMapSubmodeMovieBackdropRect.left, kMapSubmodeMovieBackdropRect.top,
+				sourceRect.width(), sourceRect.height());
 	} else {
 		Graphics::Surface *screen = _screen->surfacePtr();
 		if (!screen)
@@ -152,6 +157,10 @@ void BCBEngine::processQueuedMovieSequence() {
 }
 
 void BCBEngine::stopActiveMovie() {
+	if (_activeMovieCursorHidden) {
+		CursorMan.showMouse(_activeMovieCursorWasVisible);
+		_activeMovieCursorHidden = false;
+	}
 	if (!_activeMovieVideo)
 		return;
 

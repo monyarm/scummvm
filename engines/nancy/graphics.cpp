@@ -123,8 +123,10 @@ void GraphicsManager::init() {
 					  (bsum->bTrans << format.bShift);
 	}
 
+	// The screen has no color key: blitFrom would treat its pixels of that color
+	// as transparent too, and draw partly transparent pixels onto them at full
+	// strength, e.g. the lenses of Dossier1 over dark parts of a scene
 	initGraphics(_screen.w, _screen.h, &getScreenPixelFormat());
-	_screen.setTransparentColor(getTransColor());
 	_screen.clear();
 
 	// Nancy16 runs at a higher resolution than the game was made for. The
@@ -134,7 +136,6 @@ void GraphicsManager::init() {
 	if (g_nancy->getGameType() >= kGameTypeNancy16 && viewportData &&
 			(viewportData->bounds.width() != _screen.w || viewportData->bounds.height() != _screen.h)) {
 		_gameSurface.create(viewportData->bounds.width(), viewportData->bounds.height(), getScreenPixelFormat());
-		_gameSurface.setTransparentColor(getTransColor());
 		_gameSurface.clear();
 	}
 
@@ -288,7 +289,9 @@ void GraphicsManager::drawObjects(Graphics::ManagedSurface &target, const Common
 			entry.position.clip(object->getClipRect());
 		}
 
-		entry.isOpaque = !object->_drawSurface.hasTransparentColor() && object->_drawSurface.format != _transparentPixelFormat;
+		// What a stencil leaves out of a masked object shows what is behind it
+		entry.isOpaque = !object->_drawSurface.hasTransparentColor() && object->_drawSurface.format != _transparentPixelFormat &&
+			!object->isStencil() && !object->isMasked();
 		if (!entry.position.isEmpty()) {
 			drawn.push_back(entry);
 		}
@@ -297,7 +300,7 @@ void GraphicsManager::drawObjects(Graphics::ManagedSurface &target, const Common
 	for (const Common::Rect &rect : rects) {
 		for (uint i = 0; i < drawn.size(); ++i) {
 			const Common::Rect intersection = rect.findIntersectingRect(drawn[i].position);
-			if (intersection.isEmpty()) {
+			if (intersection.isEmpty() || drawn[i].object->isStencil()) {
 				continue;
 			}
 
@@ -310,8 +313,22 @@ void GraphicsManager::drawObjects(Graphics::ManagedSurface &target, const Common
 				}
 			}
 
-			if (!isHidden) {
+			if (isHidden) {
+				continue;
+			}
+
+			// Only the stencils drawn before a masked object cut into it
+			Common::Array<const RenderObject *> stencils;
+			for (uint j = 0; j < i && drawn[i].object->isMasked(); ++j) {
+				if (drawn[j].object->isStencil() && !intersection.findIntersectingRect(drawn[j].position).isEmpty()) {
+					stencils.push_back(drawn[j].object);
+				}
+			}
+
+			if (stencils.empty()) {
 				blitObject(target, *drawn[i].object, intersection);
+			} else {
+				blitMaskedObject(target, *drawn[i].object, stencils, intersection);
 			}
 		}
 	}
@@ -856,6 +873,59 @@ bool GraphicsManager::takeSavePicture(Graphics::ManagedSurface &out) {
 	return true;
 }
 
+// Whether the pixels of a format are 32 bits, with 8 for each channel and for
+// the alpha, if there is one
+static bool hasByteChannels(const Graphics::PixelFormat &format) {
+	return format.bytesPerPixel == 4 && format.rBits() == 8 && format.gBits() == 8 && format.bBits() == 8 &&
+		(format.aBits() == 8 || format.aBits() == 0);
+}
+
+// The channels of every pixel get multiplied by those of the color, through
+// tables, with no conversions of the pixel formats. A picture without alpha
+// leaves out its pixels of the color key.
+bool GraphicsManager::copyTinted(Graphics::ManagedSurface &dst, const Common::Point &dstPos, const Graphics::ManagedSurface &src, const Common::Rect &srcRect, uint32 argb, uint32 keyColor) {
+	const Graphics::PixelFormat &inFormat = src.format;
+	const Graphics::PixelFormat &outFormat = dst.format;
+	if (!hasByteChannels(inFormat) || !hasByteChannels(outFormat) || outFormat.aBits() != 8) {
+		return false;
+	}
+
+	byte tableA[256], tableR[256], tableG[256], tableB[256];
+	for (uint i = 0; i < 256; ++i) {
+		tableA[i] = (byte)(i * (argb >> 24) / 255);
+		tableR[i] = (byte)(i * ((argb >> 16) & 0xFF) / 255);
+		tableG[i] = (byte)(i * ((argb >> 8) & 0xFF) / 255);
+		tableB[i] = (byte)(i * (argb & 0xFF) / 255);
+	}
+
+	byte keyR, keyG, keyB;
+	inFormat.colorToRGB(keyColor, keyR, keyG, keyB);
+	const bool hasAlpha = inFormat.aBits() != 0;
+
+	for (int y = 0; y < srcRect.height(); ++y) {
+		uint32 *outRow = (uint32 *)dst.getBasePtr(dstPos.x, dstPos.y + y);
+		const uint32 *inRow = (const uint32 *)src.getBasePtr(srcRect.left, srcRect.top + y);
+
+		for (int x = 0; x < srcRect.width(); ++x) {
+			const uint32 pixel = inRow[x];
+			const byte red = (pixel >> inFormat.rShift) & 0xFF;
+			const byte green = (pixel >> inFormat.gShift) & 0xFF;
+			const byte blue = (pixel >> inFormat.bShift) & 0xFF;
+			byte alpha = 0xFF;
+			if (hasAlpha) {
+				alpha = (pixel >> inFormat.aShift) & 0xFF;
+			} else if (red == keyR && green == keyG && blue == keyB) {
+				continue;
+			}
+
+			outRow[x] = ((uint32)tableA[alpha] << outFormat.aShift) | ((uint32)tableR[red] << outFormat.rShift) |
+				((uint32)tableG[green] << outFormat.gShift) | ((uint32)tableB[blue] << outFormat.bShift);
+		}
+	}
+
+	return true;
+}
+
 // Draw a given screen-space rectangle of an object
 void GraphicsManager::blitObject(Graphics::ManagedSurface &target, const RenderObject &src, Common::Rect screenRect) {
 	// An object whose image is missing has nothing to draw
@@ -864,7 +934,8 @@ void GraphicsManager::blitObject(Graphics::ManagedSurface &target, const RenderO
 	}
 
 	if (!src.isZoomed()) {
-		target.blitFrom(src._drawSurface, src._drawSurface.getBounds().findIntersectingRect(src.convertToLocal(screenRect)), screenRect);
+		const Common::Rect source = src._drawSurface.getBounds().findIntersectingRect(src.convertToLocal(screenRect));
+		target.blitFrom(src._drawSurface, source, screenRect);
 		return;
 	}
 
@@ -885,6 +956,77 @@ void GraphicsManager::blitObject(Graphics::ManagedSurface &target, const RenderO
 	if (!source.isEmpty()) {
 		target.blitFrom(src._drawSurface, source, screenRect);
 	}
+}
+
+// Marks the pixels of a part of the screen that a stencil object covers: where
+// its picture isn't transparent, as the alpha test of the original lets through.
+// The mask of the flashlight is black where it lights, so its alpha is what
+// counts. Where a pixel is in the picture goes by its column and its row alone,
+// so they are worked out once for each column and each row.
+static void markStencilPixels(const RenderObject &stencil, const Common::Rect &screenRect, Common::Array<byte> &covered) {
+	const Graphics::ManagedSurface &surface = stencil._drawSurface;
+
+	Common::Array<int> columns(screenRect.width());
+	for (int x = 0; x < screenRect.width(); ++x) {
+		const int sx = screenRect.left + x;
+		columns[x] = stencil.convertToLocal(Common::Rect(sx, screenRect.top, sx + 1, screenRect.top + 1)).left;
+	}
+
+	for (int y = 0; y < screenRect.height(); ++y) {
+		const int sy = screenRect.top + y;
+		const int localY = stencil.convertToLocal(Common::Rect(screenRect.left, sy, screenRect.left + 1, sy + 1)).top;
+		if (localY < 0 || localY >= surface.h) {
+			continue;
+		}
+
+		byte *coveredRow = &covered[y * screenRect.width()];
+		for (int x = 0; x < screenRect.width(); ++x) {
+			const int localX = columns[x];
+			if (coveredRow[x] || localX < 0 || localX >= surface.w) {
+				continue;
+			}
+
+			const uint32 color = surface.getPixel(localX, localY);
+			if (surface.format.aBits() == 0) {
+				coveredRow[x] = !surface.hasTransparentColor() || color != surface.getTransparentColor();
+			} else {
+				byte a, r, g, b;
+				surface.format.colorToARGB(color, a, r, g, b);
+				coveredRow[x] = a != 0;
+			}
+		}
+	}
+}
+
+// Draws an object without the pixels the stencils cover, through a transparent
+// copy of the part that gets drawn
+void GraphicsManager::blitMaskedObject(Graphics::ManagedSurface &target, const RenderObject &src, const Common::Array<const RenderObject *> &stencils, const Common::Rect &screenRect) {
+	const Graphics::ManagedSurface &image = src._drawSurface;
+	const Common::Rect source = image.getBounds().findIntersectingRect(src.convertToLocal(screenRect));
+	if (src.isZoomed() || source.isEmpty() || source.width() != screenRect.width() || source.height() != screenRect.height()) {
+		blitObject(target, src, screenRect);
+		return;
+	}
+
+	Common::Array<byte> covered(screenRect.width() * screenRect.height(), 0);
+	for (const RenderObject *stencil : stencils) {
+		markStencilPixels(*stencil, screenRect, covered);
+	}
+
+	Graphics::ManagedSurface part(source.width(), source.height(), _transparentPixelFormat);
+	for (int y = 0; y < source.height(); ++y) {
+		for (int x = 0; x < source.width(); ++x) {
+			const uint32 color = image.getPixel(source.left + x, source.top + y);
+			byte a = 0, r = 0, g = 0, b = 0;
+			if (!covered[y * source.width() + x] && (!image.hasTransparentColor() || color != image.getTransparentColor())) {
+				image.format.colorToARGB(color, a, r, g, b);
+			}
+
+			part.setPixel(x, y, _transparentPixelFormat.ARGBToColor(a, r, g, b));
+		}
+	}
+
+	target.blitFrom(part, part.getBounds(), screenRect);
 }
 
 Common::Rect GraphicsManager::getDrawnPosition(const RenderObject &object) const {
@@ -910,9 +1052,21 @@ Common::Rect GraphicsManager::getDrawnPosition(const RenderObject &object) const
 }
 
 int GraphicsManager::objectComparator(const void *a, const void *b) {
-	if (((const RenderObject*)a)->getZOrder() < ((const RenderObject*)b)->getZOrder()) {
+	if (((const RenderObject*)a)->getLayer() < ((const RenderObject*)b)->getLayer()) {
+		return -1;
+	} else if (((const RenderObject*)a)->getLayer() > ((const RenderObject*)b)->getLayer()) {
+		return 1;
+	} else if (((const RenderObject*)a)->getZOrder() < ((const RenderObject*)b)->getZOrder()) {
 		return -1;
 	} else if (((const RenderObject*)a)->getZOrder() > ((const RenderObject*)b)->getZOrder()) {
+		return 1;
+	} else if (((const RenderObject*)a)->getExactZ() < ((const RenderObject*)b)->getExactZ()) {
+		return -1;
+	} else if (((const RenderObject*)a)->getExactZ() > ((const RenderObject*)b)->getExactZ()) {
+		return 1;
+	} else if (((const RenderObject*)a)->getTieOrder() < ((const RenderObject*)b)->getTieOrder()) {
+		return -1;
+	} else if (((const RenderObject*)a)->getTieOrder() > ((const RenderObject*)b)->getTieOrder()) {
 		return 1;
 	} else {
 		return 0;

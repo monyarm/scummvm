@@ -33,6 +33,7 @@
 #include "graphics/surface.h"
 
 #include "harold/bcb/bcb.h"
+#include "harold/bcb/cinema.h"
 #include "harold/bcb/script.h"
 #include "harold/bcb/static_data.h"
 
@@ -75,7 +76,7 @@ static Common::String formatEnglishSaveDescription(int savedDay, int savedClockT
 
 	const Common::String chapterName = discIndex == 0 ? Common::String("Prologue") : Common::String::format("Chapter %d", discIndex);
 	return Common::String::format("%s: November %d, %d:%02d %s",
-								  chapterName.c_str(), dayOfMonth, hour12, minute, period);
+		chapterName.c_str(), dayOfMonth, hour12, minute, period);
 }
 
 static bool isValidBCBSaveSlot(int slot) {
@@ -84,16 +85,16 @@ static bool isValidBCBSaveSlot(int slot) {
 
 bool BCBEngine::hasFeature(EngineFeature f) const {
 	return f == kSupportsLoadingDuringRuntime ||
-		   f == kSupportsSavingDuringRuntime ||
-		   f == kSupportsReturnToLauncher;
+		f == kSupportsSavingDuringRuntime ||
+		f == kSupportsReturnToLauncher;
 }
 
 bool BCBEngine::canLoadGameStateCurrently(Common::U32String *msg) {
-	return true;
+	return !_cinemaViewer;
 }
 
 bool BCBEngine::canSaveGameStateCurrently(Common::U32String *msg) {
-	return true;
+	return !_cinemaViewer;
 }
 
 bool BCBEngine::canSaveAutosaveCurrently() {
@@ -154,6 +155,8 @@ Common::Error BCBEngine::loadGameState(int slot) {
 	if (!validSave)
 		return Common::kReadingFailed;
 
+	delete _cinemaMenu;
+	_cinemaMenu = nullptr;
 	resetTransientRuntimeStateAfterLoad();
 	processGameStateDispatcher(false);
 	return Common::kNoError;
@@ -235,7 +238,7 @@ bool BCBEngine::showSystemScreen() {
 	const int fillWidth = (_systemWaveVolume * kSystemWaveVolumeIndicatorRect.width()) / 0xffff;
 	if (fillWidth > 0) {
 		const Common::Rect fillRect(kSystemWaveVolumeIndicatorRect.left, kSystemWaveVolumeIndicatorRect.top,
-									kSystemWaveVolumeIndicatorRect.left + fillWidth, kSystemWaveVolumeIndicatorRect.bottom);
+			kSystemWaveVolumeIndicatorRect.left + fillWidth, kSystemWaveVolumeIndicatorRect.bottom);
 		system->fillRect(fillRect, system->format.RGBToColor(255, 255, 255));
 	}
 	_screen->copyRectToSurface(system->getPixels(), system->pitch, 0, 0, MIN<int>(system->w, 640), MIN<int>(system->h, 480));
@@ -261,7 +264,7 @@ void BCBEngine::drawSystemSubmodeButtons(bool present) {
 			source = kSystemSubmodeSelectedSources[i];
 		if (source.x + button.width <= system->w && source.y + button.height <= system->h)
 			_screen->copyRectToSurface(system->getBasePtr(source.x, source.y), system->pitch,
-									   button.x, button.y, button.width, button.height);
+				button.x, button.y, button.width, button.height);
 	}
 
 	if (present)
@@ -313,8 +316,8 @@ void BCBEngine::drawSystemWaveVolumeIndicator(bool present) {
 
 	if (kSystemWaveVolumeIndicatorRect.right <= system->w && kSystemWaveVolumeIndicatorRect.bottom <= system->h) {
 		_screen->copyRectToSurface(system->getBasePtr(kSystemWaveVolumeIndicatorRect.left, kSystemWaveVolumeIndicatorRect.top),
-								   system->pitch, kSystemWaveVolumeIndicatorRect.left, kSystemWaveVolumeIndicatorRect.top,
-								   kSystemWaveVolumeIndicatorRect.width(), kSystemWaveVolumeIndicatorRect.height());
+			system->pitch, kSystemWaveVolumeIndicatorRect.left, kSystemWaveVolumeIndicatorRect.top,
+			kSystemWaveVolumeIndicatorRect.width(), kSystemWaveVolumeIndicatorRect.height());
 	}
 
 	Graphics::Surface *screen = _screen->surfacePtr();
@@ -322,7 +325,7 @@ void BCBEngine::drawSystemWaveVolumeIndicator(bool present) {
 		const int fillWidth = (_systemWaveVolume * kSystemWaveVolumeIndicatorRect.width()) / 0xffff;
 		if (fillWidth > 0) {
 			const Common::Rect fillRect(kSystemWaveVolumeIndicatorRect.left, kSystemWaveVolumeIndicatorRect.top,
-										kSystemWaveVolumeIndicatorRect.left + fillWidth, kSystemWaveVolumeIndicatorRect.bottom);
+				kSystemWaveVolumeIndicatorRect.left + fillWidth, kSystemWaveVolumeIndicatorRect.bottom);
 			_screen->fillRect(fillRect, screen->format.RGBToColor(255, 255, 255));
 		}
 	}
@@ -435,9 +438,9 @@ void BCBEngine::drawSystemSaveLoadSlots(bool present) {
 		int savedClockTicks = 0;
 		Common::U32String slotText;
 		if (readSaveSlotHeader(slot, savedDay, savedClockTicks)) {
-			slotText = formatSystemClockTextForDisplay(_saveSlotOccupiedTextFormatSjis, slot, savedDay, savedClockTicks);
+			slotText = formatSystemClockTextForDisplay("save_slot_occupied", _saveSlotOccupiedTextFormatSjis, slot, savedDay, savedClockTicks);
 		} else {
-			slotText = formatSystemTextForDisplay(_saveSlotEmptyTextFormatSjis, slot);
+			slotText = formatSystemTextForDisplay("save_slot_empty", _saveSlotEmptyTextFormatSjis, slot);
 		}
 
 		Graphics::Surface *screen = _screen->surfacePtr();
@@ -462,17 +465,17 @@ bool BCBEngine::handleSystemClick(const Common::Point &mousePosition) {
 		return false;
 
 	const Common::Rect saveRect(kSystemSubmodeButtonTable[1].x, kSystemSubmodeButtonTable[1].y,
-								kSystemSubmodeButtonTable[1].x + kSystemSubmodeButtonTable[1].width,
-								kSystemSubmodeButtonTable[1].y + kSystemSubmodeButtonTable[1].height);
+		kSystemSubmodeButtonTable[1].x + kSystemSubmodeButtonTable[1].width,
+		kSystemSubmodeButtonTable[1].y + kSystemSubmodeButtonTable[1].height);
 	const Common::Rect loadRect(kSystemSubmodeButtonTable[2].x, kSystemSubmodeButtonTable[2].y,
-								kSystemSubmodeButtonTable[2].x + kSystemSubmodeButtonTable[2].width,
-								kSystemSubmodeButtonTable[2].y + kSystemSubmodeButtonTable[2].height);
+		kSystemSubmodeButtonTable[2].x + kSystemSubmodeButtonTable[2].width,
+		kSystemSubmodeButtonTable[2].y + kSystemSubmodeButtonTable[2].height);
 	const Common::Rect titleRect(kSystemSubmodeButtonTable[3].x, kSystemSubmodeButtonTable[3].y,
-								 kSystemSubmodeButtonTable[3].x + kSystemSubmodeButtonTable[3].width,
-								 kSystemSubmodeButtonTable[3].y + kSystemSubmodeButtonTable[3].height);
+		kSystemSubmodeButtonTable[3].x + kSystemSubmodeButtonTable[3].width,
+		kSystemSubmodeButtonTable[3].y + kSystemSubmodeButtonTable[3].height);
 	const Common::Rect exitRect(kSystemSubmodeButtonTable[4].x, kSystemSubmodeButtonTable[4].y,
-								kSystemSubmodeButtonTable[4].x + kSystemSubmodeButtonTable[4].width,
-								kSystemSubmodeButtonTable[4].y + kSystemSubmodeButtonTable[4].height);
+		kSystemSubmodeButtonTable[4].x + kSystemSubmodeButtonTable[4].width,
+		kSystemSubmodeButtonTable[4].y + kSystemSubmodeButtonTable[4].height);
 
 	if (handleSystemWaveVolumeClick(mousePosition))
 		return true;
@@ -497,7 +500,7 @@ bool BCBEngine::handleSystemClick(const Common::Point &mousePosition) {
 		playUiSound();
 		_systemSaveLoadSlotActionMode = 0;
 		showSystemScreen();
-		if (showSystemConfirmationDialog(decodeExecutableTextForDisplay(_returnToTitleConfirmTextSjis), true)) {
+		if (showSystemConfirmationDialog(translateSystemTextForDisplay("return_to_title_confirm", decodeExecutableTextForDisplay(_returnToTitleConfirmTextSjis)), true)) {
 			stopMenuBackgroundMusic();
 			resetGameState();
 			showTitleScreen();
@@ -539,9 +542,9 @@ bool BCBEngine::handleSaveLoadSlotClick(const Common::Point &mousePosition) {
 			int savedClockTicks = 0;
 			Common::U32String message;
 			if (readSaveSlotHeader(slot, savedDay, savedClockTicks)) {
-				message = formatSystemClockTextForDisplay(_saveSlotOverwriteConfirmTextFormatSjis, slot, savedDay, savedClockTicks);
+				message = formatSystemClockTextForDisplay("save_slot_overwrite_confirm", _saveSlotOverwriteConfirmTextFormatSjis, slot, savedDay, savedClockTicks);
 			} else {
-				message = formatSystemTextForDisplay(_saveSlotEmptyConfirmTextFormatSjis, slot);
+				message = formatSystemTextForDisplay("save_slot_empty_confirm", _saveSlotEmptyConfirmTextFormatSjis, slot);
 			}
 
 			if (showSystemConfirmationDialog(message, true)) {
@@ -555,10 +558,10 @@ bool BCBEngine::handleSaveLoadSlotClick(const Common::Point &mousePosition) {
 			int savedDay = 0;
 			int savedClockTicks = 0;
 			if (!readSaveSlotHeader(slot, savedDay, savedClockTicks)) {
-				showSystemConfirmationDialog(decodeExecutableTextForDisplay(_noSaveDataMessageSjis), false);
+				showSystemConfirmationDialog(translateSystemTextForDisplay("no_save_data", decodeExecutableTextForDisplay(_noSaveDataMessageSjis)), false);
 				return true;
 			}
-			Common::U32String message = formatSystemClockTextForDisplay(_loadSlotConfirmTextFormatSjis, slot, savedDay, savedClockTicks);
+			Common::U32String message = formatSystemClockTextForDisplay("load_slot_confirm", _loadSlotConfirmTextFormatSjis, slot, savedDay, savedClockTicks);
 			if (showSystemConfirmationDialog(message, true)) {
 				_titleLoadSlotsActive = false;
 				loadGameState(slot);
@@ -596,7 +599,7 @@ bool BCBEngine::showSystemConfirmationDialog(const Common::U32String &message, b
 	auto drawDialogButton = [&](const Common::Rect &rect, int sourceX, bool present) {
 		if (sourceX + rect.width() <= chip->w && chip->h >= buttonSourceY + rect.height())
 			_screen->copyRectToSurface(chip->getBasePtr(sourceX, buttonSourceY), chip->pitch,
-									   rect.left, rect.top, rect.width(), rect.height());
+				rect.left, rect.top, rect.width(), rect.height());
 		if (present)
 			_screen->update();
 	};
@@ -668,7 +671,7 @@ bool BCBEngine::showSystemConfirmationDialog(const Common::U32String &message, b
 	}
 
 	_screen->copyRectToSurface(dialogBacking.getPixels(), dialogBacking.pitch, dialogRect.left, dialogRect.top,
-							   dialogBacking.w, dialogBacking.h);
+		dialogBacking.w, dialogBacking.h);
 	dialogBacking.free();
 	_screen->update();
 	return result;
@@ -688,18 +691,6 @@ void BCBEngine::returnFromSystemMenuToPreviousState() {
 	}
 
 	processGameStateDispatcher(false);
-}
-
-Common::U32String BCBEngine::formatSystemTextForDisplay(const Common::String &originalFormat, int slot) const {
-	const Common::String formatted = Common::String::format(originalFormat.c_str(), slot);
-	return decodeExecutableTextForDisplay(formatted);
-}
-
-Common::U32String BCBEngine::formatSystemClockTextForDisplay(const Common::String &originalFormat, int slot, int savedDay, int savedClockTicks) const {
-	const int hour = savedClockTicks / 60;
-	const int minute = savedClockTicks % 60;
-	const Common::String formatted = Common::String::format(originalFormat.c_str(), slot, savedDay, hour, minute);
-	return decodeExecutableTextForDisplay(formatted);
 }
 
 } // End of namespace BCB

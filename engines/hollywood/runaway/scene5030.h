@@ -30,49 +30,58 @@
 #include "hollywood/runaway/graphics.h"
 #include "hollywood/runaway/inventory.h"
 #include "hollywood/runaway/presentation.h"
+#include "hollywood/runaway/scene.h"
 #include "hollywood/runaway/video.h"
 #include "hollywood/scene_text_store.h"
 
 namespace Hollywood {
+namespace Runaway {
 
-// The demo starts in the shack. This scene owns its room resources, actor,
+// The demos and retail chapter three share the shack, its room resources, actor,
 // interactions and audio; RunawayEngine owns the backend and event loop.
-class RunawayScene5030 {
+class Scene5030 : public RunawayScene {
 public:
 	enum {
 		kScreenWidth = kRunawayScreenWidth, kScreenHeight = kRunawayScreenHeight,
 		kRoomWidth = 1376, kRoomHeight = kRunawayViewportHeight, kRoomTop = kRunawayViewportTop
 	};
 
-	RunawayScene5030(Audio::Mixer *mixer, RunawayInventory &inventory, const RunawayStrings &strings) :
-		_audio(mixer), _inventory(inventory), _strings(strings), _interrogation(mixer), _random("runawayShack"), _actor() {}
-	bool load();
-	void start(uint32 now);
-	void click(Common::Point mouse, RunawayVerb verb, byte item);
-	void update(uint32 now, int scrollDirection, bool inventoryOpen);
-	void draw();
-	void setCameraX(int x);
-	Graphics::ManagedSurface &screen() { return _screen; }
-	byte hotspotAt(Common::Point mouse) const;
-	Common::U32String actionCaption(byte hotspot, RunawayVerb verb, byte item) const;
-	const Common::U32String &committedCaption() const { return _committedCaption; }
-	const Common::U32String &subtitle() const { return _action == kPeekConversation ? _interrogation.subtitle() : _subtitle; }
-	bool busy() const { return _action != kNone; }
-	bool speaking() const { return _action == kPeekConversation ? _interrogation.speaking() : _speechRow != 0; }
-	byte speechFrame() const { return _lipSync.frame(_now); }
-	void skipSpeech();
-	bool playingVideo() const { return _action == kIntroVideo || _action == kCleanWindowVideo; }
-	bool inventoryPresentation() const { return _action == kIntroInventory; }
-	void skipVideo();
+	Scene5030(Audio::Mixer *mixer, RunawayAudio &audio, RunawayInventory &inventory, const RunawayStrings &strings,
+			RunawayGameType game = kRunawayCabinDemo) :
+		_audio(audio), _inventory(inventory), _strings(strings), _game(game), _interrogation(mixer), _random("runawayShack"), _actor(),
+		_speech(audio, _random, game == kRunawayFullGame ? RunawaySpeech::kRecordedLipSync : RunawaySpeech::kTextLipSync),
+		_walkPath(Common::Point(623, 447)) {}
+	bool load(uint16 entryScene) override;
+	void start(uint32 now) override;
+	void resume() override;
+	void click(Common::Point mouse, RunawayVerb verb, byte item) override;
+	void update(uint32 now, int scrollDirection, bool inventoryOpen) override;
+	void draw() override;
+	void setCameraX(int x) override;
+	int cameraX() const override { return _cameraX; }
+	int roomWidth() const override { return kRoomWidth; }
+	Graphics::ManagedSurface &screen() override { return _screen; }
+	byte hotspotAt(Common::Point mouse) const override;
+	Common::U32String actionCaption(byte hotspot, RunawayVerb verb, byte item) const override;
+	const Common::U32String &committedCaption() const override { return _committedCaption; }
+	const Common::U32String &subtitle() const override { return _action == kPeekConversation ? _interrogation.subtitle() : _speech.subtitle(); }
+	bool busy() const override { return _action != kNone || _transition.scene; }
+	bool speaking() const override { return _action == kPeekConversation ? _interrogation.speaking() : _speechRow != 0; }
+	byte speechFrame() const override { return _speech.frame(_now); }
+	void skipSpeech() override;
+	bool playingVideo() const override { return _action == kIntroVideo || _action == kCleanWindowVideo; }
+	bool inventoryPresentation() const override { return _action == kIntroInventory; }
+	void skipVideo() override;
 	void cancelWalk();
-	void sayInventory(const RunawayInventory::Reply &reply);
-	bool escaped() const { return _escaped; }
-	bool canSave() const { return !busy() && !speaking() && !_escaped && _pathIndex == _path.size(); }
-	void captureState(RunawaySaveState &state) const;
-	bool restoreState(const RunawaySaveState &state, uint32 now);
-	void setOptions(bool antialias, bool fastScrolling) { _antialias = antialias; _fastScrolling = fastScrolling; }
+	void sayInventory(const RunawayInventory::Reply &reply) override;
+	bool escaped() const override { return _escaped; }
+	bool canSave() const override { return !busy() && !speaking() && !_escaped && !_walkPath.active(); }
+	void captureState(RunawaySaveState &state) const override;
+	bool restoreState(const RunawaySaveState &state, uint32 now, bool entering = false) override;
+	void setOptions(bool antialias, bool fastScrolling) override { _antialias = antialias; _fastScrolling = fastScrolling; }
 
 private:
+	Common::U32String hotspotName(byte id) const override;
 	enum Action {
 		kNone, kIntroVideo, kIntro, kIntroLookAround, kIntroInventory,
 		kIntroListen, kIntroWalkToDoor, kIntroExamineDoor,
@@ -82,15 +91,14 @@ private:
 		kMeltIce, kMeltWait, kInspectIce, kFinishMelting,
 		kTryMoveCooler, kMoveCooler, kRevealHatch, kFinishMoving, kHatchFound,
 		kDrainCooler, kFinishDraining, kPryHatch, kOpenHatch, kEscape,
-		kPeekDoor, kPeekConversation, kReturnFromPeek
+		kPeekDoor, kPeekConversation, kReturnFromPeek,
+		kHeatHelmet, kPrepareStirringHelmet, kStirHelmet, kEnterHatch
 	};
 	enum IceState { kFrozen, kMelted, kDrained };
 	enum HatchState { kHidden, kLocked, kUnlocked, kOpen };
 	bool loadRoomGraphics();
-	bool walkable(int x, int y) const;
-	bool clearPath(Common::Point start, Common::Point end) const;
 	void walkTo(Common::Point target);
-	void arrive();
+	void arrive(bool faceHotspot = true);
 	void say(uint16 row);
 	void sayCue(uint16 cue, byte variation);
 	void pickUp(byte hotspot, byte item, uint patch);
@@ -117,22 +125,22 @@ private:
 	Common::Array<byte> _mask, _maps, _unplugPatch, _openLidPatch, _closedLidPatch;
 	Common::Array<byte> _pickupPatches[5];
 	Common::Array<uint16> _voiceSamples, _cueEnds;
-	RunawayAudio _audio;
+	RunawayAudio &_audio;
 	RunawayInventory &_inventory;
 	const RunawayStrings &_strings;
+	const RunawayGameType _game;
 	RunawayInterrogation _interrogation;
 	Common::RandomSource _random;
 	bool _peeked = false;
+	bool _entering = false;
 	bool _antialias = true, _fastScrolling = true;
 	RunawayActor _actor;
-	RunawayLipSync _lipSync;
+	RunawaySpeech _speech;
 	RunawayIdleHead _idleHead;
 	RunawayAnimation _intro, _lidActor, _lid, _unplug, _climb, _actionAnimation, _water, _hatch;
 	RunawayVideo _video;
 	Common::Point _position = Common::Point(623, 447);
-	Common::Array<Common::Point> _path;
-	uint _pathIndex = 0;
-	float _x = 623, _y = 447;
+	RunawayWalkPath _walkPath;
 	byte _facing = 3, _pendingHotspot = 0;
 	byte _pendingItem = 0;
 	RunawayVerb _pendingVerb = kVerbWalk;
@@ -147,15 +155,16 @@ private:
 	bool _pickedUp[20] = {};
 	bool _examined[20] = {};
 	bool _globalSpeech = false;
-	uint32 _now = 0, _lastUpdate = 0, _actionStarted = 0, _subtitleUntil = 0;
+	uint32 _now = 0, _lastUpdate = 0, _actionStarted = 0;
 	uint32 _walkElapsed = 0, _lastFootstep = 0;
 	uint _step = 0;
 	uint16 _speechRow = 0, _speechEnd = 0;
 	uint16 _speechSample = 0;
-	Common::U32String _subtitle;
+	RunawayInventory::Reply _nextInventoryReply = RunawayInventory::Reply(0);
 	Common::U32String _committedCaption;
 };
 
+} // End of namespace Runaway
 } // End of namespace Hollywood
 
 #endif // HOLLYWOOD_RUNAWAY_SCENE5030_H

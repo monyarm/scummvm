@@ -135,6 +135,10 @@ public:
 	static void copyToManaged(const Graphics::Surface &src, Graphics::ManagedSurface &dst, bool verticalFlip = false, bool doubleSize = false);
 	static void copyToManaged(void *src, Graphics::ManagedSurface &dst, uint srcW, uint srcH, const Graphics::PixelFormat &format, bool verticalFlip = false, bool doubleSize = false);
 
+	// Copies a part of a 32 bit picture into a 32 bit surface, tinted by an
+	// ARGB color. Returns false for the pixel formats it doesn't handle.
+	static bool copyTinted(Graphics::ManagedSurface &dst, const Common::Point &dstPos, const Graphics::ManagedSurface &src, const Common::Rect &srcRect, uint32 argb, uint32 keyColor);
+
 	static void rotateBlit(const Graphics::ManagedSurface &src, Graphics::ManagedSurface &dest, byte rotation);
 	static void crossDissolve(const Graphics::ManagedSurface &from, const Graphics::ManagedSurface &to, byte alpha, const Common::Rect &rect, Graphics::ManagedSurface &inResult);
 
@@ -158,6 +162,7 @@ private:
 	static void filterDirtyRects(Common::List<Common::Rect> &rects);
 	void drawObjects(Graphics::ManagedSurface &target, const Common::List<Common::Rect> &rects, Layer layer);
 	void blitObject(Graphics::ManagedSurface &target, const RenderObject &src, Common::Rect dest);
+	void blitMaskedObject(Graphics::ManagedSurface &target, const RenderObject &src, const Common::Array<const RenderObject *> &stencils, const Common::Rect &screenRect);
 
 	// Where an object gets drawn, which is somewhere else for one that is zoomed into
 	Common::Rect getDrawnPosition(const RenderObject &object) const;

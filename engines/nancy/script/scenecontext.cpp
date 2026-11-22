@@ -61,6 +61,17 @@ SceneContext::SceneContext(const Common::String &streamName, const Common::Strin
 	_lua = new LuaState(this);
 }
 
+#ifdef ENABLE_NANCY_V5
+// Nancy32's Scene:Lock() disables the streams of the viewport
+bool SceneContext::isStreamEnabled() const {
+	if (!_streamState) {
+		return true;
+	}
+
+	return _streamState->isEnabled && !(_streamState->isInViewport && NancySceneState.getStreams().isViewportLocked());
+}
+#endif
+
 // Nancy26 draws whole streams over each other, so the z of a record only counts
 // within the band of its stream
 int32 SceneContext::getZOffset() const {
@@ -205,7 +216,7 @@ Common::String SceneContext::findGlobalName(const Record *record) const {
 }
 
 bool SceneContext::include(const Common::String &name) {
-	if (g_nancy->getGameType() >= kGameTypeNancy21) {
+	if (g_nancy->getGameType() >= kGameTypeNancyDossier2) {
 		if (_includedNames.contains(name)) {
 			return true;
 		}
@@ -487,11 +498,20 @@ void SceneContext::renderAttachment() {
 	callSceneFunction("RenderAttachment", 1);
 }
 
+void SceneContext::setGCThrottled(bool isThrottled) {
+	if (isThrottled != _isGCThrottled) {
+		_isGCThrottled = isThrottled;
+		lua_gc(getLua(), isThrottled ? LUA_GCSTOP : LUA_GCRESTART, 0);
+	}
+}
+
 void SceneContext::runFrame(double elapsedTime) {
 	lua_State *L = getLua();
 
 	_time += elapsedTime;
 	_elapsedTime = elapsedTime;
+
+	applyStreamPause();
 
 	// The records made since the last frame join in
 	_records.push_back(_newRecords);
@@ -500,9 +520,12 @@ void SceneContext::runFrame(double elapsedTime) {
 	// Nancy20 collects what the scripts let go of once a frame, and only then.
 	// That takes out the records that belonged to the scripts.
 	if (g_nancy->getGameType() >= kGameTypeNancy20) {
-		lua_gc(L, LUA_GCRESTART, 0);
-		lua_gc(L, LUA_GCCOLLECT, 0);
-		lua_gc(L, LUA_GCSTOP, 0);
+		if (_isGCThrottled) {
+			lua_gc(L, LUA_GCRESTART, 0);
+			lua_gc(L, LUA_GCCOLLECT, 0);
+			lua_gc(L, LUA_GCSTOP, 0);
+		}
+
 		deleteDroppedRecords();
 	}
 
@@ -538,6 +561,20 @@ void SceneContext::runFrame(double elapsedTime) {
 			record->update(_time, elapsedTime);
 		}
 	}
+}
+
+// Only the records that have joined the scene are paused or go on, as in the
+// original. The ones made while the stream is paused run.
+void SceneContext::applyStreamPause() {
+	const bool isPaused = _streamPauseRequest == kRequestPause;
+	if (_streamPauseRequest != kRequestNone && isPaused != _isStreamPausedByScript) {
+		_isStreamPausedByScript = isPaused;
+		for (Record *record : _records) {
+			record->setStreamPaused(isPaused);
+		}
+	}
+
+	_streamPauseRequest = kRequestNone;
 }
 
 void SceneContext::deleteDroppedRecords() {
@@ -612,10 +649,10 @@ bool SceneContext::getViewportMouse(const NancyInput &input, Common::Point32 &po
 	const UI::Viewport &viewport = NancySceneState.getViewport();
 	const Common::Rect screenPosition = viewport.getScreenPosition();
 
-	const Common::Rect local = viewport.convertScreenToViewport(
-		Common::Rect(input.mousePos.x, input.mousePos.y, input.mousePos.x + 1, input.mousePos.y + 1));
-	point.x = local.left;
-	point.y = local.top;
+	// The scroll of a background higher than the viewport only picks the part
+	// of it that shows; the records are placed by their transforms
+	point.x = input.mousePos.x - viewport.getScreenPositionRaw().left;
+	point.y = input.mousePos.y - viewport.getScreenPositionRaw().top;
 
 	return screenPosition.contains(input.mousePos);
 }

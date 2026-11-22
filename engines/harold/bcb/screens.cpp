@@ -19,11 +19,13 @@
  *
  */
 
+#include "common/config-manager.h"
 #include "common/system.h"
 #include "graphics/font.h"
 #include "graphics/screen.h"
 #include "graphics/surface.h"
 #include "harold/bcb/bcb.h"
+#include "harold/bcb/cinema.h"
 #include "harold/bcb/script.h"
 #include "harold/bcb/static_data.h"
 
@@ -52,13 +54,36 @@ bool BCBEngine::showInitialLogoScreen() {
 bool BCBEngine::showTitleScreen() {
 	stopGameOverMusic();
 	if (_titleBitmap && _titleBitmap->format != g_system->getScreenFormat()) {
+		delete _cinemaMenu;
+		_cinemaMenu = nullptr;
 		_titleBitmap->free();
 		delete _titleBitmap;
 		_titleBitmap = nullptr;
 	}
 
-	if (!_titleBitmap)
+	const Common::String &target = ConfMan.getActiveDomainName();
+	const bool completed = ConfMan.hasKey("bcb_completed", target) && ConfMan.getBool("bcb_completed", target);
+	if (completed && _engineDataAvailable && !_cinemaMenu) {
+		_cinemaMenu = new CinemaViewer(*this);
+		if (!_cinemaMenu->load()) {
+			delete _cinemaMenu;
+			_cinemaMenu = nullptr;
+		}
+	}
+	const bool cinemaAvailable = completed && _cinemaMenu;
+	if (_titleBitmap && _cinemaAvailable != cinemaAvailable) {
+		_titleBitmap->free();
+		delete _titleBitmap;
+		_titleBitmap = nullptr;
+	}
+	_cinemaAvailable = cinemaAvailable;
+	if (!_titleBitmap) {
 		_titleBitmap = loadBitmap("16mtitle.bmp");
+		if (_titleBitmap && _selectedTextLanguagePackageAvailable)
+			applyTranslatedTitleMenu(*_titleBitmap, _textTranslation);
+		if (_titleBitmap && _cinemaAvailable)
+			CinemaViewer::drawTitleButton(*this, *_titleBitmap);
+	}
 	if (!_titleBitmap)
 		return false;
 
@@ -82,7 +107,7 @@ void BCBEngine::restoreTitleScreenRegion(const Common::Rect &rect, bool present)
 		return;
 
 	_screen->copyRectToSurface(_titleBitmap->getBasePtr(clippedRect.left, clippedRect.top), _titleBitmap->pitch,
-							   clippedRect.left, clippedRect.top, clippedRect.width(), clippedRect.height());
+		clippedRect.left, clippedRect.top, clippedRect.width(), clippedRect.height());
 	if (present)
 		_screen->update();
 }
@@ -96,6 +121,8 @@ bool BCBEngine::transitionFromLogoToTitle() {
 }
 
 bool BCBEngine::startNewGameFromTitle() {
+	delete _cinemaMenu;
+	_cinemaMenu = nullptr;
 	_titleButtonsActive = false;
 	_systemButtonsVisible = false;
 	stopMenuBackgroundMusic();
@@ -124,10 +151,26 @@ bool BCBEngine::showPendingStillImageScreen() {
 	if (!still)
 		return false;
 
+	if (_gameDescription->desc.language == Common::JA_JPN && _selectedTextLanguagePackageAvailable)
+		applyTranslatedStillImage(*still, stillIndex, _textTranslation);
+
 	_screen->copyRectToSurface(still->getPixels(), still->pitch, 0, 0, MIN<int>(still->w, 640), MIN<int>(still->h, 480));
 	_screen->update();
 	still->free();
 	delete still;
+
+	if (stillImageToShowId == 0x39 || stillImageToShowId == 0x3a) {
+		const Common::String &target = ConfMan.getActiveDomainName();
+		if (!ConfMan.hasKey("bcb_completed", target) || !ConfMan.getBool("bcb_completed", target)) {
+			ConfMan.setBool("bcb_completed", true, target);
+			ConfMan.flushToDisk();
+			if (_titleBitmap) {
+				_titleBitmap->free();
+				delete _titleBitmap;
+				_titleBitmap = nullptr;
+			}
+		}
+	}
 
 	_currentDisplayState = 6;
 	_pendingStillElapsedTimerTicks = 0;
@@ -164,7 +207,7 @@ bool BCBEngine::dispatchGameOverScreen() {
 		const uint32 white = gameOver->format.RGBToColor(255, 255, 255);
 		const Common::Rect textRect(100, 200, 540, 400);
 		if (_gameOverTextFont) {
-			const Common::U32String &text = _gameOverText[selectedSceneChoiceValue];
+			const Common::U32String text = translateTextForDisplay(kTextTranslationGameOver, selectedSceneChoiceValue, 0, _gameOverText[selectedSceneChoiceValue]);
 			int y = textRect.top - (_gameDescription->desc.language == Common::KO_KOR ? 1 : 0);
 			for (uint lineStart = 0; lineStart < text.size() && y < textRect.bottom;) {
 				uint lineEnd = lineStart;

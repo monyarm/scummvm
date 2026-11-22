@@ -45,7 +45,9 @@ static const PlainGameDescriptor nancyGames[] = {
 	{ "nancy17", "Nancy Drew: Legend of the Crystal Skull" },
 	{ "nancy18", "Nancy Drew: The Phantom of Venice" },
 	{ "nancy19", "Nancy Drew: The Haunting of Castle Malloy" },
+	{ "nancydossier1", "Nancy Drew Dossier: Lights, Camera, Curses!" },
 	{ "nancy20", "Nancy Drew: Ransom of the Seven Ships" },		// Discontinued
+	{ "nancydossier2", "Nancy Drew Dossier: Resorting to Danger!" },
 	{ "nancy21", "Nancy Drew: Warnings at Waverly Academy" },
 	{ "nancy22", "Nancy Drew: Trail of the Twister" },
 	{ "nancy1new", "Nancy Drew: Secrets Can Kill Remastered" },
@@ -849,8 +851,24 @@ static const ADGameDescription gameDescriptions[] = {
 		NANCY_GUIOPTIONS
 	},
 	{ // MD5 by bluegr
+		"nancydossier1", nullptr,
+		AD_ENTRY1s("ciftree.dat", "a5b3d086cbb73a7dbaefcff8a35461d5", 114106816),
+		Common::EN_ANY,
+		Common::kPlatformWindows,
+		ADGF_UNSTABLE | ADGF_DROPPLATFORM,
+		NANCY_GUIOPTIONS
+	},
+	{ // MD5 by bluegr
 		"nancy20", nullptr,
 		AD_ENTRY1s("ciftree.dat", "02d56eb098f317a02ed9a675f40a4468", 91315479),
+		Common::EN_ANY,
+		Common::kPlatformWindows,
+		ADGF_UNSTABLE | ADGF_DROPPLATFORM,
+		NANCY_GUIOPTIONS
+	},
+	{ // MD5 by bluegr
+		"nancydossier2", nullptr,
+		AD_ENTRY1s("ciftree.dat", "0f4131f8f21fcfd15d49211849c8f84d", 141854986),
 		Common::EN_ANY,
 		Common::kPlatformWindows,
 		ADGF_UNSTABLE | ADGF_DROPPLATFORM,
@@ -931,6 +949,38 @@ static const ADGameDescription gameDescriptions[] = {
 	{ // MD5 by bluegr
 		"nancy28", nullptr,
 		AD_ENTRY1s("ciftree.dat", "3fad2155442ea49861fe00d4050a8a8e", 182654641),
+		Common::EN_ANY,
+		Common::kPlatformWindows,
+		ADGF_UNSTABLE | ADGF_DROPPLATFORM,
+		NANCY_GUIOPTIONS
+	},
+	{ // MD5 by bluegr
+		"nancy29", nullptr,
+		AD_ENTRY1s("ciftree.dat", "6b90e2634f4c162a21996a2e1c57bc36", 220400655),
+		Common::EN_ANY,
+		Common::kPlatformWindows,
+		ADGF_UNSTABLE | ADGF_DROPPLATFORM,
+		NANCY_GUIOPTIONS
+	},
+	{ // MD5 by bluegr
+		"nancy30", nullptr,
+		AD_ENTRY1s("ciftree.dat", "3bb107b4d494bcee2ec61066632757af", 198488111),
+		Common::EN_ANY,
+		Common::kPlatformWindows,
+		ADGF_UNSTABLE | ADGF_DROPPLATFORM,
+		NANCY_GUIOPTIONS
+	},
+	{ // MD5 by bluegr
+		"nancy31", nullptr,
+		AD_ENTRY1s("ciftree.dat", "7bf7132f5a54bff1392759850202bf09", 276599945),
+		Common::EN_ANY,
+		Common::kPlatformWindows,
+		ADGF_UNSTABLE | ADGF_DROPPLATFORM,
+		NANCY_GUIOPTIONS
+	},
+	{ // MD5 by bluegr. The game has no ciftree, only loose .cif files
+		"nancy32", nullptr,
+		AD_ENTRY1s("InventoryInit_SC.cif", "387280ac49ad84d0db85440e7bd54353", 6096),
 		Common::EN_ANY,
 		Common::kPlatformWindows,
 		ADGF_UNSTABLE | ADGF_DROPPLATFORM,

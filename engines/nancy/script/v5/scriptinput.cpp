@@ -31,6 +31,7 @@
 #include "engines/nancy/script/records.h"
 #include "engines/nancy/script/scenecontext.h"
 
+#include "engines/nancy/script/v5/gamefunctions.h"
 #include "engines/nancy/script/v5/scriptinput.h"
 #include "engines/nancy/script/v5/widgets.h"
 
@@ -42,24 +43,19 @@ namespace Script {
 static const uint32 kDoubleClickTime = 500;	// milliseconds
 static const int kDoubleClickDistance = 4;
 
-struct InputState {
-	Common::Point32 mouse;
-	bool hasMouse = false;
-	Record *hovered = nullptr;
-	Record *pressed[2] = { nullptr, nullptr };
+typedef ScriptGameState::InputState InputState;
 
-	uint32 lastClickTime[2] = { 0, 0 };
-	Common::Point32 lastClickPoint[2];
-	bool isDoubleClick[2] = { false, false };
-
-	uint16 heldMoveKeys = 0;
-	bool isEscHeld = false;
-	Common::Array<Common::KeyCode> keysToRelease;
-};
+// Returns the input state, which the game state keeps, or null when there
+// is no game state yet
+static InputState *findState() {
+	ScriptGameState *state = (ScriptGameState *)const_cast<EngineData *>(g_nancy->getEngineData("ScriptGameState"));
+	return state ? &state->input : nullptr;
+}
 
 static InputState &getState() {
-	static InputState s_state;
-	return s_state;
+	InputState *state = findState();
+	assert(state);
+	return *state;
 }
 
 const Common::Point32 &getScriptMousePoint() {
@@ -71,7 +67,12 @@ bool isDoubleClick(int button) {
 }
 
 void forgetInputRecord(Record *record) {
-	InputState &state = getState();
+	InputState *found = findState();
+	if (!found) {
+		return;
+	}
+
+	InputState &state = *found;
 	if (state.hovered == record) {
 		state.hovered = nullptr;
 	}
@@ -397,6 +398,21 @@ static const MoveKey kMoveKeys[] = {
 	{ NancyInput::kMoveDown, Common::KEYCODE_DOWN }
 };
 
+bool isScriptKeyHeld(Common::KeyCode key) {
+	const InputState &state = getState();
+	for (const MoveKey &moveKey : kMoveKeys) {
+		if (moveKey.key == key) {
+			return (state.heldMoveKeys & moveKey.input) != 0;
+		}
+	}
+
+	if (key == Common::KEYCODE_ESCAPE) {
+		return state.isEscHeld;
+	}
+
+	return g_nancy->_input->isKeyHeld(key);
+}
+
 void handleNancy26Input(NancyInput &input) {
 	InputState &state = getState();
 
@@ -424,6 +440,8 @@ void handleNancy26Input(NancyInput &input) {
 			record->callFunction("OnNewFrame");
 		} else if (hasMoved && record->getType() == kRecordSummary) {
 			record->sendMouseMove(state.mouse, true);
+		} else if (hasMoved && record->getType() == kRecordHotspot) {
+			static_cast<HotspotRecord *>(record)->onMouseMoved(state.mouse);
 		}
 	}
 

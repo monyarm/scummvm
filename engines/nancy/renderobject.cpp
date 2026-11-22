@@ -49,6 +49,28 @@ void RenderObject::setZOrder(uint16 z) {
 	g_nancy->_graphics->reorderObject(this);
 }
 
+const double RenderObject::kNoExactZ = -1e300;
+
+void RenderObject::setExactZ(double z) {
+	if (_exactZ == z) {
+		return;
+	}
+
+	_exactZ = z;
+	_needsRedraw = true;
+	g_nancy->_graphics->reorderObject(this);
+}
+
+void RenderObject::setLayer(int32 layer) {
+	if (_layer == layer) {
+		return;
+	}
+
+	_layer = layer;
+	_needsRedraw = true;
+	g_nancy->_graphics->reorderObject(this);
+}
+
 void RenderObject::init() {
 	_previousScreenPosition = _screenPosition;
 }
@@ -103,6 +125,20 @@ void RenderObject::setTransparent(bool isTransparent) {
 	}
 }
 
+void RenderObject::setStencil(bool isStencil) {
+	if (isStencil != _isStencil) {
+		_isStencil = isStencil;
+		_needsRedraw = true;
+	}
+}
+
+void RenderObject::setMasked(bool isMasked) {
+	if (isMasked != _isMasked) {
+		_isMasked = isMasked;
+		_needsRedraw = true;
+	}
+}
+
 void RenderObject::setClipRect(const Common::Rect &clip) {
 	if (clip != _clipRect) {
 		_clipRect = clip;
@@ -129,19 +165,24 @@ void RenderObject::setPalette(const byte *colors, uint paletteStart, uint palett
 }
 
 Common::Rect RenderObject::getScreenPosition() const {
-	if (isViewportRelative()) {
-		return NancySceneState.getViewport().convertViewportToScreen(_screenPosition);
-	} else {
-		return _screenPosition;
-	}
+	return convertPositionToScreen(_screenPosition);
 }
 
 Common::Rect RenderObject::getPreviousScreenPosition() const {
-	if (isViewportRelative()) {
-		return NancySceneState.getViewport().convertViewportToScreen(_previousScreenPosition);
-	} else {
-		return _previousScreenPosition;
+	return convertPositionToScreen(_previousScreenPosition);
+}
+
+Common::Rect RenderObject::convertPositionToScreen(const Common::Rect &position) const {
+	if (!isViewportRelative()) {
+		return position;
 	}
+
+	const UI::Viewport &viewport = NancySceneState.getViewport();
+	Common::Rect ret = position;
+	if (!isMovedByViewportScroll()) {
+		ret.translate(0, viewport.getCurVerticalScroll());
+	}
+	return viewport.convertViewportToScreen(ret);
 }
 
 // Convert a rectangle from screen space to local (to _drawSurface) space.
@@ -154,8 +195,9 @@ Common::Rect RenderObject::convertToLocal(const Common::Rect &screen) const {
 		Common::Rect viewportScreenPos = NancySceneState.getViewport().getScreenPosition();
 		offset.x -= viewportScreenPos.left;
 		offset.y -= viewportScreenPos.top;
-		uint viewportScroll = NancySceneState.getViewport().getCurVerticalScroll();
-		offset.y += viewportScroll;
+		if (isMovedByViewportScroll()) {
+			offset.y += NancySceneState.getViewport().getCurVerticalScroll();
+		}
 	}
 
 	offset.x -= _screenPosition.left;
@@ -200,8 +242,9 @@ Common::Rect RenderObject::convertToScreen(const Common::Rect &rect) const {
 		Common::Rect viewportScreenPos = NancySceneState.getViewport().getScreenPosition();
 		offset.x += viewportScreenPos.left;
 		offset.y += viewportScreenPos.top;
-		uint viewportScroll = NancySceneState.getViewport().getCurVerticalScroll();
-		offset.y -= viewportScroll;
+		if (isMovedByViewportScroll()) {
+			offset.y -= NancySceneState.getViewport().getCurVerticalScroll();
+		}
 	}
 
 	offset.x += _screenPosition.left;

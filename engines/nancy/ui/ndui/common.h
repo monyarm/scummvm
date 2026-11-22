@@ -98,6 +98,7 @@ enum EventType {
 	kEventUpdate		= 18,	// sent every frame while the panel is visible; "load" to Nancy19 scripts
 	kEventEnable		= 19,	// Nancy20: the panel holding the control was enabled...
 	kEventDisable		= 20,	// ...or disabled
+	kEventSetLocation	= 30,	// the panel holding the control was moved
 	kEventActionRecord	= 100	// sent by a scene's action record
 };
 
@@ -117,13 +118,16 @@ enum ActionType {
 	kActionSetText			= 12,	// also empties a list box
 	kActionSetValue			= 13,
 	kActionSetTexture		= 14,
+	kActionScrollBy			= 14,	// scroll bars: moves up by the value
 	kActionSetImage			= 15,	// Nancy21: a texture and a source rect, in one
 	kActionBeginFlash		= 16,	// a control blinks, as many times as the value says or for good...
 	kActionEndFlash			= 17,	// ...until this
 	kActionQuery			= 30,	// asks the engine to send its value back with kActionSetValue
+	kActionGetText			= 31,	// Lights, Camera, Curses: the profile list hands out a name
 	kActionShowItem			= 40,	// inventory panels
 	kActionHideItem			= 41,
-	kActionCycleFocus		= 42		// gives the next edit box of a panel the keyboard
+	kActionCycleFocus		= 42,	// gives the next edit box of a panel the keyboard
+	kActionSetLocation		= 50	// the Dossier games: moves a panel to an encoded rect
 };
 
 struct Action {

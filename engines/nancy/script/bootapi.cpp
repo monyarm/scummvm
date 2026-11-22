@@ -120,7 +120,7 @@ static int bootCreate(lua_State *L) {
 	requireField(L, readField(L, 2, "playerTimeScale", boot.playerTimeScale), "playerTimeScale");
 	requireField(L, readField(L, 2, "diagFontNum", boot.diagnosticFontID), "diagFontNum");
 
-	if (g_nancy->getGameType() <= kGameTypeNancy19) {
+	if (g_nancy->getGameType() < kGameTypeNancy20) {
 		requireField(L, readField(L, 2, "saveFolderName", boot.saveFolderName), "saveFolderName");
 		return 0;
 	}
@@ -278,6 +278,24 @@ static int loadSaveCreate(lua_State *L) {
 	requireField(L, readField(L, 2, "defaultSaveName", boot.defaultSaveName), "defaultSaveName");
 	requireField(L, readField(L, 2, "savePromptFlag", boot.savePromptFlag), "savePromptFlag");
 	requireField(L, readField(L, 2, "savePromptFlagState", boot.savePromptFlagState), "savePromptFlagState");
+
+	// Lights, Camera, Curses: the profiles of the players
+	readField(L, 2, "currentPlayerObject", boot.currentPlayerObject);
+	readField(L, 2, "loadToScene", boot.loadToScene);
+	readField(L, 2, "arcadeSave", boot.arcadeSave);
+	readField(L, 2, "profileButtonPrefix", boot.profileButtonPrefix);
+	readField(L, 2, "newProfileButton", boot.newProfileButton);
+	if (pushField(L, 2, "puzzlesUnlocked")) {
+		readStringList(L, -1, boot.puzzlesUnlocked);
+		lua_pop(L, 1);
+	}
+
+	readField(L, 2, "autoSaveName", boot.autoSaveName);
+	if (pushField(L, 2, "specialSaves")) {
+		readStringList(L, -1, boot.specialSaves);
+		lua_pop(L, 1);
+	}
+
 	return 0;
 }
 
@@ -291,6 +309,7 @@ static int viewportCreate(lua_State *L) {
 	// The viewport, and the resolution the game gets drawn at
 	viewport.screenPosition = readRectField(L, 2, "location");
 	viewport.bounds = readRectField(L, 2, "windowRes");
+	readField(L, 2, "uiHeight", boot.viewportUIHeight);
 
 	boot.leftNodeHotspot = readRectField(L, 2, "leftNodeHotspot");
 	boot.rightNodeHotspot = readRectField(L, 2, "rightNodeHotspot");
@@ -340,7 +359,7 @@ static int inventoryCreate(lua_State *L) {
 
 #ifdef ENABLE_NANCY_V5
 	if (g_nancy->getGameType() >= kGameTypeNancy26) {
-		return createNancy26Inventory(L, inventory);
+		return createNancy26Inventory(L, inventory, *s_tables->boot);
 	}
 #endif
 
@@ -350,6 +369,11 @@ static int inventoryCreate(lua_State *L) {
 	}
 
 	s_tables->boot->inventoryImageName = Common::Path(imageName);
+
+	// Lights, Camera, Curses has no addToFront, and puts new items last
+	if (g_nancy->getGameType() == kGameTypeNancyDossier1) {
+		s_tables->boot->isInventoryAddedToFront = false;
+	}
 
 	Common::Array<Common::String> names;
 	getSortedKeys(L, 2, names);
@@ -659,8 +683,7 @@ static const InitObject kInitObjects[] = {
 };
 
 // Nancy20 sets InventoryInit.addToFront before the items get made. It picks
-// where new item buttons go in the inventory, and the only value used is the
-// one the earlier games always had, so it is only taken in.
+// where new items go in the inventory: first, as in the earlier games, or last.
 static int inventorySetField(lua_State *L) {
 	checkUserData(L, 1, "ND.InventoryInit");
 	const char *name = luaL_checkstring(L, 2);
@@ -669,6 +692,10 @@ static int inventorySetField(lua_State *L) {
 	}
 
 	luaL_checktype(L, 3, LUA_TBOOLEAN);
+	if (s_tables && s_tables->boot) {
+		s_tables->boot->isInventoryAddedToFront = lua_toboolean(L, 3) != 0;
+	}
+
 	return 0;
 }
 

@@ -91,6 +91,7 @@ public:
 	~Manager();
 
 	Request takeRequest();
+	const Request &getRequest() const { return _request; }
 
 	// Nancy18 scenes save and load games by name, which is how it does second chances
 	void requestSave(const Common::String &name);
@@ -100,8 +101,22 @@ public:
 	void requestNewGame() { _request.type = kRequestNewGame; }
 	void requestQuit() { _request.type = kRequestQuit; }
 
-	// Whether there is a saved game of that name
+	// Whether there is a saved game of that name, and its slot; -1 for none
 	bool hasSave(const Common::String &name) const { return findSaveSlot(name) != -1; }
+	int findSaveSlot(const Common::String &name) const;
+	bool isValidSaveName(const Common::String &name) const;
+
+	// Resorting to Danger manages the saved games of its profiles itself
+	bool isSavingAllowed() const { return _isSavingAllowed; }
+	bool deleteSave(const Common::String &name);
+	bool renameSave(const Common::String &oldName, const Common::String &newName);
+
+	// Resorting to Danger saves the game under the name of the profile whenever
+	// a scene begins, as soon as saving is allowed
+	void setAutosaveName(const Common::String &name) { _autosaveName = name; }
+	void requestAutosave() { _isAutosavePending = true; }
+
+	Panel *findPanel(const Common::String &name) const;
 
 	// The names of the saved games
 	void getSaveNames(Common::Array<Common::String> &names) const;
@@ -199,6 +214,15 @@ private:
 
 	void onLoaderAction(const Action &action);
 	void onSaverAction(const Action &action);
+
+	// Lights, Camera, Curses saves a game for every player, named after them,
+	// which the scripts list and pick as the profiles of the players
+	void onProfileLoaderAction(const Action &action);
+	void onProfileSaverAction(const Action &action);
+	void fillProfileList();
+	void sendToPlayerName(const char *action, const Common::String &text);
+	void getProfileNames(Common::Array<Common::String> &names) const;
+	void runProfileLoad();
 	void onSaveQueryAction(const Action &action);
 	void onSaveOverwriteAction(const Action &action);
 	void onExitQueryAction(const Action &action);
@@ -209,11 +233,9 @@ private:
 	void onFlagsAction(const Action &action);
 	void askToSaveFirst(const Action &action);
 	uint fillSaveList(const Common::String &listName);
-	int findSaveSlot(const Common::String &name) const;
 	int runScummVMSaveLoadDialog(bool isSave, Common::String &saveName);
 	void setSaveScreenshot(const Graphics::ManagedSurface &image, const Common::Rect &src);
 
-	Panel *findPanel(const Common::String &name) const;
 	bool isItemButton(const Common::String &name) const;
 	InvButton *findItemButton(int16 itemID) const;
 
@@ -255,6 +277,12 @@ private:
 	Common::String _typedSaveName;	// in the save dialog
 	Common::String _lastSaveName;
 
+	// Lights, Camera, Curses
+	Common::String _pickedProfile;		// to be loaded, or made
+	Common::String _profileToSave;
+	Common::Array<Common::String> _listedProfiles;	// as the buttons show them
+	bool _isProfileLoadRequested = false;
+
 	// What the player was about to do when asked whether to save first
 	bool _hasPendingAction = false;
 	Action _pendingAction;
@@ -263,7 +291,15 @@ private:
 	// cutscene. Leaving the game then asks whether to leave without saving.
 	bool _isSavingAllowed = true;
 
+	Common::String _autosaveName;
+	bool _isAutosavePending = false;
+
 	Request _request;
+
+	// Resorting to Danger saves on the spot, so a load, new game or quit asked
+	// for before a save goes on after it: "Save & Exit" asks for a new game,
+	// which goes back to the main menu, and then saves
+	Request _requestAfterSave;
 };
 
 } // End of namespace NDUI

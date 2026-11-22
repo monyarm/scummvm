@@ -243,14 +243,23 @@ void NancyMetaEngine::registerDefaultSettings(const Common::String &target) cons
 	ConfMan.registerDefault("originalsaveload", true);
 }
 
-// Nancy28 has the achievements of its Steam release, the only one there is
+// Nancy28 is the only game with Steam achievements. The other games with
+// achievements keep them in a file.
 Common::AchievementsPlatform NancyMetaEngine::getAchievementsPlatform(const Common::String &target) const {
-	return Common::STEAM_ACHIEVEMENTS;
+	if (ConfMan.get("gameid", target) == "nancy28") {
+		return Common::STEAM_ACHIEVEMENTS;
+	}
+
+	return Common::UNK_ACHIEVEMENTS;
 }
 
 const Common::AchievementDescriptionList *NancyMetaEngine::getAchievementDescriptionList() const {
 	static const Common::AchievementDescriptionList achievementDescriptionList[] = {
 		{ "nancy28", Common::STEAM_ACHIEVEMENTS, "226820" },
+		{ "nancy29", Common::UNK_ACHIEVEMENTS, "nancy29" },
+		{ "nancy30", Common::UNK_ACHIEVEMENTS, "nancy30" },
+		{ "nancy31", Common::UNK_ACHIEVEMENTS, "nancy31" },
+		{ "nancy32", Common::UNK_ACHIEVEMENTS, "nancy32" },
 		ACHIEVEMENT_DESC_TABLE_END_MARKER
 	};
 

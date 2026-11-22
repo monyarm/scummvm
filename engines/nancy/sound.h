@@ -83,6 +83,9 @@ public:
 	bool isSoundPlaying(const SoundDescription &description) const;
 	bool isSoundPlaying(const Common::String &chunkName) const;
 
+	// The name of the sound last loaded into a channel
+	const Common::String &getSoundName(uint16 channelID) const { return _channels[channelID].name; }
+
 	// Goes up whenever a sound starts on the channel or the channel is stopped,
 	// but not when a sound ends by itself. Nancy19 records tell from it whether
 	// their sound was cut off.
@@ -128,6 +131,12 @@ public:
 	void setRate(uint16 channelID, uint32 rate);
 	void setRate(const SoundDescription &description, uint32 rate);
 	void setRate(const Common::String &chunkName, uint32 rate);
+
+	// Nancy29: plays a sound once, without a channel, so that several copies of
+	// it can overlap. The volume goes from 0 to 100, and a pitch of 2 plays the
+	// sound twice as fast. Returns false when the sound couldn't be played.
+	bool playInstance(const Common::String &soundName, Audio::Mixer::SoundType type, uint16 volume, double pitch, Audio::SoundHandle &handle);
+	bool isInstancePlaying(const Audio::SoundHandle &handle) const;
 
 	Audio::Timestamp getLength(uint16 channelID);
 	Audio::Timestamp getLength(const SoundDescription &description);
@@ -192,6 +201,7 @@ protected:
 
 	Common::Array<Channel> _channels;
 	Common::HashMap<Common::String, SoundDescription> _commonSounds;
+	Common::Array<Audio::SoundHandle> _instances;	// Nancy29: the sounds started by playInstance()
 
 	bool _shouldRecalculate;
 

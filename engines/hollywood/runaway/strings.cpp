@@ -19,137 +19,173 @@
  *
  */
 
+#include "common/archive.h"
+#include "common/compression/unzip.h"
+#include "common/ptr.h"
+#include "common/stream.h"
 #include "common/util.h"
 #include "hollywood/runaway/strings.h"
 
 namespace Hollywood {
 namespace {
 
-// Original German, French and Spanish interface labels, plus localized
-// messages for ScummVM saves and settings. All strings are UTF-8.
-const char *const kText[RunawayStrings::kTextCount][3] = {
-	{"BETRACHTE ", "REGARDER ", "MIRAR "},
-	{"NIMM ", "PRENDRE ", "COGER "},
-	{"BENUTZE ", "UTILISER ", "USAR "},
-	{"VERSTAUE ", "DEPOSER ", "DEJAR "},
-	{" MIT ", " AVEC ", " CON "},
-	{"INVENTAR", "INVENTAIRE", "INVENTARIO"},
-	{"WEITERSPIELEN", "CONTINUER LA PARTIE", "CONTINUAR JUEGO"},
-	{"\303\226FFNE ", "OUVRIR ", "ABRIR "},
-	{"SCHLIESSE ", "FERMER ", "CERRAR "},
-	{"VERSCHIEBE ", "DEPLACER ", "MOVER "},
-	{"SIEH AUS DEM ", "REGARDER A TRAVERS ", "MIRAR A TRAV\303\211S DE LA "},
-	{"BENUTZE DAS ", "APPELER AVEC ", "LLAMAR POR "},
-	{"NIMM ETWAS AUS DEM ", "PRENDRE QUELQUE CHOSE DANS ", "COGER ALGO DE LA "},
-	{"ZIEHE DEN STECKER DER K\303\234HLTRUHE HERAUS", "DEBRANCHER CONGELATEUR", "DESENCHUFAR CONGELADOR"},
-	{"HEMD", "CHEMISE", "CAMISA"},
-	{"PUTZLAPPEN", "PEAU DE CHAMOIS HUMIDE", "GAMUZA HUMEDECIDA"},
-	{"SCHMUTZLAPPEN", "PEAU DE CHAMOIS SALE", "GAMUZA MUGRIENTA"},
-	{"OPTIONEN", "OPTIONS", "OPCIONES"},
-	{"LADEN", "CHARGER", "CARGAR"},
-	{"SICHERN", "SAUVEGARDER", "SALVAR"},
-	{"L\303\226SCHEN", "EFFACER", "BORRAR"},
-	{"WEITERSPIELEN", "JOUER", "JUGAR"},
-	{"VERLASSEN", "QUITTER", "SALIR"},
-	{"MUSIK", "Musique", "M\303\272sica"},
-	{"ANTI-ALIASING", "Antialiasing des sprites", "Antidentado Sprite"},
-	{"SCROLLING", "Mode de d\303\251filement", "M\303\251todo Scroll"},
-	{"MAUSZEIGERKLICKEN", "Bruitage des ic\303\264nes", "Sonido puntero rat\303\263n"},
-	{"UNTERTITEL", "Sous-titres", "Subt\303\255tulos"},
-	{"EIN", "OUI", "ON"},
-	{"AUS", "NON", "OFF"},
-	{"SCHNELL", "RAPIDE", "R\303\201PIDO"},
-	{"LANGSAM", "FLUIDE", "LENTO"},
-	{"LAUTST\303\204RKE", "Volume", "Volumen"},
-	{"HELLIGKEIT", "Luminosit\303\251", "Brillo"},
-	{"MITWIRKENDE", "G\303\251n\303\251rique", "Cr\303\251ditos"},
-	{"EINSTELLUNGEN SICHERN", "Sauvegarder la configuration", "Salvar Configuraci\303\263n"},
-	{"VORGABEEINSTELLUNGEN", "Configuration par d\303\251faut", "Configuraci\303\263n Inicial"},
-	{"SIND SIE SICHER?", "CONFIRMER ?", "\302\277EST\303\201S SEGURO?"},
-	{"JA", "OUI", "S\303\215"},
-	{"NEIN", "NON", "NO"},
-	{"V", "Q", "L"},
-	{"STEIGE DURCH DIE FALLT\303\234R HINAB", "SORTIR PAR LA TRAPPE", "SALIR POR LA TRAMPILLA"},
-	{"NAME DES SPIELSTANDES EINGEBEN:", "NOM DE LA SAUVEGARDE :", "INTRODUCE EL NOMBRE DE LA PARTIDA:"},
-	{"KEINE SPIELST\303\204NDE VORHANDEN", "AUCUNE SAUVEGARDE", "NO HAY PARTIDAS SALVADAS"},
-	{"NEUER SPIELSTAND", "NOUVELLE SAUVEGARDE", "NUEVA PARTIDA SALVADA"},
-	{"SPIELSTAND GESICHERT", "PARTIE SAUVEGARDEE", "PARTIDA SALVADA"},
-	{"AKTUELLE EINSTELLUNGEN GESICHERT", "CONFIGURATION SAUVEGARDEE", "CONFIGURACI\303\223N SALVADA"},
-	{"VORGEGEBENE EINSTELLUNGEN WIEDERHERGESTELLT", "CONFIGURATION PAR DEFAUT RESTAUREE", "CONFIGURACI\303\223N INICIAL RESTAURADA"},
-	{"SPIELSTAND KONNTE NICHT GESICHERT WERDEN", "IMPOSSIBLE DE SAUVEGARDER LA PARTIE", "NO SE HA PODIDO SALVAR LA PARTIDA"},
-	{"SPIELSTAND KONNTE NICHT GELADEN WERDEN", "IMPOSSIBLE DE CHARGER LA PARTIE", "NO SE HA PODIDO CARGAR LA PARTIDA"},
-	{"SPIELSTAND KONNTE NICHT GEL\303\226SCHT WERDEN", "IMPOSSIBLE D'EFFACER LA SAUVEGARDE", "NO SE HA PODIDO BORRAR LA PARTIDA"},
-	{"KEIN FREIER SPEICHERPLATZ", "AUCUN EMPLACEMENT LIBRE", "NO QUEDAN ESPACIOS LIBRES"},
-	{"H", "E", "B"},
-	{"MITWIRKENDE KONNTEN NICHT GELADEN WERDEN", "IMPOSSIBLE DE CHARGER LE GENERIQUE", "NO SE HAN PODIDO CARGAR LOS CR\303\211DITOS"}
+const char *const kTextKeys[] = {
+	"interface.look", "interface.take", "interface.use",
+	"interface.putAway", "interface.with", "interface.inventory",
+	"interface.resume", "interface.open", "interface.close",
+	"interface.move", "interface.lookThrough", "interface.usePhone",
+	"interface.takeFromShelf", "interface.unplugCooler", "interface.shirt",
+	"interface.wetCloth", "interface.dirtyCloth", "interface.options",
+	"interface.load", "interface.save", "interface.delete",
+	"interface.play", "interface.quit", "interface.music",
+	"interface.antialias", "interface.scrolling", "interface.pointerSound",
+	"interface.subtitles", "interface.on", "interface.off",
+	"interface.fast", "interface.slow", "interface.volume",
+	"interface.brightness", "interface.credits", "interface.saveSettings",
+	"interface.defaultSettings", "interface.confirmQuit", "interface.yes",
+	"interface.no", "interface.quitKey", "interface.leaveHatch",
+	"interface.enterSaveName", "interface.noSaves", "interface.newSave",
+	"interface.gameSaved", "interface.settingsSaved", "interface.defaultsRestored",
+	"interface.saveFailed", "interface.loadFailed", "interface.deleteFailed",
+	"interface.noFreeSlots", "interface.deleteKey", "interface.creditsFailed",
+	"interface.playBeginning", "interface.playChapter", "interface.dryMarkerPen",
+	"interface.syringeWithAlcohol", "interface.fakeMedicalChart", "interface.headWithWig",
+	"interface.glassWithWater", "interface.boxOfSyringes", "interface.medicalChart",
+	"interface.fakeChart", "interface.museumDemoCondom", "interface.frozenBattery",
+	"interface.mayanPryingTool", "interface.groundCoffeeBowl", "interface.emptyBowl",
+	"interface.ladleWithBattery", "interface.anthropologyBooks", "interface.documents",
+	"interface.alteredLaser", "interface.varnishBriefcase", "interface.willy",
+	"interface.mayanBowlsAndJars", "interface.exhibitBucket", "interface.teapot",
+	"interface.exhibitBowl", "interface.thermalChamber", "interface.key",
+	"interface.nitrogenTank", "interface.electronMicroscope", "interface.makeshiftBullet",
+	"interface.pileOfMakeshiftBullets", "interface.mendedStrap", "interface.bottleWithWater",
+	"interface.bottleWithGasoline", "interface.filledMeasuringTube", "interface.polishedStone",
+	"interface.stoneOfLight", "interface.makeshiftMortar", "interface.steamOutletLever",
+	"interface.pressureWheel", "interface.makeshiftMiningTool", "interface.hotScalpel",
+	"interface.openPods"
 };
-
-const char *const kItemNames[][3] = {
-	{"", "", ""},
-	{"LEDERLAPPEN", "PEAU DE CHAMOIS", "GAMUZA"},
-	{"BRECHSTANGE", "PIED DE BICHE", "PALANCA"},
-	{"SPR\303\234HREINIGER", "PRODUIT NETTOYANT", "BOTE DE LIMPIEZA"},
-	{"PACKUNG BUTTER", "TABLETTE DE BEURRE", "PAQUETE DE MANTEQUILLA"},
-	{"SPRENGAUSR\303\234STUNG", "DYNAMITE ET DETONATEUR", "EQUIPO DE DINAMITERO"},
-	{"HELM AUS DEM ZWEITEN WELTKRIEG", "CASQUE DE LA SECONDE GUERRE MONDIALE", "CASCO DE LA SEGUNDA GUERRA MUNDIAL"},
-	{"SCHRAUBE", "VIS", "TORNILLO"},
-	{"GARDEROBENKNAUF", "PORTE-MANTEAUX", "POMO DEL PERCHERO"},
-	{"TABLETTE", "PILLULE", "PASTILLA"},
-	{"LIPPENSTIFT", "ROUGE A LEVRES", "PINTALABIOS"},
-	{"HAUFEN LIPPENSTIFTE", "STOCK DE ROUGE A LEVRES", "MONT\303\223N DE PINTALABIOS"},
-	{"SONNEN\303\226L", "HUILE SOLAIRE", "ACEITE BRONCEADOR"},
-	{"WALKIE-TALKIE", "TALKIE-WALKIE", "WALKIE TALKIE"},
-	{"MUNITIONSSTREIFEN", "BANDE DE MUNITIONS", "RISTRA DE BALAS"},
-	{"BASKETBALL", "BALLON DE BASKET", "BAL\303\223N DE BALONCESTO"},
-	{"SATTLERNADEL UND FADEN", "FIL A COUDRE ET AIGUILLE", "AGUJA Y ROLLO DE HILO DE ZAPATERO"},
-	{"BEHELFS-BOHRER", "TOURNEVIS ARTISANAL", "SACACORCHOS IMPROVISADO"},
-	{"SACK GESCH\303\204LTER ERDN\303\234SSE", "SAC DE CACAHOUETES ENTIERES", "SAQUITO DE CACAHUETES PELADOS"},
-	{"GLAS ERDNUSSBUTTER", "POT DE BEURRE DE CACAHOUETES", "TARRO DE MANTEQUILLA DE CACAHUETE"},
-	{"SONNENBRILLE", "LUNETTES DE SOLEIL", "GAFAS DE SOL"},
-	{"FUSSRASTE", "REPOSE-PIED DE MOTO", "ESTRIBO DE LA MOTO"},
-	{"HANDSTAUBSAUGER", "ASPIRATEUR A MAIN", "ASPIRADORA DE MANO"},
-	{"PLAN", "PLAN GENIAL", "PLAN"},
-	{"BLASEBALG", "SOUFFLET", "FUELLE"},
-	{"EIMER", "SEAU", "CUBO"},
-	{"SCHL\303\234SSEL", "CLE DU REFRIGERATEUR", "LLAVE"}
-};
-
-const char *const kShackHotspotNames[][3] = {
-	{"", "", ""},
-	{"T\303\234R", "PORTE", "PUERTA"},
-	{"SPALT", "ORIFICE", "RENDIJA"},
-	{"FENSTER", "FENETRE", "VENTANA"},
-	{"FENSTER", "PETITE FENETRE", "VENTANA PEQUE\303\221A"},
-	{"HOLZST\303\234CK", "MORCEAU DE BOIS ROND", "TROZO REDONDO DE MADERA"},
-	{"FALLT\303\234R", "TRAPPE", "TRAMPILLA"},
-	{"STOFFFETZEN", "TISSU DECHIRE", "TELA HECHA JIRONES"},
-	{"K\303\234HLTRUHE", "CONGELATEUR", "CONGELADOR"},
-	{"FETZEN", "CHIFFON", "TRAPO"},
-	{"STECKER", "PRISE ELECTRIQUE", "ENCHUFE"},
-	{"ABFLUSS", "TUYAU DE VIDANGE DU CONGELATEUR", "DESAG\303\234E DEL CONGELADOR"},
-	{"TELEFON", "TELEPHONE", "TEL\303\211FONO"},
-	{"REGAL", "ETAGERES", "ESTANTER\303\215A"},
-	{"BRECHSTANGE", "PIED-DE-BICHE", "PALANCA"},
-	{"BRILLENRESTE", "LUNETTES CASSEES", "GAFAS ROTAS"},
-	{"BLASEBALG", "SOUFFLET", "FUELLE"},
-	{"DOSE", "BOUTEILLE", "BOTE"},
-	{"K\303\234HLTRUHENDECKEL", "COUVERCLE DU CONGELATEUR", "TAPA DEL CONGELADOR"},
-	{"ABFLUSS", "TUYAU DE VIDANGE DU CONGELATEUR", "DESAG\303\234E DEL CONGELADOR"}
-};
+static_assert(ARRAYSIZE(kTextKeys) == RunawayStrings::kTextCount, "Runaway text keys must match TextId");
 
 } // End of anonymous namespace
 
-Common::U32String RunawayStrings::text(TextId id) const {
-	assert(id < kTextCount);
-	return Common::U32String(kText[id][_languageIndex]);
+bool RunawayStrings::load() {
+	_text.clear();
+	Common::ScopedPtr<Common::Archive> archive(Common::makeZipArchive("hollywood.dat"));
+	if (!archive || !loadCatalog(*archive, "en")) {
+		return false;
+	}
+	const char *language = nullptr;
+	switch (_language) {
+	case Common::DE_DEU:
+		language = "de";
+		break;
+	case Common::FR_FRA:
+		language = "fr";
+		break;
+	case Common::ES_ESP:
+		language = "es";
+		break;
+	default:
+		break;
+	}
+	if (language && !loadCatalog(*archive, language)) {
+		return false;
+	}
+	for (uint i = 0; i < ARRAYSIZE(kTextKeys); ++i) {
+		if (!_text.contains(kTextKeys[i])) {
+			return false;
+		}
+	}
+	return true;
 }
 
-Common::U32String RunawayStrings::itemName(byte item) const {
-	return Common::U32String(item < ARRAYSIZE(kItemNames) ? kItemNames[item][_languageIndex] : "");
+bool RunawayStrings::loadCatalog(const Common::Archive &archive, const char *language) {
+	const Common::Path path(Common::String::format("runaway/%s.dat", language));
+	Common::ScopedPtr<Common::SeekableReadStream> stream(archive.createReadStreamForMember(path));
+	if (!stream || stream->readUint32BE() != MKTAG('R', 'W', 'T', 'X') || stream->readUint16LE() != 2) {
+		return false;
+	}
+	const uint16 count = stream->readUint16LE();
+	if (!count) {
+		return false;
+	}
+	for (uint i = 0; i < count; ++i) {
+		const uint16 keySize = stream->readUint16LE();
+		const uint16 textSize = stream->readUint16LE();
+		if (!keySize || keySize + textSize > stream->size() - stream->pos()) {
+			return false;
+		}
+		const Common::String key = stream->readString(0, keySize);
+		const Common::String text = stream->readString(0, textSize);
+		if (stream->err() || key.size() != keySize || text.size() != textSize) {
+			return false;
+		}
+		_text[key] = Common::U32String(text);
+	}
+	return !stream->err() && stream->pos() == stream->size();
+}
+
+Common::U32String RunawayStrings::lookup(const Common::String &key) const {
+	Common::HashMap<Common::String, Common::U32String>::const_iterator entry = _text.find(key);
+	return entry != _text.end() ? entry->_value : Common::U32String();
+}
+
+Common::U32String RunawayStrings::text(TextId id) const {
+	assert(id < kTextCount);
+	return lookup(kTextKeys[id]);
+}
+
+Common::U32String RunawayStrings::itemName(byte chapter, byte item) const {
+	return lookup(Common::String::format("item.%u.%u", chapter, item));
+}
+
+Common::U32String RunawayStrings::hotspotName(uint16 scene, byte hotspot) const {
+	return lookup(Common::String::format("hotspot.%u.%u", scene, hotspot));
+}
+
+Common::U32String RunawayStrings::sceneActionCaption(uint16 scene, byte hotspot, byte item, bool look, const char *variant) const {
+	const Common::String key = item ? Common::String::format("action.%u.item.%u.%u", scene, item, hotspot) :
+		Common::String::format("action.%u.%s.%u", scene, look ? "look" : "use", hotspot);
+	if (variant) {
+		const Common::U32String caption = lookup(key + "." + variant);
+		if (!caption.empty()) {
+			return caption;
+		}
+	}
+	Common::U32String caption = lookup(key);
+	if (caption.empty() && item) {
+		caption = lookup(Common::String::format("action.%u.item.0.%u", scene, hotspot));
+	}
+	return caption;
+}
+
+Common::U32String RunawayStrings::combinationCaption(byte chapter, byte item, byte target) const {
+	Common::U32String caption = lookup(Common::String::format("combination.%u.%u.%u", chapter, item, target));
+	if (caption.empty()) {
+		caption = lookup(Common::String::format("combination.%u.%u.0", chapter, item));
+	}
+	if (caption.empty()) {
+		caption = lookup(Common::String::format("combination.%u.0.%u", chapter, target));
+	}
+	return caption;
+}
+
+Common::U32String RunawayStrings::formatActionCaption(const Common::U32String &pattern, const Common::U32String &item, const Common::U32String &target) {
+	Common::U32String caption;
+	for (uint i = 0; i < pattern.size(); ++i) {
+		if (pattern[i] == '#') {
+			caption += item;
+		} else if (pattern[i] == '@') {
+			caption += target;
+		} else {
+			caption += pattern[i];
+		}
+	}
+	return caption;
 }
 
 Common::U32String RunawayStrings::shackHotspotName(byte hotspot) const {
-	return Common::U32String(hotspot < ARRAYSIZE(kShackHotspotNames) ? kShackHotspotNames[hotspot][_languageIndex] : "");
+	return hotspotName(5030, hotspot);
 }
 
 } // End of namespace Hollywood

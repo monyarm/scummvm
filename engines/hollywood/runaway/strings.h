@@ -22,13 +22,18 @@
 #ifndef HOLLYWOOD_RUNAWAY_STRINGS_H
 #define HOLLYWOOD_RUNAWAY_STRINGS_H
 
+#include "common/hash-str.h"
 #include "common/language.h"
 #include "common/ustr.h"
 
+namespace Common {
+class Archive;
+}
+
 namespace Hollywood {
 
-// Interface labels are embedded in the original executables. Dialogue and
-// subtitles remain in RESOURCE.003. Use the detected game's language here.
+// Original executable labels are compiled from PO catalogs into hollywood.dat.
+// Dialogue and subtitles remain in RESOURCE.003.
 class RunawayStrings {
 public:
 	enum TextId {
@@ -40,16 +45,34 @@ public:
 		kVolume, kBrightness, kCredits, kSaveSettings, kDefaultSettings,
 		kConfirmQuit, kYes, kNo, kQuitKey, kLeaveHatch,
 		kEnterSaveName, kNoSaves, kNewSave, kGameSaved, kSettingsSaved, kDefaultsRestored,
-		kSaveFailed, kLoadFailed, kDeleteFailed, kNoFreeSlots, kDeleteKey, kCreditsFailed, kTextCount
+		kSaveFailed, kLoadFailed, kDeleteFailed, kNoFreeSlots, kDeleteKey, kCreditsFailed,
+		kPlayBeginning, kPlayChapter,
+		kDryMarkerPen, kSyringeWithAlcohol, kFakeMedicalChart, kHeadWithWig, kGlassWithWater,
+		kBoxOfSyringes, kMedicalChart, kFakeChart,
+		kMuseumDemoCondom, kFrozenBattery, kMayanPryingTool, kGroundCoffeeBowl, kEmptyBowl, kLadleWithBattery,
+		kAnthropologyBooks, kDocuments, kAlteredLaser, kVarnishBriefcase, kWilly,
+		kMayanBowlsAndJars, kExhibitBucket, kTeapot, kExhibitBowl,
+		kThermalChamber, kKey, kNitrogenTank, kElectronMicroscope,
+		kMakeshiftBullet, kPileOfMakeshiftBullets,
+		kMendedStrap, kBottleWithWater, kBottleWithGasoline, kFilledMeasuringTube,
+		kPolishedStone, kStoneOfLight, kMakeshiftMortar, kSteamOutletLever, kPressureWheel,
+		kMakeshiftMiningTool, kHotScalpel, kOpenPods, kTextCount
 	};
-	explicit RunawayStrings(Common::Language language) :
-		_languageIndex(language == Common::FR_FRA ? 1 : language == Common::ES_ESP ? 2 : 0) {}
+	explicit RunawayStrings(Common::Language language) : _language(language) {}
+	bool load();
 	Common::U32String text(TextId id) const;
-	Common::U32String itemName(byte item) const;
+	Common::U32String itemName(byte chapter, byte item) const;
+	Common::U32String hotspotName(uint16 scene, byte hotspot) const;
+	Common::U32String sceneActionCaption(uint16 scene, byte hotspot, byte item, bool look, const char *variant = nullptr) const;
+	Common::U32String combinationCaption(byte chapter, byte item, byte target) const;
+	static Common::U32String formatActionCaption(const Common::U32String &pattern, const Common::U32String &item, const Common::U32String &target);
 	Common::U32String shackHotspotName(byte hotspot) const;
 
 private:
-	uint _languageIndex;
+	bool loadCatalog(const Common::Archive &archive, const char *language);
+	Common::U32String lookup(const Common::String &key) const;
+	Common::Language _language;
+	Common::HashMap<Common::String, Common::U32String> _text;
 };
 
 } // End of namespace Hollywood

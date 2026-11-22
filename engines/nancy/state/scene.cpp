@@ -54,6 +54,9 @@
 #include "engines/nancy/script/records.h"
 #include "engines/nancy/script/scenecontext.h"
 #endif
+#ifdef ENABLE_NANCY_V5
+#include "engines/nancy/script/v5/gamefunctions.h"
+#endif
 
 namespace Common {
 DECLARE_SINGLETON(Nancy::State::Scene);
@@ -522,7 +525,7 @@ byte Scene::getPlayerTOD() const {
 	}
 }
 
-void Scene::addItemToInventory(int16 id) {
+void Scene::addItemToInventory(int16 id, bool isAddedToFront) {
 	if (id == -1) {
 		return;
 	}
@@ -552,6 +555,11 @@ void Scene::addItemToInventory(int16 id) {
 			// (appendItemsWhileOpen) an item added while the popup is open goes
 			// to the end. That's how the most recently dropped item ends up last.
 			bool addToBack = g_nancy->getGameType() >= kGameTypeNancy26;
+			const ScriptBootData *scriptBoot = (const ScriptBootData *)g_nancy->getEngineData("ScriptBootData");
+			if (scriptBoot && !scriptBoot->isInventoryAddedToFront) {
+				addToBack = true;
+			}
+
 			if (_inventoryPopup.isOpen()) {
 				const UIIV *uiivData = GetEngineData(UIIV);
 				addToBack = uiivData && uiivData->appendItemsWhileOpen;
@@ -564,7 +572,7 @@ void Scene::addItemToInventory(int16 id) {
 					break;
 				}
 			}
-			if (addToBack) {
+			if (addToBack && !isAddedToFront) {
 				order.push_back(id);
 			} else {
 				order.insert_at(0, id);
@@ -1473,11 +1481,15 @@ bool Scene::changePlayerCharacter(uint characterIndex) {
 }
 
 void Scene::showInventoryButtons() {
-	// The most recent items come first
+	// Each item shown goes first, or last in the games that put new items last,
+	// so the buttons come out in the order of the list
 	const Common::Array<int16> &order = _inventoryBox.getOrder();
-	for (int i = (int)order.size() - 1; i >= 0; --i) {
-		if (order[i] != -1 && _flags.items[order[i]] == g_nancy->_true) {
-			_ndui->showInventoryItem(order[i], true);
+	const ScriptBootData *scriptBoot = (const ScriptBootData *)g_nancy->getEngineData("ScriptBootData");
+	const bool isAddedLast = scriptBoot && !scriptBoot->isInventoryAddedToFront;
+	for (uint i = 0; i < order.size(); ++i) {
+		const int16 id = isAddedLast ? order[i] : order[order.size() - 1 - i];
+		if (id != -1 && _flags.items[id] == g_nancy->_true) {
+			_ndui->showInventoryItem(id, true);
 		}
 	}
 }
@@ -1753,13 +1765,16 @@ void Scene::synchronize(Common::Serializer &ser) {
 	}
 
 #ifdef ENABLE_NANCY_V4
-	// Nancy20 has scenes that go by name, which no saved game of the earlier
-	// games can be in
-	if (g_nancy->getGameType() >= kGameTypeNancy20) {
+	// Scenes can go by name from Lights, Camera, Curses on; no saved game of
+	// the earlier games can be in one
+	if (g_nancy->getGameType() >= kGameTypeNancyDossier1) {
 		ser.syncString(_scriptSceneName);
 
-		// The scene gets loaded again below, from nextScene and this name
-		_nextScriptSceneName = _scriptSceneName;
+		// The scene gets loaded again below, from nextScene and this name. A save
+		// made as the scene changes leaves the name of the next scene alone.
+		if (ser.isLoading()) {
+			_nextScriptSceneName = _scriptSceneName;
+		}
 	}
 #endif
 
@@ -1953,6 +1968,10 @@ void Scene::synchronize(Common::Serializer &ser) {
 			}
 		}
 
+		if (g_nancy->getGameType() == kGameTypeNancyDossier1) {
+			restoreSharedProfileValues(*(ScriptSavedData *)getPuzzleData(ScriptSavedData::getTag()));
+		}
+
 		auto *bootSummary = GetEngineData(BSUM);
 		if (ser.getVersion() < 11 && bootSummary && bootSummary->endOfDayFlag != kEvNoEvent) {
 			// Older saves only have the day in the day value
@@ -2064,7 +2083,7 @@ void Scene::init() {
 		changeScene(bootSummary->adScene);
 		ConfMan.removeKey("load_ad", Common::ConfigManager::kTransientDomain);
 		_isRunningAd = true;
-	} else {
+	} else if (!startNewProfileGame()) {
 		changeScene(bootSummary->firstScene);
 	}
 
@@ -2163,6 +2182,10 @@ PuzzleData *Scene::getPuzzleData(const uint32 tag) {
 		PuzzleData *newData = makePuzzleData(tag);
 		if (newData) {
 			_puzzleData.setVal(tag, newData);
+		}
+
+		if (tag == ScriptSavedData::getTag() && newData) {
+			restoreSharedProfileValues(*(ScriptSavedData *)newData);
 		}
 
 		return newData;
@@ -2326,6 +2349,11 @@ void Scene::load(bool fromSaveFile) {
 // Nancy19 scenes are Lua scripts. A script makes the records of its scene when
 // it is run, the first of which names the background.
 void Scene::loadScriptedScene(bool fromSaveFile) {
+	const bool isUINew = fromSaveFile || !_scriptScene;
+	if (!fromSaveFile) {
+		runSceneEndScript();
+	}
+
 	// A scene that goes by name has no number; see _nextScriptSceneName
 	const Common::String sceneName = _nextScriptSceneName.empty() ?
 		Common::String::format("s%u", _sceneState.nextScene.sceneID) : _nextScriptSceneName;
@@ -2363,6 +2391,8 @@ void Scene::loadScriptedScene(bool fromSaveFile) {
 	if (g_nancy->getGameType() >= kGameTypeNancy26) {
 		_viewport.setZOrder(Script::RecordGraphic::getBackgroundZOrder(_scriptScene->getZOffset()));
 	}
+
+	_viewport.setExactZ(Script::RecordGraphic::getBackgroundExactZ());
 
 	g_nancy->_graphics->suppressNextDraw();
 
@@ -2405,9 +2435,22 @@ void Scene::loadScriptedScene(bool fromSaveFile) {
 
 	if (_ndui) {
 		_ndui->onSceneChange(_sceneState.currentScene.sceneID);
+		_ndui->requestAutosave();
+
+		// Lights, Camera, Curses keeps its UI when a profile gets loaded or a new
+		// game starts, and the OnSceneEnd script of the main menu sets the score,
+		// which otherwise only shows once it changes. Here the UI is made anew.
+		if (isUINew && g_nancy->getGameType() == kGameTypeNancyDossier1) {
+			ScriptValueData *values = (ScriptValueData *)getPuzzleData(ScriptValueData::getTag());
+			const int32 score = values ? values->values.getValOrDefault("uiScore", 0) : 0;
+			_ndui->takeAction(UI::NDUI::kActionSetText, "TotalScore", Common::String::format("%d", score));
+		}
 	}
 
 	_streams.changeEnvironment(summary->getEnvironment());
+
+	// The profile that was loaded or made waits for the records of this scene
+	_isProfileChangePending = g_nancy->_profile.isNewProfileGame || g_nancy->_profile.hasPendingPopup;
 
 	_state = kStartSound;
 }
@@ -2417,12 +2460,84 @@ void Scene::processMainStream() {
 #ifdef ENABLE_NANCY_V4
 	if (_scriptScene) {
 		_scriptScene->run(_frameSeconds);
+
+		if (_isProfileChangePending && _scriptScene->getTime() > 0.0) {
+			finishProfileChange();
+		}
+
 		return;
 	}
 #endif
 
 	_actionManager.processActionRecords();
 }
+
+#ifdef ENABLE_NANCY_V4
+// Lights, Camera, Curses runs the OnSceneEnd script when the scene of the main
+// stream ends, and when the game is left, unless the stream is paused. It saves
+// the game of the profile, which is done at once, while the scene is still the
+// one the player was in.
+void Scene::runSceneEndScript() {
+	if (g_nancy->getGameType() != kGameTypeNancyDossier1 || !_ndui || !_scriptScene || _scriptScene->isPausedByScript()) {
+		return;
+	}
+
+	_scriptScene->include("OnSceneEnd");
+
+	const UI::NDUI::Manager::Request request = _ndui->getRequest();
+	if (request.type == UI::NDUI::Manager::kRequestSave) {
+		_ndui->takeRequest();
+		g_nancy->saveGameState(request.slot, request.name, false);
+	}
+}
+#endif
+
+// Lights, Camera, Curses starts the game of a new profile where the profiles
+// are picked. Returns whether it did.
+bool Scene::startNewProfileGame() {
+#ifdef ENABLE_NANCY_V4
+	const ScriptBootData *boot = (const ScriptBootData *)g_nancy->getEngineData("ScriptBootData");
+	if (g_nancy->_profile.isNewProfileGame && boot && !boot->loadToScene.empty()) {
+		changeScene(boot->loadToScene, 0);
+		return true;
+	}
+#endif
+
+	return false;
+}
+
+#ifdef ENABLE_NANCY_V4
+// Lights, Camera, Curses: a new profile gets saved as soon as its game runs.
+// The scene the profiles are picked in then shows them again, unless the arcade
+// mode was picked; its records hear that once they have run.
+void Scene::finishProfileChange() {
+	_isProfileChangePending = false;
+
+	NancyEngine::ProfileState &profile = g_nancy->_profile;
+	if (profile.isNewProfileGame) {
+		profile.isNewProfileGame = false;
+		if (!profile.newProfile.empty() && _ndui) {
+			_ndui->requestSave(profile.newProfile);
+			profile.current = profile.newProfile;
+		}
+
+		profile.newProfile.clear();
+	}
+
+	const ScriptBootData *boot = (const ScriptBootData *)g_nancy->getEngineData("ScriptBootData");
+	if (profile.hasPendingPopup && boot) {
+		profile.hasPendingPopup = false;
+
+		Script::Message message;
+		message.action = "show";
+		message.target = boot->currentPlayerObject;
+		message.value = profile.isPopupForArcade ? 0.0 : 1.0;
+
+		bool wasTaken = false;
+		receiveMessage(message, wasTaken);
+	}
+}
+#endif
 
 void Scene::run() {
 	if (_gameStateRequested != NancyState::kNone) {
@@ -2472,6 +2587,12 @@ void Scene::run() {
 		// Player pressed esc, do not process further
 		return;
 	}
+
+#ifdef ENABLE_NANCY_V5
+	if (g_nancy->getGameType() >= kGameTypeNancy29) {
+		Script::updateEquippedItems();
+	}
+#endif
 
 	_streams.process();
 
@@ -3421,11 +3542,45 @@ void Scene::clearSceneData(bool nextIsNoArt) {
 }
 
 void Scene::clearPuzzleData() {
+	keepSharedProfileValues();
+
 	for (auto &pd : _puzzleData) {
 		delete pd._value;
 	}
 
 	_puzzleData.clear();
+}
+
+void Scene::keepSharedProfileValues() {
+	const ScriptBootData *boot = (const ScriptBootData *)g_nancy->getEngineData("ScriptBootData");
+	if (g_nancy->getGameType() != kGameTypeNancyDossier1 || !boot || !_puzzleData.contains(ScriptSavedData::getTag())) {
+		return;
+	}
+
+	const ScriptSavedData *saved = (const ScriptSavedData *)_puzzleData[ScriptSavedData::getTag()];
+	NancyEngine::ProfileState &profile = g_nancy->_profile;
+	profile.sharedValues.clear();
+
+	Common::Array<Common::String> names = boot->puzzlesUnlocked;
+	names.push_back(boot->currentPlayerObject);
+	for (const Common::String &name : names) {
+		if (saved->values.contains(name)) {
+			profile.sharedValues.setVal(name, saved->values.getVal(name));
+		}
+	}
+}
+
+// A value the saved game has itself takes the place of the shared one
+void Scene::restoreSharedProfileValues(ScriptSavedData &saved) const {
+	if (g_nancy->getGameType() != kGameTypeNancyDossier1) {
+		return;
+	}
+
+	for (const auto &value : g_nancy->_profile.sharedValues) {
+		if (!saved.values.contains(value._key)) {
+			saved.values.setVal(value._key, value._value);
+		}
+	}
 }
 
 Scene::PlayFlags::LogicCondition::LogicCondition() : flag(g_nancy->_false) {}

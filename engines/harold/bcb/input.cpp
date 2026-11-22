@@ -23,6 +23,7 @@
 #include "common/system.h"
 #include "graphics/screen.h"
 #include "harold/bcb/bcb.h"
+#include "harold/bcb/cinema.h"
 #include "harold/bcb/script.h"
 #include "harold/bcb/static_data.h"
 #include "video/avi_decoder.h"
@@ -123,6 +124,13 @@ void BCBEngine::handleLeftButtonDown(const Common::Point &mousePosition) {
 	if (_currentDisplayState != 0 || !_titleButtonsActive)
 		return;
 
+	if (_cinemaAvailable && !_titleLoadSlotsActive && CinemaViewer::titleButtonRect().contains(mousePosition)) {
+		CinemaViewer::pressTitleButton(*this);
+		delayWithEventPolling(80);
+		runCinemaViewer();
+		return;
+	}
+
 	for (uint i = 1; i < ARRAYSIZE(kTitleButtonTable); ++i) {
 		const ButtonControlRecord &button = kTitleButtonTable[i];
 		const Common::Rect rect(button.x, button.y, button.x + button.width, button.y + button.height);
@@ -157,7 +165,7 @@ void BCBEngine::handleLeftButtonDown(const Common::Point &mousePosition) {
 				restoreTitleScreenRegion(Common::Rect(0, 0, 640, 480));
 			}
 			drawTitleButton(i, false);
-			if (showSystemConfirmationDialog(_titleExitConfirmText, true))
+			if (showSystemConfirmationDialog(translateSystemTextForDisplay("title_exit_confirm", _titleExitConfirmText), true))
 				quitGame();
 			break;
 		default:
@@ -198,12 +206,12 @@ bool BCBEngine::pollEvents(bool handleClicks) {
 				} else if (event.kbd.keycode == Common::KEYCODE_SPACE) {
 					handleSkipKey();
 				} else if (_sceneChoiceActive &&
-						   event.kbd.keycode >= Common::KEYCODE_1 &&
-						   event.kbd.keycode <= Common::KEYCODE_9) {
+					event.kbd.keycode >= Common::KEYCODE_1 &&
+					event.kbd.keycode <= Common::KEYCODE_9) {
 					handleSceneChoiceKeyboardSelection(event.kbd.keycode - Common::KEYCODE_1 + 1);
 				} else if (_sceneChoiceActive &&
-						   event.kbd.keycode >= Common::KEYCODE_KP1 &&
-						   event.kbd.keycode <= Common::KEYCODE_KP9) {
+					event.kbd.keycode >= Common::KEYCODE_KP1 &&
+					event.kbd.keycode <= Common::KEYCODE_KP9) {
 					handleSceneChoiceKeyboardSelection(event.kbd.keycode - Common::KEYCODE_KP1 + 1);
 				}
 			}

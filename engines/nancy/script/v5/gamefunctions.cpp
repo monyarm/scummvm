@@ -34,6 +34,7 @@
 #include "engines/nancy/enginedata.h"
 #include "engines/nancy/graphics.h"
 #include "engines/nancy/nancy.h"
+#include "engines/nancy/puzzledata.h"
 #include "engines/nancy/sound.h"
 
 #include "engines/nancy/resource/resource.h"
@@ -43,11 +44,13 @@
 #include "engines/nancy/script/records.h"
 #include "engines/nancy/script/scenecontext.h"
 #include "engines/nancy/script/types.h"
+#include "engines/nancy/script/v5/animator.h"
 #include "engines/nancy/script/v5/brain.h"
 
 #include "engines/nancy/script/v5/gamefunctions.h"
 #include "engines/nancy/script/v5/messaging.h"
 #include "engines/nancy/script/v5/scriptinput.h"
+#include "engines/nancy/script/v5/streamtree.h"
 
 #include "engines/nancy/state/scene.h"
 
@@ -411,8 +414,15 @@ static int gameGetScriptNameRange(lua_State *L) {
 	return 1;
 }
 
+// Game:ToClipboard(text), Nancy29: for the cheat tools
+static int gameToClipboard(lua_State *L) {
+	g_system->setTextInClipboard(Common::U32String(luaL_checkstring(L, 2)));
+	return 0;
+}
+
 static const luaL_Reg kGameFunctions[] = {
 	{ "SetScriptNameFilter", gameSetScriptNameFilter },
+	{ "ToClipboard", gameToClipboard },
 	{ "GetScriptNameRange", gameGetScriptNameRange },
 	{ "Save", gameSave },
 	{ "Load", gameLoad },
@@ -435,8 +445,22 @@ static bool pushGameField(lua_State *L, const Common::String &key) {
 
 	if (key == "isWindowed") {
 		lua_pushboolean(L, !g_system->getFeatureState(OSystem::kFeatureFullscreenMode));
-	} else if (key == "time") {
+	} else if (key == "time" || key == "accurateTime") {
+		// Nancy29 adds accurateTime, which includes fractions of a second.
+		// Our time includes them already, so both give the same value
 		lua_pushnumber(L, NancySceneState._timers.lastTotalTime.getTotalMilliseconds() / 1000.0);
+	} else if (key == "debugMode") {
+		// Nancy29: the DebugOutput setting of the game's INI file, which the
+		// release has switched off. The cheat tools need it for the inspector.
+		lua_pushboolean(L, false);
+	} else if (key == "isSidecar" || key == "hasSidecar") {
+		// Nancy30: whether the exe runs as, or next to, the developers' Sidecar
+		// tool, which starts and stops the game. Never in the release.
+		lua_pushboolean(L, false);
+	} else if (key == "exeName") {
+		// Nancy30: the name of the exe file, which only Sidecar_Main_SC uses
+		// to start the game again
+		lua_pushstring(L, "");
 	} else if (key == "buildNumber") {
 		const ScriptBootData *boot = GetEngineData(ScriptBootData);
 		lua_pushstring(L, boot ? boot->buildNumber.c_str() : "");
@@ -525,10 +549,140 @@ static const INVD::Item &checkItem(lua_State *L, int index) {
 	return *item;
 }
 
+// Nancy29: the player uses an item either in the hand or on the face. An item
+// can only be equipped if it is in the inventory, belongs to that place and is
+// enabled. A place can't change while its item is forced there by a Brain flag.
+
+enum EquipPoint {
+	kEquipHand,
+	kEquipFace
+};
+
+static const char *const kEquipPointNames[] = { "hand", "face" };
+
+static EquippedItemData &getEquippedItems() {
+	return *(EquippedItemData *)NancySceneState.getPuzzleData(EquippedItemData::getTag());
+}
+
+static bool isItemEnabled(int16 id) {
+	const Common::Array<bool> &isEnabled = getGameState().isItemEnabled;
+	return id < 0 || (uint)id >= isEnabled.size() || isEnabled[id];
+}
+
+static bool isItemForcedOn(int16 id) {
+	const Common::Array<bool> &isForcedOn = getGameState().isItemForcedOn;
+	return id >= 0 && (uint)id < isForcedOn.size() && isForcedOn[id];
+}
+
+static int16 getEquippedItem(EquipPoint point) {
+	if (point == kEquipHand) {
+		return NancySceneState.getHeldItem();
+	}
+
+	const INVD::Item *item = findItem(getEquippedItems().faceItem);
+	return item ? item->id : -1;
+}
+
+// Returns whether the item ended up there. An id of -1 removes the item that
+// is there.
+static bool setEquippedItem(EquipPoint point, int16 id) {
+	const int16 current = getEquippedItem(point);
+	if (id == current) {
+		return true;
+	}
+
+	if (current != -1 && isItemForcedOn(current)) {
+		return false;
+	}
+
+	const INVD *inventory = GetEngineData(INVD);
+	if (id != -1 && (!inventory || NancySceneState.hasItem(id) != g_nancy->_true || !isItemEnabled(id) ||
+			inventory->items[id].equipPoint != kEquipPointNames[point])) {
+		return false;
+	}
+
+	if (point == kEquipHand) {
+		NancySceneState.setHeldItem(id);
+	} else {
+		getEquippedItems().faceItem = id == -1 ? Common::String() : inventory->items[id].name;
+		++getGameState().faceItemChangeCount;
+	}
+
+	return true;
+}
+
+void updateEquippedItems() {
+	const INVD *inventory = GetEngineData(INVD);
+	BrainLogic *brain = (BrainLogic *)const_cast<EngineData *>(g_nancy->getEngineData("BrainLogic"));
+	if (!inventory || !brain) {
+		return;
+	}
+
+	ScriptGameState &state = getGameState();
+	state.isItemEnabled.resize(inventory->items.size(), true);
+	state.isItemForcedOn.resize(inventory->items.size(), false);
+
+	const Common::Array<int16> order = NancySceneState.getInventoryOrder();
+	for (int16 id : order) {
+		const INVD::Item &item = inventory->items[id];
+		if (!item.forceOnFlag.empty()) {
+			state.isItemForcedOn[id] = brain->getValue(item.forceOnFlag);
+		}
+
+		bool isForcedOff = false;
+		if (!item.forceOffFlag.empty()) {
+			isForcedOff = brain->getValue(item.forceOffFlag);
+		}
+
+		if (state.isItemForcedOn[id] && isForcedOff) {
+			warning("Force on flag %s and force off flag %s are both true at the same time",
+				item.forceOnFlag.c_str(), item.forceOffFlag.c_str());
+		}
+
+		state.isItemEnabled[id] = !isForcedOff;
+	}
+
+	// Remove items that have been disabled, and equip items that are forced
+	// in place
+	for (uint point = kEquipHand; point <= kEquipFace; ++point) {
+		const int16 current = getEquippedItem((EquipPoint)point);
+		if (current != -1 && !isItemEnabled(current)) {
+			setEquippedItem((EquipPoint)point, -1);
+		}
+
+		int16 forced = -1;
+		for (int16 id : order) {
+			if (!isItemForcedOn(id) || inventory->items[id].equipPoint != kEquipPointNames[point]) {
+				continue;
+			}
+
+			if (forced != -1) {
+				warning("Forcing item %s on %s when item %s is already forced there", inventory->items[id].name.c_str(),
+					kEquipPointNames[point], inventory->items[forced].name.c_str());
+			}
+
+			setEquippedItem((EquipPoint)point, id);
+			forced = id;
+		}
+	}
+}
+
+// Inventory:Add(name), and in Nancy29 Inventory:Add(name, "end" or "beginning")
 static int inventoryAdd(lua_State *L) {
 	const INVD::Item &item = checkItem(L, 2);
+
+	bool isAddedToFront = false;
+	if (g_nancy->getGameType() >= kGameTypeNancy29 && lua_gettop(L) >= 3) {
+		const Common::String where = luaL_checkstring(L, 3);
+		if (where == "beginning") {
+			isAddedToFront = true;
+		} else if (where != "end") {
+			return luaL_error(L, "Inventory:Add second parameter, if specified, is expected to be \"end\" or \"beginning\"");
+		}
+	}
+
 	if (!NancySceneState.hasItem(item.id)) {
-		NancySceneState.addItemToInventory(item.id);
+		NancySceneState.addItemToInventory(item.id, isAddedToFront);
 	}
 
 	return 0;
@@ -536,7 +690,13 @@ static int inventoryAdd(lua_State *L) {
 
 static int inventoryRemove(lua_State *L) {
 	const INVD::Item &item = checkItem(L, 2);
-	if (NancySceneState.getHeldItem() == item.id) {
+	if (g_nancy->getGameType() >= kGameTypeNancy29) {
+		for (uint point = kEquipHand; point <= kEquipFace; ++point) {
+			if (getEquippedItem((EquipPoint)point) == item.id) {
+				setEquippedItem((EquipPoint)point, -1);
+			}
+		}
+	} else if (NancySceneState.getHeldItem() == item.id) {
 		NancySceneState.setHeldItem(-1);
 	}
 
@@ -594,6 +754,30 @@ static int inventoryAll(lua_State *L) {
 	return 1;
 }
 
+// Inventory:EquipPoint(name), Nancy29: "hand" or "face", or "" for an
+// unknown item
+static int inventoryEquipPoint(lua_State *L) {
+	const INVD::Item *item = findItem(luaL_checkstring(L, 2));
+	lua_pushstring(L, item ? item->equipPoint.c_str() : "");
+	return 1;
+}
+
+// Inventory:IsEquipped(name), Nancy29: whether the item is in the hand or on
+// the face
+static int inventoryIsEquipped(lua_State *L) {
+	const INVD::Item *item = findItem(luaL_checkstring(L, 2));
+	lua_pushboolean(L, item && (getEquippedItem(kEquipHand) == item->id || getEquippedItem(kEquipFace) == item->id));
+	return 1;
+}
+
+// Inventory:IsEnabled(name), Nancy29: whether the item can be used, i.e. its
+// Brain flag doesn't disable it
+static int inventoryIsEnabled(lua_State *L) {
+	const INVD::Item *item = findItem(luaL_checkstring(L, 2));
+	lua_pushboolean(L, item && isItemEnabled(item->id));
+	return 1;
+}
+
 static const luaL_Reg kInventoryFunctions[] = {
 	{ "Add", inventoryAdd },
 	{ "Remove", inventoryRemove },
@@ -603,8 +787,19 @@ static const luaL_Reg kInventoryFunctions[] = {
 	{ "IsViewable", inventoryIsViewable },
 	{ "Scene", inventoryScene },
 	{ "All", inventoryAll },
+	{ "EquipPoint", inventoryEquipPoint },
+	{ "IsEquipped", inventoryIsEquipped },
+	{ "IsEnabled", inventoryIsEnabled },
 	{ nullptr, nullptr }
 };
+
+// The original stores inventory item names in capitals, however the scripts
+// defined them, and the scripts look the items up by these names
+static void pushItemName(lua_State *L, const Common::String &name) {
+	Common::String upperName = name;
+	upperName.toUppercase();
+	lua_pushstring(L, upperName.c_str());
+}
 
 static bool pushInventoryField(lua_State *L, const Common::String &key) {
 	for (const luaL_Reg *function = kInventoryFunctions; function->name; ++function) {
@@ -620,16 +815,21 @@ static bool pushInventoryField(lua_State *L, const Common::String &key) {
 		const Common::Array<int16> &order = NancySceneState.getInventoryOrder();
 		lua_createtable(L, order.size(), 0);
 		for (uint i = 0; inventory && i < order.size(); ++i) {
-			lua_pushstring(L, inventory->items[order[i]].name.c_str());
+			pushItemName(L, inventory->items[order[i]].name);
 			lua_rawseti(L, -2, i + 1);
 		}
 	} else if (key == "inHand") {
 		const int16 heldItem = NancySceneState.getHeldItem();
-		lua_pushstring(L, inventory && heldItem >= 0 && (uint)heldItem < inventory->items.size() ? inventory->items[heldItem].name.c_str() : "");
+		pushItemName(L, inventory && heldItem >= 0 && (uint)heldItem < inventory->items.size() ? inventory->items[heldItem].name : Common::String());
 	} else if (key == "currentChangeCount") {
 		lua_pushinteger(L, NancySceneState.getInventoryChangeCount());
 	} else if (key == "inHandChangeCount") {
 		lua_pushinteger(L, NancySceneState.getHeldItemChangeCount());
+	} else if (key == "onFace") {
+		// Nancy29
+		pushItemName(L, getEquippedItems().faceItem);
+	} else if (key == "onFaceChangeCount") {
+		lua_pushinteger(L, getGameState().faceItemChangeCount);
 	} else {
 		return false;
 	}
@@ -639,8 +839,20 @@ static bool pushInventoryField(lua_State *L, const Common::String &key) {
 
 // Inventory.inHand = name, or "" to put it away. Nancy27 also puts it away
 // with nil.
+// Nancy29 also sets Inventory.onFace. Both ignore an item that can't go there,
+// and the scripts check this by reading the value back.
 static int inventoryNewIndex(lua_State *L) {
 	const Common::String key = luaL_checkstring(L, 2);
+	if (g_nancy->getGameType() >= kGameTypeNancy29 && (key == "inHand" || key == "onFace")) {
+		const Common::String name = lua_isnil(L, 3) ? "" : luaL_checkstring(L, 3);
+		const INVD::Item *item = findItem(name);
+		if (name.empty() || item) {
+			setEquippedItem(key == "inHand" ? kEquipHand : kEquipFace, item ? item->id : -1);
+		}
+
+		return 0;
+	}
+
 	if (key != "inHand") {
 		return luaL_error(L, "Inventory does not have a settable field %s", key.c_str());
 	}
@@ -784,6 +996,27 @@ static int sceneIsStreamRunning(lua_State *L) {
 	return 1;
 }
 
+// Scene:Lock() and Scene:Unlock(), Nancy32: keep the player's input from the
+// viewport, e.g. while a puzzle shows that it was solved
+static int sceneLock(lua_State *L) {
+	NancySceneState.getStreams().setViewportLocked(true);
+	return 0;
+}
+
+static int sceneUnlock(lua_State *L) {
+	NancySceneState.getStreams().setViewportLocked(false);
+	return 0;
+}
+
+// Scene:GetStreamInVP(stream), Nancy29: whether the stream is drawn inside
+// the viewport rather than on the whole screen. Returns true for a stream
+// that isn't running.
+static int sceneGetStreamInVP(lua_State *L) {
+	const StreamNodeState *state = NancySceneState.getStreams().getNodeState(luaL_checkstring(L, 2));
+	lua_pushboolean(L, !state || state->isInViewport);
+	return 1;
+}
+
 // Log:Warn(text) and Log:Warn(location, text)
 static int logWarn(lua_State *L) {
 	if (lua_gettop(L) >= 3) {
@@ -919,6 +1152,9 @@ void registerNancy26GameAPI(lua_State *L) {
 
 	static const luaL_Reg kSceneFunctions[] = {
 		{ "IsStreamRunning", sceneIsStreamRunning },
+		{ "GetStreamInVP", sceneGetStreamInVP },
+		{ "Lock", sceneLock },
+		{ "Unlock", sceneUnlock },
 		{ nullptr, nullptr }
 	};
 
@@ -955,6 +1191,7 @@ void registerNancy26GameAPI(lua_State *L) {
 	registerGlobal(L, "Achievements", kAchievementsType, kAchievementsFunctions);
 
 	registerBrainAPI(L);
+	Animator::registerTypes(L);
 }
 
 } // End of namespace Script

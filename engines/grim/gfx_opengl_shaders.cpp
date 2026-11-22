@@ -804,6 +804,7 @@ void GfxOpenGLS::startActorDraw(const Actor *actor) {
 		}
 	}
 
+	OpenGL::Shader *actorShaders[] = { _actorProgram, _actorLightsProgram };
 	if (_currentShadowArray) {
 		const Sector *shadowSector = _currentShadowArray->planeList.front().sector;
 		Math::Vector3d color;
@@ -816,13 +817,13 @@ void GfxOpenGLS::startActorDraw(const Actor *actor) {
 		if (!_currentShadowArray->dontNegate)
 			normal = -normal;
 
-		for (int i = 0; i < 3; i++) {
-			shaders[i]->use();
-			shaders[i]->setUniform("shadow._active", true);
-			shaders[i]->setUniform("shadow._color", color);
-			shaders[i]->setUniform("shadow._light", _currentShadowArray->pos);
-			shaders[i]->setUniform("shadow._point", shadowSector->getVertices()[0]);
-			shaders[i]->setUniform("shadow._normal", normal);
+		for (int i = 0; i < 2; i++) {
+			actorShaders[i]->use();
+			actorShaders[i]->setUniform("shadow._active", true);
+			actorShaders[i]->setUniform("shadow._color", color);
+			actorShaders[i]->setUniform("shadow._light", _currentShadowArray->pos);
+			actorShaders[i]->setUniform("shadow._point", shadowSector->getVertices()[0]);
+			actorShaders[i]->setUniform("shadow._normal", normal);
 		}
 
 		glDepthMask(GL_FALSE);
@@ -830,9 +831,9 @@ void GfxOpenGLS::startActorDraw(const Actor *actor) {
 		glEnable(GL_POLYGON_OFFSET_FILL);
 	}
 	else {
-		for (int i = 0; i < 3; i++) {
-			shaders[i]->use();
-			shaders[i]->setUniform("shadow._active", false);
+		for (int i = 0; i < 2; i++) {
+			actorShaders[i]->use();
+			actorShaders[i]->setUniform("shadow._active", false);
 		}
 	}
 
@@ -1138,29 +1139,26 @@ void GfxOpenGLS::drawModelFace(const Mesh *mesh, const MeshFace *face) {
 }
 
 void GfxOpenGLS::drawSprite(const Sprite *sprite) {
-	if (g_grim->getGameType() == GType_GRIM) {
-		// A sprite of Grim (the smoke of Manny's cigarette, sparks) is a quad that faces the camera, its bottom edge on the position of the sprite, and the
-		// texture runs flipped along x, as in the fixed pipeline.
-		// The sprite writes depth, as in the fixed pipeline: the meshes of the model are drawn after the sprites of their node (Manny's head after
-		// the smoke of his cigarette) and must not cover them. The alpha test keeps the clear texels from writing depth.
-		glDepthMask(GL_TRUE);
-		glEnable(GL_BLEND);
-		if (sprite->_flags1 & Sprite::BlendAdditive) {
-			glBlendFunc(GL_SRC_ALPHA, GL_ONE);
-		} else {
-			glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-		}
-		if (sprite->_flags2 & Sprite::DepthTest) {
-			glEnable(GL_DEPTH_TEST);
-		} else {
-			glDisable(GL_DEPTH_TEST);
-		}
+	glDepthMask(GL_TRUE);
+	glEnable(GL_BLEND);
+	if (sprite->_flags1 & Sprite::BlendAdditive) {
+		glBlendFunc(GL_SRC_ALPHA, GL_ONE);
+	} else {
+		glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+	}
+	if (sprite->_flags2 & Sprite::DepthTest) {
+		glEnable(GL_DEPTH_TEST);
+	} else {
+		glDisable(GL_DEPTH_TEST);
+	}
 
-		_spriteProgram->use();
+	_spriteProgram->use();
+	_spriteProgram->setUniform("textured", GL_TRUE);
+
+	if (g_grim->getGameType() == GType_GRIM) {
 		_spriteProgram->setUniform("extraMatrix", _matrixStack.top());
 		_spriteProgram->setUniform("spritePos", sprite->_pos);
 		_spriteProgram->setUniform("spriteSize", Math::Vector2d(sprite->_width, sprite->_height));
-		_spriteProgram->setUniform("textured", GL_TRUE);
 		_spriteProgram->setUniform1f("alphaRef", 0.5f);
 
 		float sprite_quad[] = {
@@ -1170,79 +1168,43 @@ void GfxOpenGLS::drawSprite(const Sprite *sprite) {
 			-0.5f, 1.0f, 0.0f, 1.0f, 0.0f,
 			-0.5f, 0.0f, 0.0f, 1.0f, 1.0f,
 		};
-
 		glBindBuffer(GL_ARRAY_BUFFER, _spriteVBO);
 		glBufferData(GL_ARRAY_BUFFER, sizeof(sprite_quad), sprite_quad, GL_STATIC_DRAW);
-		glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, _quadEBO);
-		glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_SHORT, nullptr);
-		glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
-		glEnable(GL_DEPTH_TEST);
-		glDepthMask(GL_TRUE);
-		glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-		return;
-	}
-
-	if (g_grim->getGameType() == GType_MONKEY4) {
-		glDepthMask(GL_TRUE);
 	} else {
-		glDepthMask(GL_FALSE);
-	}
+		Math::Matrix4 rotateMatrix;
+		rotateMatrix.buildAroundZ(_currentActor->getYaw());
 
-	if (sprite->_flags1 & Sprite::BlendAdditive) {
-		glBlendFunc(GL_SRC_ALPHA, GL_ONE);
-	} else {
-		glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-	}
+		Math::Matrix4 extraMatrix;
+		extraMatrix.setPosition(sprite->_pos);
+		extraMatrix(0, 0) = sprite->_width;
+		extraMatrix(1, 1) = sprite->_height;
 
-	if (sprite->_flags2 & Sprite::DepthTest || _currentActor->isInOverworld()) {
-		glEnable(GL_DEPTH_TEST);
-	} else {
-		glDisable(GL_DEPTH_TEST);
-	}
+		extraMatrix = rotateMatrix * extraMatrix;
+		extraMatrix.transpose();
+		_spriteProgram->setUniform("extraMatrix", extraMatrix);
+		if (sprite->_flags2 & Sprite::AlphaTest) {
+			_spriteProgram->setUniform1f("alphaRef", 0.1f);
+		} else {
+			_spriteProgram->setUniform1f("alphaRef", 0.0f);
+		}
 
-	_spriteProgram->use();
-
-	Math::Matrix4 rotateMatrix;
-	rotateMatrix.buildAroundZ(_currentActor->getYaw());
-
-	Math::Matrix4 extraMatrix;
-	extraMatrix.setPosition(sprite->_pos);
-	extraMatrix(0, 0) = sprite->_width;
-	extraMatrix(1, 1) = sprite->_height;
-
-	extraMatrix = rotateMatrix * extraMatrix;
-	extraMatrix.transpose();
-	_spriteProgram->setUniform("extraMatrix", extraMatrix);
-	_spriteProgram->setUniform("textured", GL_TRUE);
-	if (g_grim->getGameType() == GType_GRIM) {
-		_spriteProgram->setUniform1f("alphaRef", 0.5f);
-	} else if (sprite->_flags2 & Sprite::AlphaTest) {
-		_spriteProgram->setUniform1f("alphaRef", 0.1f);
-	} else {
-		_spriteProgram->setUniform1f("alphaRef", 0.0f);
-	}
-
-	// FIXME: Currently vertex-specific colors are not supported for sprites.
-	// It is unknown at this time if this is really needed anywhere.
-	Math::Vector4d color(sprite->_red[0] / 255.0f, sprite->_green[0] / 255.0f, sprite->_blue[0] / 255.0f, sprite->_alpha[0] / 255.0f);
-	if (g_grim->getGameType() == GType_MONKEY4) {
+		// FIXME: Currently vertex-specific colors are not supported for sprites.
+		// It is unknown at this time if this is really needed anywhere.
+		Math::Vector4d color(sprite->_red[0] / 255.0f, sprite->_green[0] / 255.0f, sprite->_blue[0] / 255.0f, sprite->_alpha[0] / 255.0f);
 		// Don't overwrite the actor's alpha value  which is set via uniformColor in startActorDraw()
 		_spriteProgram->setUniform("spriteColor", color);
-	} else {
-		// No need to set spriteColor for GRIM, it is specific to the EMI sprite shader program
-		_spriteProgram->setUniform("uniformColor", color);
+
+		float sprite_textured_quad[] = {
+		//	 X   ,  Y   , Z   , S   , T
+			-0.5f, +0.5f, 0.0f, sprite->_texCoordX[0], sprite->_texCoordY[0],
+			+0.5f, +0.5f, 0.0f, sprite->_texCoordX[1], sprite->_texCoordY[1],
+			+0.5f, -0.5f, 0.0f, sprite->_texCoordX[2], sprite->_texCoordY[2],
+			-0.5f, -0.5f, 0.0f, sprite->_texCoordX[3], sprite->_texCoordY[3],
+		};
+		glBindBuffer(GL_ARRAY_BUFFER, _spriteVBO);
+		glBufferData(GL_ARRAY_BUFFER, sizeof(sprite_textured_quad), sprite_textured_quad, GL_STATIC_DRAW);
 	}
 
-	float sprite_textured_quad[] = {
-	//	 X   ,  Y   , Z   , S   , T
-		-0.5f, +0.5f, 0.0f, sprite->_texCoordX[0], sprite->_texCoordY[0],
-		+0.5f, +0.5f, 0.0f, sprite->_texCoordX[1], sprite->_texCoordY[1],
-		+0.5f, -0.5f, 0.0f, sprite->_texCoordX[2], sprite->_texCoordY[2],
-		-0.5f, -0.5f, 0.0f, sprite->_texCoordX[3], sprite->_texCoordY[3],
-	};
-
-	glBindBuffer(GL_ARRAY_BUFFER, _spriteVBO);
-	glBufferData(GL_ARRAY_BUFFER, sizeof(sprite_textured_quad), sprite_textured_quad, GL_STATIC_DRAW);
 	glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, _quadEBO);
 	glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_SHORT, nullptr);
 	glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);

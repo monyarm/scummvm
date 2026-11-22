@@ -21,6 +21,8 @@
 
 // The parts of Record that make every record of Nancy26 a node of a tree
 
+#include "engines/nancy/nancy.h"
+
 #include "engines/nancy/script/graphnode.h"
 #include "engines/nancy/script/luabind.h"
 #include "engines/nancy/script/luastate.h"
@@ -29,7 +31,9 @@
 #include "engines/nancy/script/transformer.h"
 #include "engines/nancy/script/types.h"
 
+#include "engines/nancy/script/v5/animator.h"
 #include "engines/nancy/script/v5/cliptransformer.h"
+#include "engines/nancy/script/v5/gamefunctions.h"
 #include "engines/nancy/script/v5/messaging.h"
 #include "engines/nancy/script/v5/recordnode.h"
 #include "engines/nancy/script/v5/scriptinput.h"
@@ -40,9 +44,12 @@ namespace Script {
 void Record::createNodeState() {
 	_nodeState = new RecordNodeState();
 
-	// Every record goes by a name of its own
-	static uint s_numRecords = 0;
-	_nodeState->uniqueAlias = Common::String::format("AR%u", ++s_numRecords);
+	// Every record goes by a name of its own, which messages can be sent to:
+	// a record that sends gives this name, and the receiver can answer it
+	ScriptGameState *state = (ScriptGameState *)const_cast<EngineData *>(g_nancy->getEngineData("ScriptGameState"));
+	assert(state);
+	_nodeState->uniqueAlias = Common::String::format("AR%u", ++state->numRecords);
+	registerAlias(_nodeState->uniqueAlias, this);
 }
 
 void Record::destroyNodeState() {
@@ -52,6 +59,7 @@ void Record::destroyNodeState() {
 
 	deregisterAliases(this);
 	forgetInputRecord(this);
+	delete _nodeState->animator;
 	delete _nodeState;
 	_nodeState = nullptr;
 }
@@ -221,6 +229,27 @@ void Record::onStagesChanged() {
 	onLocalTransformChanged();
 }
 
+Animator *Record::getAnimator() const {
+	return _nodeState ? _nodeState->animator : nullptr;
+}
+
+double Record::getLocalAlpha() const {
+	return _nodeState ? _nodeState->localAlpha : 1.0;
+}
+
+void Record::setAnimatedTransform(const ScriptMatrix &transform) {
+	if (transform != _transform) {
+		_transform = transform;
+		onLocalTransformChanged();
+	}
+}
+
+void Record::setAnimatedAlpha(double alpha) {
+	if (_nodeState) {
+		_nodeState->localAlpha = alpha;
+	}
+}
+
 void Record::onLocalTransformChanged() {
 	if (hasTransform()) {
 		onTransformChanged();
@@ -275,6 +304,10 @@ void Record::readNodeFields(int tableIndex) {
 	if (pushField(L, tableIndex, "localTransform")) {
 		_transform = checkMatrix(L, -1);
 		lua_pop(L, 1);
+	}
+
+	if (g_nancy->getGameType() >= kGameTypeNancy29) {
+		_nodeState->animator = new Animator(*this);
 	}
 }
 
@@ -331,6 +364,10 @@ void Record::updateNode(double sceneTime, double elapsedTime) {
 
 	if (_stages) {
 		_stages->advance(elapsedTime);
+	}
+
+	if (_nodeState->animator) {
+		_nodeState->animator->advance(elapsedTime);
 	}
 
 	if (isScripted()) {
@@ -420,6 +457,12 @@ static int recordResetInactive(lua_State *L) {
 	return 0;
 }
 
+// ar:Detach(), Nancy31: takes the record away from the Transformer it is attached to
+static int recordDetach(lua_State *L) {
+	checkRecord(L, 1)->setParentNode(nullptr);
+	return 0;
+}
+
 int Record::getNodeScriptField(const Common::String &key) {
 	lua_State *L = getLua();
 
@@ -493,6 +536,10 @@ bool Record::getNodeField(const Common::String &key) {
 		lua_pushcfunction(L, recordDeregisterAlias);
 	} else if (key == "ResetInactive") {
 		lua_pushcfunction(L, recordResetInactive);
+	} else if (key == "Detach") {
+		lua_pushcfunction(L, recordDetach);
+	} else if (key == "animator" && _nodeState->animator) {
+		_nodeState->animator->push(L);
 	} else if (BlendStages::pushFunction(L, key)) {
 		return true;
 	} else if (_stages && _stages->getField(L, key)) {
@@ -546,7 +593,8 @@ bool Record::setNodeField(const Common::String &key) {
 		return true;
 	} else if (key == "enabled" || key == "visible" || key == "paused" || key == "alpha" ||
 			key == "transform" || key == "invTransform" || key == "localInvTransform" ||
-			key == "blendedTransform" || key == "name" || key == "uniqueAlias" || key == "done") {
+			key == "blendedTransform" || key == "name" || key == "uniqueAlias" || key == "done" ||
+			key == "animator" || key == "Detach") {
 		luaL_error(L, "Cannot set field '%s' of an AR", key.c_str());
 	} else {
 		return false;

@@ -577,6 +577,12 @@ void SoundManager::stopAllSounds() {
 	for (uint i = 0; i < _channels.size(); ++i) {
 		stopSound(i);
 	}
+
+	for (Audio::SoundHandle &handle : _instances) {
+		_mixer->stopHandle(handle);
+	}
+
+	_instances.clear();
 }
 
 byte SoundManager::getVolume(uint16 channelID) {
@@ -757,6 +763,43 @@ Audio::Timestamp SoundManager::getLength(const SoundDescription &description) {
 
 Audio::Timestamp SoundManager::getLength(const Common::String &chunkName) {
 	return getLength(_commonSounds[chunkName]);
+}
+
+bool SoundManager::playInstance(const Common::String &soundName, Audio::Mixer::SoundType type, uint16 volume, double pitch, Audio::SoundHandle &handle) {
+	for (uint i = 0; i < _instances.size(); ) {
+		if (_mixer->isSoundHandleActive(_instances[i])) {
+			++i;
+		} else {
+			_instances.remove_at(i);
+		}
+	}
+
+	// Silence is played, and over at once
+	if (soundName == "silence") {
+		handle = Audio::SoundHandle();
+		return true;
+	}
+
+	Common::SeekableReadStream *file = SearchMan.createReadStreamForMember(Common::Path(soundName + ".his"));
+	if (!file) {
+		warning("Sound %s file failed to open", soundName.c_str());
+		return false;
+	}
+
+	Audio::SeekableAudioStream *stream = makeHISStream(file, DisposeAfterUse::YES);
+	if (!stream) {
+		return false;
+	}
+
+	const uint32 rate = stream->getRate();
+	_mixer->playStream(type, &handle, stream, -1, (int)getAdjustedVolume(volume) * 255 / 100, 0, DisposeAfterUse::YES);
+	_mixer->setChannelRate(handle, (uint32)(rate * pitch));
+	_instances.push_back(handle);
+	return true;
+}
+
+bool SoundManager::isInstancePlaying(const Audio::SoundHandle &handle) const {
+	return _mixer->isSoundHandleActive(handle);
 }
 
 Audio::Timestamp SoundManager::getFileLength(const Common::String &soundName) {

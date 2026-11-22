@@ -263,6 +263,28 @@ static const ADExtraGuiOptionsMap optionsList[] = {
 		}
 	},
 	{
+		GAMEOPTION_ULTIMA1_PICTURE_DUNGEONS,
+		{
+			_s("Use textured dungeon walls"),
+			_s("Draws the view in dungeons using pictures of stone walls, doors, ladders, chests, coffins and monsters rather than lines. Only used with the EGA graphics"),
+			"picture_dungeons",
+			true,
+			0,
+			0
+		}
+	},
+	{
+		GAMEOPTION_ULTIMA2_PICTURE_DUNGEONS,
+		{
+			_s("Use textured dungeon walls"),
+			_s("Draws the view in dungeons using pictures of stone walls, doors, ladders, chests and monsters rather than lines. Only used with the EGA graphics, other than Commodore 64"),
+			"picture_dungeons",
+			false,
+			0,
+			0
+		}
+	},
+	{
 		GAMEOPTION_ALWAYS_CHRISTMAS,
 		{
 			_s("Always enable Christmas easter-egg"),
@@ -290,7 +312,7 @@ GUI::OptionsContainerWidget *UltimaMetaEngine::buildEngineOptionsWidget(GUI::Gui
 	if (getGameId(target) == "ultima1") {
 		return new Ultima::Shared::GraphicsOptionsWidget(boss, name, target,
 			Ultima::Ultima1::Data::RENDER_MODE_LABELS, Ultima::Ultima1::Data::RENDER_MODE_COUNT,
-			ExtraGuiOptions(), false, Ultima::Ultima1::Data::RENDER_EGA);
+			getExtraGuiOptions(target), false, Ultima::Ultima1::Data::RENDER_EGA);
 	}
 #endif
 #ifdef ENABLE_ULTIMA2

@@ -116,13 +116,22 @@ public:
 	void setFrame(uint frame) { _frame = frame; }
 	int32 getZOffset() const;
 
+	// Scene:PauseStream and Scene:ResumeStream, Lights, Camera, Curses. The
+	// records get paused or go on at the start of the next frame.
+	void requestStreamPause(bool isPaused) { _streamPauseRequest = isPaused ? kRequestPause : kRequestResume; }
+
+	// Whether the stream is paused, or is about to be
+	bool isPausedByScript() const {
+		return _streamPauseRequest == kRequestNone ? _isStreamPausedByScript : _streamPauseRequest == kRequestPause;
+	}
+
 #ifdef ENABLE_NANCY_V5
 	// Nancy26: the stream of the scene was put at another place among the
 	// others, so everything it draws goes elsewhere
 	void onBandChanged();
 
 	// Nancy26: what the stream of the scene says about all its records
-	bool isStreamEnabled() const { return !_streamState || _streamState->isEnabled; }
+	bool isStreamEnabled() const;
 	bool isStreamVisible() const { return !_streamState || _streamState->isVisible; }
 	bool isStreamPaused() const { return _streamState && _streamState->isPaused; }
 #endif
@@ -133,6 +142,11 @@ public:
 	// The seconds the scene has been running for
 	double getTime() const { return _time; }
 	double getElapsedTime() const { return _elapsedTime; }	// of the last frame
+
+	// Nancy31: whether Lua only collects garbage once a frame, as it always
+	// does from Nancy20 on, or whenever it likes
+	bool isGCThrottled() const { return _isGCThrottled; }
+	void setGCThrottled(bool isThrottled);
 
 	// Enhancement: skips the movies that are playing. They are played through
 	// a frame at a time, without their sounds, so that everything the scripts
@@ -195,14 +209,23 @@ private:
 	void updateDrawRanks();	// Nancy26
 #endif
 	void deleteDroppedRecords();
+	void applyStreamPause();
 	void renderAttachment();
 	bool hasSkippableRecord() const;
 	void pushSceneFunctions();
 	void sendMouseEvent(int event, const Common::Point32 &point, bool inViewport);
 	void sendKeyEvent(int event, Common::KeyCode key);
 
+	enum StreamPauseRequest {
+		kRequestNone,
+		kRequestPause,
+		kRequestResume
+	};
+
 	Common::String _streamName;
 	Common::String _sceneName;
+	StreamPauseRequest _streamPauseRequest = kRequestNone;
+	bool _isStreamPausedByScript = false;
 	bool _isEnding = false;
 	bool _isLoading = false;
 	uint _frame;
@@ -233,6 +256,7 @@ private:
 
 	double _time = 0.0;
 	double _elapsedTime = 0.0;
+	bool _isGCThrottled = true;
 	bool _hasRunOnce = false;
 	bool _makesUI = false;
 	bool _isSkipping = false;

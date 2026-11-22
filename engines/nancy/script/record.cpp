@@ -22,6 +22,7 @@
 #include "common/algorithm.h"
 
 #include "engines/nancy/nancy.h"
+#include "engines/nancy/state/scene.h"
 
 #include "engines/nancy/script/api.h"
 #include "engines/nancy/script/graphnode.h"
@@ -46,7 +47,8 @@ static const char *const kRecordMarker = "__record";
 
 Record::Record(SceneContext &context, const char *typeName) :
 		_context(context),
-		_typeName(typeName) {
+		_typeName(typeName),
+		_creationOrder(NancySceneState.getStreams().takeRecordOrder()) {
 #ifdef ENABLE_NANCY_V5
 	if (g_nancy->getGameType() >= kGameTypeNancy26) {
 		createNodeState();
@@ -177,6 +179,7 @@ void Record::create(int tableIndex) {
 	}
 
 	readField(L, tableIndex, "z", _z);
+	readField(L, tableIndex, "masked", _isMasked);
 	readField(L, tableIndex, "scriptOwns", _isScriptOwned);
 
 #ifdef ENABLE_NANCY_V5
@@ -235,6 +238,8 @@ void Record::onObjectCollected() {
 }
 
 void Record::update(double sceneTime, double elapsedTime) {
+	onFrame();
+
 #ifdef ENABLE_NANCY_V5
 	if (_nodeState) {
 		updateNode(sceneTime, elapsedTime);
@@ -242,7 +247,7 @@ void Record::update(double sceneTime, double elapsedTime) {
 	}
 #endif
 
-	if (_isDone) {
+	if (_isDone || _isStreamPaused) {
 		return;
 	}
 
@@ -283,6 +288,13 @@ void Record::update(double sceneTime, double elapsedTime) {
 		callFunction("Run", 2);
 	} else {
 		run(sceneTime, elapsedTime);
+	}
+}
+
+void Record::setStreamPaused(bool isPaused) {
+	if (isPaused != _isStreamPaused) {
+		_isStreamPaused = isPaused;
+		onStreamPaused(isPaused);
 	}
 }
 
@@ -452,6 +464,9 @@ int Record::getScriptField() {
 	} else if (key == "z") {
 		lua_pushnumber(L, _z);
 		return 1;
+	} else if (key == "masked") {
+		lua_pushboolean(L, _isMasked);
+		return 1;
 	} else if (key == "transform" && hasTransform()) {
 		pushMatrix(L, _transform);
 		return 1;
@@ -514,6 +529,8 @@ int Record::setScriptField() {
 			_z = z;
 			onZChanged();
 		}
+	} else if (key == "masked") {
+		_isMasked = lua_toboolean(L, 3) != 0;
 	} else if (key == "transform" && hasTransform()) {
 		// Scripts that move things around set it every frame, whether it changed or not
 		const ScriptMatrix &transform = checkMatrix(L, 3);
@@ -530,7 +547,7 @@ int Record::setScriptField() {
 }
 
 void Record::sendMouseMove(const Common::Point32 &point, bool inViewport) {
-	if (!isActive()) {
+	if (!isActive() || _isStreamPaused) {
 		return;
 	}
 
@@ -547,7 +564,7 @@ void Record::sendMouseMove(const Common::Point32 &point, bool inViewport) {
 }
 
 bool Record::sendChangeCursor(const Common::Point32 &point, bool inViewport, uint &cursorType, bool &isHot) {
-	if (!isActive()) {
+	if (!isActive() || _isStreamPaused) {
 		return false;
 	}
 
@@ -571,7 +588,7 @@ bool Record::sendChangeCursor(const Common::Point32 &point, bool inViewport, uin
 }
 
 bool Record::sendMouseEvent(RecordEvent event, const Common::Point32 &point, bool inViewport) {
-	if (!isActive()) {
+	if (!isActive() || _isStreamPaused) {
 		return false;
 	}
 
@@ -595,7 +612,7 @@ bool Record::sendMouseEvent(RecordEvent event, const Common::Point32 &point, boo
 
 // Only the records made of script functions handle mouse wheel events
 void Record::sendMouseScroll(const Common::Point32 &point, bool inViewport, int notches) {
-	if (!isActive() || !isScripted()) {
+	if (!isActive() || _isStreamPaused || !isScripted()) {
 		return;
 	}
 
@@ -610,7 +627,7 @@ void Record::sendMouseScroll(const Common::Point32 &point, bool inViewport, int 
 
 bool Record::sendKeyEvent(RecordEvent event, Common::KeyCode key) {
 	// Only the records made of script functions care about the keyboard
-	if (!isActive() || !isScripted()) {
+	if (!isActive() || _isStreamPaused || !isScripted()) {
 		return false;
 	}
 
@@ -685,11 +702,11 @@ Common::String describeValue(lua_State *L, int index) {
 		return Common::String::format("Rect(%d, %d, %d, %d)", rect->left, rect->top, rect->right, rect->bottom);
 	}
 
-	const ScriptVector *vector = testVector(L, index);
-	if (vector) {
+	ScriptVector vector;
+	if (testVector(L, index, vector)) {
 		Common::String text = "Vector(";
-		for (int i = 0; i < vector->size; ++i) {
-			text += Common::String::format(i ? ", %g" : "%g", vector->v[i]);
+		for (int i = 0; i < vector.size; ++i) {
+			text += Common::String::format(i ? ", %g" : "%g", vector.v[i]);
 		}
 
 		return text + ")";

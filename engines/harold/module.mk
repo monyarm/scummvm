@@ -7,17 +7,25 @@ ifdef ENABLE_BCB
 MODULE_OBJS += \
 	bcb/bcb.o \
 	bcb/captions.o \
+	bcb/cinema.o \
+	bcb/cinema_data.o \
+	bcb/cinema_tables.o \
+	bcb/cinema_video.o \
 	bcb/computer.o \
 	bcb/debugger.o \
 	bcb/executable_data.o \
 	bcb/input.o \
 	bcb/map.o \
+	bcb/options.o \
 	bcb/resources.o \
 	bcb/saveload.o \
 	bcb/scene.o \
 	bcb/screens.o \
 	bcb/script.o \
 	bcb/static_data.o \
+	bcb/text_renderer.o \
+	bcb/translation.o \
+	bcb/translation_images.o \
 	bcb/video.o
 endif
 

@@ -23,6 +23,7 @@
 #include "common/system.h"
 
 #include "video/bink_decoder.h"
+#include "video/bink2_decoder.h"
 
 #include "engines/nancy/nancy.h"
 #include "engines/nancy/resource/video.h"
@@ -83,12 +84,30 @@ byte MoviePlayer::resolvePlaytype(byte videoPlaytype) {
 	return g_nancy->getGameType() >= kGameTypeNancy10 ? kVideoPlaytypeBink : kVideoPlaytypeAVF;
 }
 
+// The AVF decoder caches frames itself, so only the Bink path needs ours
+void MoviePlayer::enableFrameCache() {
+	if (_useFrameCache || !_decoder || _videoType != kVideoPlaytypeBink) {
+		return;
+	}
+
+	_useFrameCache = true;
+	_frameCache.resize(_decoder->getFrameCount());
+	_cacheFillNext = 0;
+	_cacheLoader.reset(new BinkCacheLoader(*this));
+	g_nancy->addDeferredLoader(_cacheLoader);
+}
+
 bool MoviePlayer::loadFile(const Common::Path &name, byte videoPlaytype, bool bidirectionalCache, bool screenFormat) {
 	freeFrameCache();
 	unregisterMovie();
 
 	const Common::Path avfPath = name.append(".avf");
-	const Common::Path bikPath = name.append(".bik");
+	Common::Path bikPath = name.append(".bik");
+
+	// Nancy30 names some of its Bink 2 movies .bk2
+	if (!Common::File::exists(bikPath) && Common::File::exists(name.append(".bk2"))) {
+		bikPath = name.append(".bk2");
+	}
 
 	// Use the requested container, the other one only if its file is missing.
 	const byte preferred = resolvePlaytype(videoPlaytype);
@@ -103,13 +122,27 @@ bool MoviePlayer::loadFile(const Common::Path &name, byte videoPlaytype, bool bi
 		return false;
 	}
 
+	_hasEmbeddedDest = false;
 	if (_videoType == kVideoPlaytypeBink) {
-		_decoder.reset(new Video::BinkDecoder());
+		// Nancy29 has movies in both versions of Bink. Its Bink 2 decoder is
+		// older than the one of the later games.
+		Common::File file;
+		if (file.open(bikPath) && Video::Bink2Decoder::isBink2(file))
+			_decoder.reset(new Video::Bink2Decoder(g_nancy->getGameType() == kGameTypeNancy29));
+		else
+			_decoder.reset(new Video::BinkDecoder());
+
+		if (file.isOpen() && bikPath.baseName().hasSuffixIgnoreCase(".bk2") && file.size() >= 16) {
+			file.seek(-16, SEEK_END);
+			readExclusiveRect(file, _embeddedDest);
+			_hasEmbeddedDest = !file.err() && !_embeddedDest.isEmpty();
+		}
 	} else {
 		_decoder.reset(new AVFDecoder(bidirectionalCache ? AVFDecoder::kLoadBidirectional : AVFDecoder::kLoadForward));
 	}
 
 	_currentSurface = nullptr;
+	_currentFrame = -1;
 
 	if (!_decoder->loadFile(_videoType == kVideoPlaytypeAVF ? avfPath : bikPath)) {
 		_decoder.reset();
@@ -134,13 +167,8 @@ bool MoviePlayer::loadFile(const Common::Path &name, byte videoPlaytype, bool bi
 		}
 	}
 
-	// The AVF decoder caches frames itself, so only the Bink path needs ours.
-	_useFrameCache = bidirectionalCache && _videoType == kVideoPlaytypeBink;
-	if (_useFrameCache) {
-		_frameCache.resize(_decoder->getFrameCount());
-		_cacheFillNext = 0;
-		_cacheLoader.reset(new BinkCacheLoader(*this));
-		g_nancy->addDeferredLoader(_cacheLoader);
+	if (bidirectionalCache) {
+		enableFrameCache();
 	}
 
 	_loadedName = name;
@@ -155,6 +183,7 @@ bool MoviePlayer::isVideoLoaded() const {
 
 void MoviePlayer::close() {
 	_currentSurface = nullptr;
+	_currentFrame = -1;
 	freeFrameCache();
 	unregisterMovie();
 	if (_decoder) {
@@ -192,6 +221,9 @@ bool MoviePlayer::fillNextCacheFrame() {
 		_frameCache[_cacheFillNext].copyFrom(*frame);
 	}
 	++_cacheFillNext;
+
+	// The decoder's picture no longer shows the frame goToFrame() went to
+	_currentFrame = -1;
 
 	return _cacheFillNext >= _frameCache.size();
 }
@@ -284,6 +316,7 @@ const Graphics::Surface *MoviePlayer::decodeNextFrame(int frameNr) {
 
 void MoviePlayer::storeCurrentFrame() {
 	_currentSurface = _decoder->decodeNextFrame();
+	_currentFrame = _decoder->getCurFrame();
 }
 
 void MoviePlayer::goToFrame(int frameNr) {
@@ -296,8 +329,23 @@ void MoviePlayer::goToFrame(int frameNr) {
 	}
 	_rangePlaying = false;
 	_decoder->setReverse(false);
-	_decoder->seekToFrame(frameNr);
-	storeCurrentFrame();
+
+	if (_videoType == kVideoPlaytypeAVF) {
+		_decoder->seekToFrame(frameNr);
+		storeCurrentFrame();
+		return;
+	}
+
+	// Nancy32's fidgets set the frame of their movies one frame after the
+	// other, and seeking decodes again from the keyframe before the frame.
+	// The frame that already shows stays, and one a little ahead is decoded
+	// forward to.
+	if (frameNr == _currentFrame && _currentSurface) {
+		return;
+	}
+
+	_currentSurface = decodeNextFrame(frameNr);
+	_currentFrame = frameNr;
 }
 
 // How long a frame shows, from the length of the movie unless another frame

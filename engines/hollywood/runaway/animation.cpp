@@ -19,6 +19,7 @@
  *
  */
 
+#include "common/file.h"
 #include "common/util.h"
 #include "hollywood/runaway/animation.h"
 
@@ -76,9 +77,34 @@ byte speechMouth(uint32 c, uint32 next, byte previous) {
 
 } // End of anonymous namespace
 
-void RunawayLipSync::start(const Common::U32String &text, uint32 now, uint32 duration, Common::RandomSource &random) {
+bool RunawayLipSync::loadRecording(uint16 sample) {
+	const uint headerSize = 6000 * 6;
+	Common::File file;
+	if (sample >= 6000 || !file.open("RESOURCE.004") || file.size() < headerSize || !file.seek(sample * 6))
+		return false;
+	const uint32 offset = file.readUint32LE();
+	const uint16 size = file.readUint16LE();
+	if (file.err() || !size || size > 400 || offset < headerSize || offset > file.size() ||
+			size > file.size() - offset || !file.seek(offset))
+		return false;
+	_frames.resize(size);
+	if (file.read(_frames.data(), size) != size)
+		return false;
+	for (uint i = 0; i < size; ++i) {
+		if (_frames[i] > 5)
+			return false;
+	}
+	return true;
+}
+
+void RunawayLipSync::start(const Common::U32String &text, uint32 now, uint32 duration, Common::RandomSource &random, uint16 sample) {
 	_started = now;
 	_duration = duration ? duration : text.size() * 80;
+	if (sample && duration && loadRecording(sample)) {
+		// Retail 0x413650 advances recorded mouth shapes every five 10 ms ticks.
+		_frameDuration = 50;
+		return;
+	}
 	_frames.resize(text.size());
 	if (_frames.empty())
 		return;
@@ -157,6 +183,66 @@ void RunawayIdleHead::update(uint32 now, bool enabled, uint blinkInterval, Commo
 			}
 		}
 	}
+}
+
+void RunawayCarlaAnimation::update(uint32 now, bool talking, Common::RandomSource &random) {
+	if (talking && (_state == kBreathing || _state == kWaiting)) {
+		_state = kTurning;
+		_step = 50;
+		_tick = now;
+	} else if (!talking && _state == kTalking) {
+		_state = kReturning;
+		_step = 81;
+		_tick = now;
+	}
+	if (now - _tick < 80) {
+		return;
+	}
+	_tick = now;
+	switch (_state) {
+	case kBreathing:
+		if (++_step == 24) {
+			_state = kWaiting;
+			_step = 0;
+			_wait = 12 * (1 + random.getRandomNumber(2));
+		}
+		break;
+	case kWaiting:
+		if (!--_wait) {
+			_state = random.getRandomNumber(9) ? kBreathing : kDrinking;
+		}
+		break;
+	case kDrinking:
+		if (++_step == 60) {
+			_state = kBreathing;
+			_step = 0;
+		}
+		break;
+	case kTurning:
+		if (++_step == 81) {
+			_state = kTalking;
+		}
+		break;
+	case kTalking:
+		break;
+	case kReturning:
+		if (--_step == 49) {
+			_state = kBreathing;
+			_step = 0;
+		}
+		break;
+	}
+}
+
+uint RunawayCarlaAnimation::frame(byte mouth) const {
+	if (_state == kTalking) {
+		return 81 + mouth;
+	}
+	if (_state == kDrinking) {
+		// Both bus views share the drink sequence: raise, hold, then lower.
+		return _step < 25 ? 24 + _step : _step < 35 ? 49 : 83 - _step;
+	}
+	return _step;
 }
 
 } // End of namespace Hollywood

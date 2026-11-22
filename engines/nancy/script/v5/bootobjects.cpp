@@ -35,9 +35,58 @@
 namespace Nancy {
 namespace Script {
 
+// Nancy32 gives every item its cursor: the part "reg" of the picture "ovl",
+// with its hotspot at "activePt". It becomes a cursor named like the item, as
+// the earlier games name theirs.
+static void readNancy32ItemCursor(lua_State *L, int itemTable, const Common::String &name, ScriptBootData &boot) {
+	Common::String imageName;
+	if (!readField(L, itemTable, "ovl", imageName)) {
+		return;
+	}
+
+	ScriptBootData::Cursor cursor;
+	cursor.name = name;
+	cursor.imageName = Common::Path(imageName);
+
+	if (pushField(L, itemTable, "reg")) {
+		cursor.sources[0] = cursor.sources[1] = checkRect(L, -1).toRect();
+		lua_pop(L, 1);
+	}
+
+	Common::Point32 hotspot;
+	if (pushField(L, itemTable, "activePt")) {
+		readPoint(L, -1, hotspot);
+		lua_pop(L, 1);
+	}
+
+	cursor.hotspots[0] = cursor.hotspots[1] = Common::Point(hotspot.x, hotspot.y);
+	boot.cursors.push_back(cursor);
+}
+
+// Nancy29 gives every item a table with where the player uses it ("hand" or
+// "face"), and the Brain flags that force it there or disable it
+static void readNancy29Item(lua_State *L, const Common::String &name, INVD::Item &item, ScriptBootData &boot) {
+	lua_getfield(L, 2, name.c_str());
+	const int itemTable = lua_gettop(L);
+	luaL_checktype(L, itemTable, LUA_TTABLE);
+
+	readField(L, itemTable, "equipPoint", item.equipPoint);
+	if (item.equipPoint != "hand" && item.equipPoint != "face") {
+		luaL_error(L, "Item %s has unknown equip point %s", name.c_str(), item.equipPoint.c_str());
+	}
+
+	readField(L, itemTable, "forceOnFlag", item.forceOnFlag);
+	readField(L, itemTable, "forceOffFlag", item.forceOffFlag);
+	item.kind = UI::NDUI::InvButton::kItemPickUp;
+
+	readNancy32ItemCursor(L, itemTable, name, boot);
+
+	lua_pop(L, 1);
+}
+
 // Nancy26 gives every item the scene that shows it, or nothing. The pictures
 // of the items are cursors.
-int createNancy26Inventory(lua_State *L, INVD &inventory) {
+int createNancy26Inventory(lua_State *L, INVD &inventory, ScriptBootData &boot) {
 	Common::Array<Common::String> names;
 	getSortedKeys(L, 2, names);
 
@@ -46,10 +95,14 @@ int createNancy26Inventory(lua_State *L, INVD &inventory) {
 		item.id = (int16)inventory.items.size();
 		item.name = name;
 
-		Common::String sceneName;
-		readField(L, 2, name.c_str(), sceneName);
-		item.sceneName = Common::Path(sceneName);
-		item.kind = sceneName.empty() ? UI::NDUI::InvButton::kItemPickUp : UI::NDUI::InvButton::kItemView;
+		if (g_nancy->getGameType() >= kGameTypeNancy29) {
+			readNancy29Item(L, name, item, boot);
+		} else {
+			Common::String sceneName;
+			readField(L, 2, name.c_str(), sceneName);
+			item.sceneName = Common::Path(sceneName);
+			item.kind = sceneName.empty() ? UI::NDUI::InvButton::kItemPickUp : UI::NDUI::InvButton::kItemView;
+		}
 
 		inventory.items.push_back(item);
 	}

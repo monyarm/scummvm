@@ -52,6 +52,7 @@ MODULE_OBJS += \
 	ultima1/data/savegame.o \
 	ultima1/data/space_map.o \
 	ultima1/data/tiles.o \
+	ultima1/gfx/dungeon_pictures.o \
 	ultima1/gfx/font.o \
 	ultima1/gfx/pic_decoder.o \
 	ultima1/gfx/render_mode.o \
@@ -115,6 +116,7 @@ MODULE_OBJS += \
 	ultima2/data/secret_archive.o \
 	ultima2/data/tiles.o \
 	ultima2/gfx/composite.o \
+	ultima2/gfx/dungeon_pictures.o \
 	ultima2/gfx/ega_picture.o \
 	ultima2/gfx/pic_decoder.o \
 	ultima2/gfx/text.o \

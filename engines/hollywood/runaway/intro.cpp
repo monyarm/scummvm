@@ -26,6 +26,7 @@
 #include "hollywood/debug.h"
 #include "hollywood/resource.h"
 #include "hollywood/runaway/intro.h"
+#include "hollywood/runaway/presentation.h"
 
 namespace Hollywood {
 namespace {
@@ -44,12 +45,19 @@ const uint kLogoAnimationDuration = kLogoTrackStarts[2] + (kLogoFrameCounts[2] -
 const uint kLogoHoldDuration = 2000;
 const uint kLogoFadeDuration = 1000;
 const uint kStoryFadeDuration = 500;
-const uint kStorySkipFadeDuration = 250;
 const uint kStoryHoldDuration = 40000;
 
 } // End of anonymous namespace
 
-bool RunawayIntro::load() {
+bool RunawayIntro::load(bool fullGame, byte chapter, Mode mode) {
+	_fullGame = fullGame;
+	_chapter = chapter;
+	_mode = mode;
+	const Graphics::PixelFormat format(2, 5, 6, 5, 0, 11, 5, 0, 0);
+	_screen.create(kRunawayScreenWidth, kRunawayScreenHeight, format);
+	if (chapter || mode == kOpeningOnly) {
+		return _opening.load(chapter);
+	}
 	ChunkArchive archive;
 	if (!archive.open(Common::Path("RESOURCE.A02")))
 		return false;
@@ -57,6 +65,11 @@ bool RunawayIntro::load() {
 		if (!_logo[i].load(archive, i, kLogoFrameCounts[i]))
 			return false;
 	}
+	if (_mode == kLogoOnly) {
+		return true;
+	}
+	if (_fullGame)
+		return _opening.load();
 
 	// 0x444390 displays X01 chunk 0 before entering scene 5030. The card
 	// already contains the localized story text and the Runaway title.
@@ -65,9 +78,7 @@ bool RunawayIntro::load() {
 			archive.chunkSize(0) != kRunawayScreenWidth * kRunawayViewportHeight * 2 ||
 			!archive.readVariableChunk(0, pixels))
 		return false;
-	const Graphics::PixelFormat format(2, 5, 6, 5, 0, 11, 5, 0, 0);
 	_story.create(kRunawayScreenWidth, kRunawayViewportHeight, format);
-	_screen.create(kRunawayScreenWidth, kRunawayScreenHeight, format);
 	for (int y = 0; y < _story.h; ++y) {
 		uint16 *out = (uint16 *)_story.getBasePtr(0, y);
 		for (int x = 0; x < _story.w; ++x)
@@ -78,6 +89,10 @@ bool RunawayIntro::load() {
 }
 
 void RunawayIntro::start(uint32 now) {
+	if (_chapter || _mode == kOpeningOnly) {
+		startStory(now);
+		return;
+	}
 	_phase = kLogo;
 	_phaseStarted = now;
 	_audio.playIntroMusic();
@@ -86,21 +101,34 @@ void RunawayIntro::start(uint32 now) {
 
 void RunawayIntro::startStory(uint32 now) {
 	_audio.stopMusic();
+	if (_mode == kLogoOnly) {
+		_phase = kFinished;
+		return;
+	}
+	if (_fullGame) {
+		_phase = kOpening;
+		_brightness = 255;
+		_opening.start(now);
+		return;
+	}
 	_phase = kStoryFadeIn;
 	_phaseStarted = now;
 	_brightness = 0;
 }
 
 void RunawayIntro::skip(uint32 now) {
-	if (_phase == kLogo || _phase == kLogoAudio) {
-		startStory(now);
-	} else if (_phase == kStory) {
-		_phase = kStoryFadeOut;
-		_phaseStarted = now;
-		_storyFadeDuration = kStorySkipFadeDuration;
+	if (_phase == kOpening) {
+		_opening.skip(now);
 	}
-	// The original clears pending input after the card's fade-in. Ignoring
-	// input during its fades also keeps one press from skipping both stages.
+	_audio.stopMusic();
+	_phase = kFinished;
+	_brightness = 0;
+}
+
+void RunawayIntro::skipSpeech(uint32 now) {
+	if (_phase == kOpening) {
+		_opening.skipSpeech(now);
+	}
 }
 
 void RunawayIntro::update(uint32 now) {
@@ -153,6 +181,11 @@ void RunawayIntro::update(uint32 now) {
 			}
 			_brightness = 255 * (_storyFadeDuration - elapsed) / _storyFadeDuration;
 			return;
+		case kOpening:
+			_opening.update(now);
+			if (_opening.finished())
+				_phase = kFinished;
+			return;
 		case kFinished:
 			_brightness = 0;
 			return;
@@ -161,6 +194,10 @@ void RunawayIntro::update(uint32 now) {
 }
 
 void RunawayIntro::draw() {
+	if (_phase == kOpening) {
+		_opening.draw(_screen);
+		return;
+	}
 	_screen.fillRect(Common::Rect(_screen.w, _screen.h), 0);
 	if (!_brightness)
 		return;
@@ -176,14 +213,7 @@ void RunawayIntro::draw() {
 		return;
 	// Apply the original gamma fades to the RGB565 viewport without changing
 	// backend gamma or affecting ScummVM's own dialogs.
-	for (int y = kRunawayViewportTop; y < kRunawayViewportTop + kRunawayViewportHeight; ++y) {
-		uint16 *out = (uint16 *)_screen.getBasePtr(0, y);
-		for (int x = 0; x < _screen.w; ++x) {
-			const uint16 color = out[x];
-			out[x] = (((color >> 11) * _brightness / 255) << 11) |
-				((((color >> 5) & 63) * _brightness / 255) << 5) | ((color & 31) * _brightness / 255);
-		}
-	}
+	dimRunawayViewport(_screen, _brightness, 255);
 }
 
 } // End of namespace Hollywood

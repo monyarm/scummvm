@@ -21,6 +21,7 @@
 
 #include "common/config-manager.h"
 #include "common/debug-channels.h"
+#include "common/engine_data.h"
 #include "common/events.h"
 #include "common/savefile.h"
 #include "common/system.h"
@@ -30,6 +31,7 @@
 #include "ultima/ultima1/ultima1.h"
 #include "ultima/ultima1/console.h"
 #include "ultima/ultima1/sound_effects.h"
+#include "ultima/ultima1/gfx/dungeon_pictures.h"
 #include "ultima/shared/engine/graphics_options.h"
 #include "ultima/ultima1/gfx/font.h"
 #include "ultima/ultima1/views/views.h"
@@ -50,6 +52,7 @@ Ultima1Engine::Ultima1Engine(OSystem *syst, const Ultima::UltimaGameDescription 
 
 
 Ultima1Engine::~Ultima1Engine() {
+	Gfx::DungeonPictures::unload();
 	_mixer->stopHandle(_effectHandle);
 }
 
@@ -74,6 +77,13 @@ Common::Error Ultima1Engine::run() {
 
 	// Initialize 320x200 paletted graphics mode
 	initGraphics(320, 200);
+
+	// The pictures for the dungeons are in the engine data, but the game doesn't need them
+	Common::U32String errMsg;
+	if (!Common::load_engine_data("ultima.dat", "ultima1", 1, 0, errMsg))
+		warning("No dungeon pictures: %s", errMsg.encode().c_str());
+	Gfx::DungeonPictures::setEnabled(Shared::configuredOption("picture_dungeons", true));
+
 	_renderMode = configuredRenderMode();
 	_colors.set(_renderMode);
 	Data::setPalette(_renderMode);
@@ -131,6 +141,10 @@ Common::Error Ultima1Engine::syncGame(Common::Serializer &s) {
 	if (_G(logic)->isPersisted())
 		_G(map).synchronize(s);
 
+	// The monsters and the rest of a dungeon level are kept too, rather than being made again
+	if (_G(map)._mapType == Data::MAPTYPE_DUNGEON)
+		_G(dungeon).synchronize(s);
+
 	return Common::kNoError;
 }
 
@@ -164,6 +178,9 @@ void Ultima1Engine::queueEffect(const Common::Array<byte> &samples) {
 		return;
 
 	byte *data = (byte *)malloc(samples.size());
+	if (!data)
+		return;
+
 	memcpy(data, &samples[0], samples.size());
 	_effectStream->queueBuffer(data, samples.size(), DisposeAfterUse::YES, Audio::FLAG_UNSIGNED);
 }
@@ -194,7 +211,12 @@ void Ultima1Engine::pauseMillis(uint32 millis) {
 
 void Ultima1Engine::applyGameSettings() {
 	// The graphics can be changed from the in-game options dialog
+	Gfx::DungeonPictures::setEnabled(Shared::configuredOption("picture_dungeons", true));
 	setRenderMode(configuredRenderMode());
+
+	// The dungeon pictures can be turned on and off without changing the mode
+	if (focusedView())
+		focusedView()->redraw();
 }
 
 void Ultima1Engine::setRenderMode(Data::RenderMode mode) {

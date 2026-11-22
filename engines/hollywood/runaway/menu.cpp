@@ -21,7 +21,9 @@
 
 #include "common/util.h"
 #include "graphics/cursorman.h"
+#include "gui/saveload.h"
 #include "hollywood/runaway/menu.h"
+#include "hollywood/resource.h"
 
 namespace Hollywood {
 namespace {
@@ -54,31 +56,76 @@ bool RunawayMenu::Settings::operator==(const Settings &other) const {
 
 RunawayMenu::~RunawayMenu() { close(); }
 
-bool RunawayMenu::load() {
+bool RunawayMenu::load(RunawayGameType game) {
+	const bool museum = game == kRunawayMuseumDemo;
+	_museum = museum;
+	_audio.setMuseum(museum);
 	Graphics::ManagedSurface cursors;
 	Common::Array<byte> animation;
-	if (!_font.load(true) || !_captionFont.load() ||
-			!loadRunawaySurface(132, 1024, 600, _background) ||
+	if (!_font.load(true, museum) || !_captionFont.load(false, museum))
+		return false;
+	if (museum) {
+		if (!loadRunawaySurface(Common::Path("panopc2.fnd"), 1024, 600, _background) ||
+				!loadRunawaySurface(Common::Path("jugar_der.fnd"), 700, 74, _returnButton) ||
+				!loadRunawaySurface(Common::Path("Mosca.spf"), 48, 48, _logo) ||
+				!loadRunawaySurface(Common::Path("raton10.spf"), 904, 360, cursors))
+			return false;
+	} else if (!loadRunawaySurface(132, 1024, 600, _background) ||
 			!loadRunawaySurface(130, 700, 74, _returnButton) ||
-			!loadRunawaySurface(118, 48, 48, _logo) || !loadRunawaySurface(114, 904, 540, cursors) ||
+			(game != kRunawayFullGame && !loadRunawaySurface(118, 48, 48, _logo)) ||
+			!loadRunawaySurface(game == kRunawayFullGame ? 112 : 114, 904, 540, cursors) ||
 			!readRunawayGlobalChunk(155, animation) || !_volumeDial.load(animation, 103))
 		return false;
 	_cursor.create(60, 60, kMenuFormat);
 	_cursor.copyRectToSurface(cursors, 0, 0, Common::Rect(60, 60));
 	_thumbnail.create(204, 120, kMenuFormat);
+	if (game == kRunawayFullGame) {
+		ChunkArchive archive;
+		if (!archive.open(Common::Path("RESOURCE.A03")) || !loadRunawaySurface(128, 700, 74, _optionsButton)) {
+			return false;
+		}
+		for (uint i = 0; i < ARRAYSIZE(_chapters); ++i) {
+			if (!loadRunawaySurface(archive, i, 204, 120, _chapters[i][1])) {
+				return false;
+			}
+			_chapters[i][0].create(204, 120, kMenuFormat);
+			_chapters[i][0].clear();
+			_chapters[i][0].transBlitFrom(_chapters[i][1], 0, false, 128);
+		}
+	}
 	return true;
 }
 
-void RunawayMenu::open(const Graphics::ManagedSurface &screen, const Settings &settings, bool canSave, bool canLoad) {
+void RunawayMenu::open(const Graphics::ManagedSurface &screen, const Settings &settings, bool canSave, bool canLoad, byte chapters) {
 	close();
+	_chapterCount = MIN<byte>(chapters, 6);
+	_selectedChapter = -1;
+	_optionsFrame = 0;
+	_mouse = Common::Point(-1, -1);
 	_settings = settings;
 	_settings.volume = CLIP(_settings.volume, 0, 256);
-	_canSave = canSave;
+	_canSave = canSave && !_chapterCount;
 	_canLoad = canLoad;
-	_page = kOptions;
+	_page = _chapterCount ? kChapters : kOptions;
 	_confirmation = kNoConfirmation;
 	_notice.clear();
 	_saves.clear();
+	captureThumbnail(screen);
+	const uint16 key = *(const uint16 *)_cursor.getPixels();
+	CursorMan.pushCursor(_cursor.getPixels(), 60, 60, 30, 30, key, &kMenuFormat);
+	_cursorPushed = true;
+	CursorMan.showMouse(true);
+}
+
+void RunawayMenu::setChapterCount(byte chapters) {
+	chapters = MIN<byte>(chapters, 6);
+	if (_chapterCount != chapters) {
+		_chapterCount = chapters;
+		_selectedChapter = _chapterCount ? chapterAt(_mouse) : -1;
+	}
+}
+
+void RunawayMenu::captureThumbnail(const Graphics::ManagedSurface &screen) {
 	// The original options screen samples every fifth room pixel.
 	for (int y = 0; y < _thumbnail.h; ++y) {
 		uint16 *dst = (uint16 *)_thumbnail.getBasePtr(0, y);
@@ -86,10 +133,6 @@ void RunawayMenu::open(const Graphics::ManagedSurface &screen, const Settings &s
 		for (int x = 0; x < _thumbnail.w; ++x)
 			dst[x] = src[x * 5];
 	}
-	const uint16 key = *(const uint16 *)_cursor.getPixels();
-	CursorMan.pushCursor(_cursor.getPixels(), 60, 60, 30, 30, key, &kMenuFormat);
-	_cursorPushed = true;
-	CursorMan.showMouse(true);
 }
 
 void RunawayMenu::close() {
@@ -166,9 +209,9 @@ RunawayMenu::Control RunawayMenu::controlAt(Common::Point mouse) const {
 	const Control controls[] = {kLoad, kSave, kDelete, kPlay, kExit};
 	for (uint i = 0; i < ARRAYSIZE(labels); ++i) {
 		if (labelRect(labels[i], 183, 334 + i * 42).contains(mouse))
-			return (i == 0 && !_canLoad) || (i == 1 && !_canSave) ? kNoControl : controls[i];
+			return (i == 0 && !_canLoad) || (i == 1 && !_canSave) || (i == 2 && _museum) ? kNoControl : controls[i];
 	}
-	for (uint i = 0; i < 5; ++i) {
+	for (uint i = 0; i < (_museum ? 3U : 5U); ++i) {
 		const int y = 161 + i * 42;
 		if (Common::Rect(716, y, 846, y + 28).contains(mouse))
 			return (Control)(kMusicOn + i * 2);
@@ -178,7 +221,7 @@ RunawayMenu::Control RunawayMenu::controlAt(Common::Point mouse) const {
 	const int dx = mouse.x - 525, dy = mouse.y - 516;
 	if (dx * dx + dy * dy <= 52 * 52 || labelRect(RunawayStrings::kVolume, 525, 582).contains(mouse))
 		return kVolume;
-	if (labelRect(RunawayStrings::kCredits, 525, 392).contains(mouse))
+	if (!_museum && labelRect(RunawayStrings::kCredits, 525, 392).contains(mouse))
 		return kShowCredits;
 	if (labelRect(RunawayStrings::kSaveSettings, 802, 404).contains(mouse))
 		return kStoreSettings;
@@ -190,6 +233,9 @@ RunawayMenu::Control RunawayMenu::controlAt(Common::Point mouse) const {
 RunawayMenu::Command RunawayMenu::update(Common::Point mouse) {
 	if (mouse != _mouse && _page == kSaves && _confirmation == kNoConfirmation)
 		_focusedSave = saveAt(mouse);
+	if (mouse != _mouse && _page == kChapters) {
+		_selectedChapter = chapterAt(mouse);
+	}
 	_mouse = mouse;
 	if (_dragging == kVolume)
 		return adjustVolume(_dragValue + (mouse.x - _dragX) * 256 / 100 - _settings.volume);
@@ -197,6 +243,16 @@ RunawayMenu::Command RunawayMenu::update(Common::Point mouse) {
 }
 
 void RunawayMenu::tick(uint32 now) {
+	if (_page == kChapters) {
+		const int steps = MIN<uint>(5, now / 20 - _now / 20);
+		if (returnRect().contains(_mouse)) {
+			_optionsFrame = 6;
+		} else if (_mouse.y < kRunawayViewportTop) {
+			_optionsFrame = MIN<uint>(5, MIN<byte>(_optionsFrame, 5) + steps);
+		} else {
+			_optionsFrame = MAX<int>(0, MIN<byte>(_optionsFrame, 5) - steps);
+		}
+	}
 	_now = now;
 	if (_page == kCredits) {
 		_credits.update(now);
@@ -296,12 +352,20 @@ RunawayMenu::Command RunawayMenu::selectSave(int index) {
 RunawayMenu::Command RunawayMenu::click(bool right) {
 	if (right || _page == kCredits)
 		return cancel();
+	if (_page == kChapters) {
+		if (returnRect().contains(_mouse)) {
+			return cancel();
+		}
+		_selectedChapter = chapterAt(_mouse);
+		return _selectedChapter >= 0 ? kStartChapter : kNone;
+	}
 	_notice.clear();
 	if (_page == kSaves && _confirmation == kNoConfirmation && saveAt(_mouse) >= 0)
 		return selectSave(saveAt(_mouse));
 	const Control control = controlAt(_mouse);
 	switch (control) {
-	case kPlay: return _page == kOptions ? kResume : cancel();
+	case kPlay:
+		return cancel();
 	case kLoad: return kBrowseLoad;
 	case kSave: return kBrowseSave;
 	case kDelete: return kBrowseDelete;
@@ -331,8 +395,6 @@ RunawayMenu::Command RunawayMenu::click(bool right) {
 	case kPrevious: return adjust(1);
 	case kNext: return adjust(-1);
 	case kAcceptName:
-		if (_name.empty())
-			_name = _strings.text(RunawayStrings::kNewSave);
 		return kSaveGame;
 	case kYes: return accept();
 	case kNo: return cancel();
@@ -352,10 +414,21 @@ RunawayMenu::Command RunawayMenu::cancel() {
 		_page = kSaves;
 		return kNone;
 	}
+	if (_page == kChapters) {
+		Graphics::ManagedSurface screen(kRunawayScreenWidth, kRunawayScreenHeight, kMenuFormat);
+		drawChapters(screen);
+		captureThumbnail(screen);
+		_page = kOptions;
+		return kNone;
+	}
 	if (_page != kOptions) {
 		_page = kOptions;
 		_audio.stopMusic();
 		CursorMan.showMouse(true);
+		return kNone;
+	}
+	if (_chapterCount) {
+		_page = kChapters;
 		return kNone;
 	}
 	return kResume;
@@ -375,15 +448,16 @@ RunawayMenu::Command RunawayMenu::key(uint32 ascii) {
 		if (ascii == _strings.text(RunawayStrings::kNo)[0])
 			return cancel();
 	} else if (_page == kOptions) {
-		if (ascii == _strings.text(RunawayStrings::kPlay)[0])
-			return kResume;
+		if (ascii == _strings.text(RunawayStrings::kPlay)[0]) {
+			return cancel();
+		}
 		if (ascii == _strings.text(RunawayStrings::kQuitKey)[0])
 			_confirmation = kConfirmExit;
 		else if (ascii == _strings.text(RunawayStrings::kLoad)[0] && _canLoad)
 			return kBrowseLoad;
 		else if (ascii == _strings.text(RunawayStrings::kSave)[0] && _canSave)
 			return kBrowseSave;
-		else if (ascii == _strings.text(RunawayStrings::kDeleteKey)[0])
+		else if (!_museum && ascii == _strings.text(RunawayStrings::kDeleteKey)[0])
 			return kBrowseDelete;
 	}
 	return kNone;
@@ -405,8 +479,6 @@ RunawayMenu::Command RunawayMenu::key(const Common::KeyState &keyState) {
 			return kNone;
 		}
 		if (keyState.keycode == Common::KEYCODE_RETURN || keyState.keycode == Common::KEYCODE_KP_ENTER) {
-			if (_name.empty())
-				_name = _strings.text(RunawayStrings::kNewSave);
 			return kSaveGame;
 		}
 		if (keyState.flags & (Common::KBD_CTRL | Common::KBD_ALT | Common::KBD_META))
@@ -414,6 +486,33 @@ RunawayMenu::Command RunawayMenu::key(const Common::KeyState &keyState) {
 		return key(keyState.ascii);
 	}
 	if (_confirmation == kNoConfirmation) {
+		if (_page == kChapters) {
+			int next = MAX(0, _selectedChapter);
+			switch (keyState.keycode) {
+			case Common::KEYCODE_LEFT:
+			case Common::KEYCODE_UP:
+				--next;
+				break;
+			case Common::KEYCODE_RIGHT:
+			case Common::KEYCODE_DOWN:
+				++next;
+				break;
+			case Common::KEYCODE_HOME:
+				next = 0;
+				break;
+			case Common::KEYCODE_END:
+				next = _chapterCount;
+				break;
+			case Common::KEYCODE_RETURN:
+			case Common::KEYCODE_KP_ENTER:
+			case Common::KEYCODE_SPACE:
+				return _selectedChapter >= 0 ? kStartChapter : kNone;
+			default:
+				return kNone;
+			}
+			_selectedChapter = CLIP(next, 0, (int)_chapterCount);
+			return kNone;
+		}
 		if (_page == kSaves && !_saves.empty()) {
 			int next = _focusedSave < 0 ? _firstSave : _focusedSave;
 			switch (keyState.keycode) {
@@ -440,11 +539,22 @@ RunawayMenu::Command RunawayMenu::key(const Common::KeyState &keyState) {
 		if (_page == kOptions) {
 			if (keyState.keycode == Common::KEYCODE_LEFT || keyState.keycode == Common::KEYCODE_RIGHT)
 				return adjust(keyState.keycode == Common::KEYCODE_LEFT ? -4 : 4);
-			if (keyState.keycode == Common::KEYCODE_RETURN || keyState.keycode == Common::KEYCODE_SPACE)
-				return kResume;
+			if (keyState.keycode == Common::KEYCODE_RETURN || keyState.keycode == Common::KEYCODE_SPACE) {
+				return cancel();
+			}
 		}
 	}
 	return key(keyState.ascii);
+}
+
+Common::String RunawayMenu::saveDescription() const {
+	Common::String description = _name.encode();
+	description.trim();
+	if (description.empty()) {
+		GUI::SaveLoadChooser chooser(true);
+		return chooser.createDefaultSaveDescription(_selectedSlot);
+	}
+	return description;
 }
 
 void RunawayMenu::operationDone(bool success) {
@@ -529,7 +639,53 @@ void RunawayMenu::drawSaves(Graphics::ManagedSurface &screen) {
 		_captionFont.drawChar(screen.surfacePtr(), 0xf0, 340, 385, controlAt(_mouse) == kNext ? kHighlight : kNormal);
 }
 
+Common::Rect RunawayMenu::chapterRect(uint chapter) const {
+	// Original scene 1000 centers its thumbnails according to the unlocked chapter.
+	static const Common::Point positions[6][7] = {
+		{{410, 150}, {410, 290}},
+		{{410, 150}, {298, 290}, {522, 290}},
+		{{410, 150}, {186, 290}, {410, 290}, {634, 290}},
+		{{410, 80}, {186, 220}, {410, 220}, {634, 220}, {410, 360}},
+		{{410, 80}, {186, 220}, {410, 220}, {634, 220}, {298, 360}, {522, 360}},
+		{{410, 80}, {186, 220}, {410, 220}, {634, 220}, {186, 360}, {410, 360}, {634, 360}}
+	};
+	assert(_chapterCount >= 1 && _chapterCount <= 6 && chapter <= _chapterCount);
+	const Common::Point position = positions[_chapterCount - 1][chapter];
+	return Common::Rect(position.x, position.y + kRunawayViewportTop, position.x + 204, position.y + kRunawayViewportTop + 120);
+}
+
+int RunawayMenu::chapterAt(Common::Point mouse) const {
+	for (uint i = 0; i <= _chapterCount; ++i) {
+		if (chapterRect(i).contains(mouse)) {
+			return i;
+		}
+	}
+	return -1;
+}
+
+void RunawayMenu::drawChapters(Graphics::ManagedSurface &screen) {
+	screen.clear();
+	for (uint i = 0; i <= _chapterCount; ++i) {
+		const Common::Rect rect = chapterRect(i);
+		screen.blitFrom(_chapters[i][i == (uint)_selectedChapter], Common::Point(rect.left, rect.top));
+	}
+	screen.copyRectToSurface(_optionsButton, 612, 0, Common::Rect(_optionsFrame * 100, 0, (_optionsFrame + 1) * 100, 74));
+	Common::U32String caption;
+	if (returnRect().contains(_mouse)) {
+		caption = _strings.text(RunawayStrings::kOptions);
+	} else if (_selectedChapter == 0) {
+		caption = _strings.text(RunawayStrings::kPlayBeginning);
+	} else if (_selectedChapter > 0) {
+		caption = Common::U32String::format(_strings.text(RunawayStrings::kPlayChapter), _selectedChapter);
+	}
+	_captionFont.drawString(screen.surfacePtr(), caption, 0, 684, 1024, kNormal, Graphics::kTextAlignCenter);
+}
+
 void RunawayMenu::draw(Graphics::ManagedSurface &screen) {
+	if (_page == kChapters) {
+		drawChapters(screen);
+		return;
+	}
 	if (_page == kCredits) {
 		_credits.draw(screen);
 		return;
@@ -539,7 +695,7 @@ void RunawayMenu::draw(Graphics::ManagedSurface &screen) {
 	screen.copyRectToSurface(_thumbnail, 85, 169, Common::Rect(204, 120));
 	drawLabel(screen, RunawayStrings::kLoad, 183, 334, _page == kOptions && _canLoad, kLoad);
 	drawLabel(screen, RunawayStrings::kSave, 183, 376, _page == kOptions && _canSave, kSave);
-	drawLabel(screen, RunawayStrings::kDelete, 183, 418, _page == kOptions, kDelete);
+	drawLabel(screen, RunawayStrings::kDelete, 183, 418, _page == kOptions && !_museum, kDelete);
 	drawLabel(screen, RunawayStrings::kPlay, 183, 460, _page == kOptions, kPlay);
 	drawLabel(screen, RunawayStrings::kQuit, 183, 502, _page == kOptions, kExit);
 	if (_page == kSaves || _page == kName) {
@@ -548,13 +704,20 @@ void RunawayMenu::draw(Graphics::ManagedSurface &screen) {
 		drawToggle(screen, RunawayStrings::kMusic, 161, _settings.music, kMusicOn, kMusicOff);
 		drawToggle(screen, RunawayStrings::kAntialias, 203, _settings.antialias, kAntialiasOn, kAntialiasOff);
 		drawToggle(screen, RunawayStrings::kScrolling, 245, _settings.fastScrolling, kScrollFast, kScrollSlow);
-		drawToggle(screen, RunawayStrings::kPointerSound, 287, _settings.pointerSound, kPointerOn, kPointerOff);
-		drawToggle(screen, RunawayStrings::kSubtitles, 329, _settings.subtitles, kSubtitlesOn, kSubtitlesOff);
-		drawLabel(screen, RunawayStrings::kCredits, 525, 392, true, kShowCredits);
+		if (!_museum) {
+			drawToggle(screen, RunawayStrings::kPointerSound, 287, _settings.pointerSound, kPointerOn, kPointerOff);
+			drawToggle(screen, RunawayStrings::kSubtitles, 329, _settings.subtitles, kSubtitlesOn, kSubtitlesOff);
+		}
+		drawLabel(screen, RunawayStrings::kCredits, 525, 392, !_museum, kShowCredits);
 		drawLabel(screen, RunawayStrings::kSaveSettings, 802, 404, true, kStoreSettings);
 		drawLabel(screen, RunawayStrings::kDefaultSettings, 802, 446, true, kDefaults);
-		_volumeDial.draw(screen, _dragging == kVolume ? 102 : 101, 0, kRunawayViewportTop);
-		_volumeDial.draw(screen, (_settings.volume * 100 + 128) / 256, 0, kRunawayViewportTop);
+		if (_museum) {
+			const Common::String volume = Common::String::format("%d%%", (_settings.volume * 100 + 128) / 256);
+			_font.drawString(screen.surfacePtr(), volume, 473, 502, 104, kNormal, Graphics::kTextAlignCenter);
+		} else {
+			_volumeDial.draw(screen, _dragging == kVolume ? 102 : 101, 0, kRunawayViewportTop);
+			_volumeDial.draw(screen, (_settings.volume * 100 + 128) / 256, 0, kRunawayViewportTop);
+		}
 		drawLabel(screen, RunawayStrings::kVolume, 525, 582, true, kVolume);
 		drawLabel(screen, RunawayStrings::kBrightness, 802, 582, false);
 	}
@@ -579,7 +742,8 @@ void RunawayMenu::draw(Graphics::ManagedSurface &screen) {
 		}
 		_captionFont.drawString(screen.surfacePtr(), caption, 0, 684, 1024, kNormal, Graphics::kTextAlignCenter);
 	}
-	screen.copyRectToSurface(_logo, 976, 720, Common::Rect(48, 48));
+	if (_logo.w)
+		screen.copyRectToSurface(_logo, 976, 720, Common::Rect(48, 48));
 }
 
 } // End of namespace Hollywood

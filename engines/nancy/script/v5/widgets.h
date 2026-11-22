@@ -40,6 +40,8 @@ class WidgetRecord;
 // A hotspot calls OnLeftDown and OnLeftUp (or the right ones) of its scripts,
 // and OnMouseOver, OnMouseLeave and OnLoseMouseFocus. Once it was clicked, it
 // changes the scene when it has one, and is done.
+// Nancy32 can also press a hotspot with keys, which call OnKeyDown and
+// OnKeyUp; letting go of the key clicks it.
 // The shape is a rect, or the part of a Ref image that isn't see-through or has
 // a color; the rect and the source then lay the image over the screen.
 class HotspotRecord : public Record {
@@ -63,12 +65,25 @@ public:
 	bool isDown() const { return _pressedButton >= 0; }
 	const ScriptRect &getOnScreen() const { return _onScreen; }
 
+	// Nancy30: the mouse moved, which can put it over another tile
+	void onMouseMoved(const Common::Point32 &mouse);
+
+	// Nancy32: the keys that press the hotspot
+	void addKey(Common::KeyCode key);
+	void removeKey(Common::KeyCode key);
+	bool handleKey(Common::KeyCode key, uint16 ascii) override;
+
+	// What the widgets of a hotspot get told about its keys, in place of a
+	// mouse button
+	static const int kKeyButton = 2;
+
 protected:
 	void readTable(int tableIndex) override;
 	bool prepareReset() override;
 	bool hasTransform() const override { return true; }
 	bool getField(const Common::String &key) override;
 	bool setField(const Common::String &key) override;
+	void onFrame() override;
 
 private:
 	struct Cursor {
@@ -80,7 +95,9 @@ private:
 	void readCursorField(int valueIndex, Cursor &cursor);
 	void pushCursorField(const Cursor &cursor);
 	void fire();
+	void loseKeyFocus();
 	void sendTooltip(bool isShown);
+	void updateCursorTile(const Common::Point32 *mouse);
 
 	ScriptRect _onScreen;
 	Common::String _sceneName;
@@ -108,6 +125,28 @@ private:
 	// mouse is over the hotspot
 	Common::String _tooltip;
 	Common::String _tooltipManager = "Tooltip";
+
+	// Nancy30. A hotspot with a tile size splits its rect into tiles, and
+	// knows the one the mouse is over, counting from 1, while the mouse is
+	// over it or holds it down. OnTileChanged is called when that changes.
+	double _tileSize[2] = { 0.0, 0.0 };
+	bool _hasCursorTile = false;
+	Common::Point32 _cursorTile;
+
+	// Nancy31. A hotspot that allows sliding stops being under the mouse once
+	// the mouse moved slideDistance away from where it was pressed, so letting
+	// go of the button doesn't click it, e.g. when the press scrolls a list
+	bool _allowsSlide = false;
+	double _slideDistance = 5.0;
+	Common::Point32 _pressPoint;
+	bool _hasSlid = false;
+
+	// Nancy32. A hotspot with keys gets the key focus when a key press makes
+	// it as far down as the hotspot, by keyZ. From then on, holding one of its
+	// keys presses it, until it is disabled or the mouse holds it down.
+	Common::Array<Common::KeyCode> _keys;
+	bool _hasKeyFocus = false;
+	bool _isKeyDown = false;
 };
 
 // Nancy26: catches the player's input in a part of the screen, so whatever is
@@ -187,6 +226,7 @@ protected:
 	bool _isSelected = false;
 	Common::String _groupName;	// of a radio button
 	bool _wasEnabled = true;
+	bool _isLeftDown = true;	// Nancy31: the last press of a button was with the left button
 };
 
 // Nancy26: a knob that the mouse drags around the knob area, or the wheel moves
@@ -220,6 +260,7 @@ private:
 	ScriptRect _scrollArea;
 	Common::Point32 _scrollAmount;
 	Common::Point32 _knobPos;
+	Common::Point32 _knobStep = Common::Point32(1, 1);	// Nancy30: the knob stops at multiples of it
 	Common::Point32 _dragOffset;	// from the knob to the mouse, while dragged
 	bool _isDragging = false;
 };

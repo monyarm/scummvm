@@ -31,6 +31,7 @@
 #include "common/str-enc.h"
 #include "common/ustr.h"
 #include "engines/engine.h"
+#include "harold/bcb/translation.h"
 #include "harold/bcb/ui.h"
 #include "harold/detection.h"
 
@@ -67,9 +68,11 @@ enum BCBAction {
 };
 
 class Debugger;
+class CinemaViewer;
 
 class BCBEngine : public Engine {
 	friend class Debugger;
+	friend class CinemaViewer;
 
 public:
 	BCBEngine(OSystem *syst, const HaroldGameDescription *desc);
@@ -84,6 +87,8 @@ public:
 	bool canSaveAutosaveCurrently() override;
 
 private:
+	void runCinemaViewer();
+	void pauseEngineIntern(bool paused) override;
 	void loadFonts();
 	bool initializeSearchPaths();
 	bool showInitialLogoScreen();
@@ -148,6 +153,7 @@ private:
 	void drawXorRectangleBorder(const Common::Rect &rect);
 	void processXorRectangleBorderAnimation(bool expand, const Common::Rect &sourceRect, const Common::Rect &targetRect);
 	bool showComputerDetailScreen(int compositeIndex);
+	Graphics::Surface *loadComputerDetailBitmap(const char *path);
 	void checkCurrentMediaPathReady();
 	void clearDisplayAndResetState();
 	void executeCurrentScriptSequence();
@@ -203,14 +209,15 @@ private:
 	void drawAnalogClockAndChip(int baseHourOffset, int gameClockTicks, bool present = true);
 	void renderClockAndChipToSurface(Graphics::Surface &surface, int baseHourOffset, int gameClockTicks);
 	Graphics::Surface *loadBitmap(const char *fileName);
+	Graphics::Surface *loadProgramBitmap(const char *fileName) const;
 	const Graphics::Surface *getUiBitmap(const char *fileName);
-	Graphics::Surface *loadBitmapFromStream(Common::SeekableReadStream *stream, const char *debugName) const;
+	Graphics::Surface *loadImageFromStream(Common::SeekableReadStream *stream, const char *fileName) const;
 	Graphics::Surface *loadDiscBitmap(const char *relativePath) const;
 	Graphics::Surface *loadDiscBitmapFromAnyDisc(const char *relativePath) const;
 	Common::SeekableReadStream *createProgramReadStream(const char *relativePath) const;
 	Common::SeekableReadStream *createDiscReadStream(int discNumber, const char *relativePath) const;
 	Common::SeekableReadStream *createActiveDiscReadStream(const char *relativePath) const;
-	Common::SeekableReadStream *createActiveDiscHighColorReadStream(const char *relativePath) const;
+	Common::SeekableReadStream *createDiscImageReadStream(int discNumber, const char *relativePath, Common::String &resolvedPath, bool searchAllDiscs = false) const;
 	void blitScreenWithLineReveal(const Graphics::Surface &surface, bool presentFinalFrame = true);
 	void drawTitleButton(uint buttonIndex, bool pressed);
 	void handleLeftButtonDown(const Common::Point &mousePosition);
@@ -227,8 +234,10 @@ private:
 	void delayWithEventPolling(uint32 millis);
 	void delayWithEventPolling(uint32 millis, bool handleClicks);
 	Common::U32String decodeExecutableTextForDisplay(const Common::String &text) const;
-	Common::U32String formatSystemTextForDisplay(const Common::String &originalFormat, int slot) const;
-	Common::U32String formatSystemClockTextForDisplay(const Common::String &originalFormat, int slot, int savedDay, int savedClockTicks) const;
+	Common::U32String translateTextForDisplay(TextTranslationType type, uint primaryId, uint secondaryId, const Common::U32String &originalText, bool *translated = nullptr) const;
+	Common::U32String translateSystemTextForDisplay(const char *key, const Common::U32String &originalText, bool *translated = nullptr) const;
+	Common::U32String formatSystemTextForDisplay(const char *key, const Common::String &originalSjisFormat, int arg1) const;
+	Common::U32String formatSystemClockTextForDisplay(const char *key, const Common::String &originalSjisFormat, int slot, int savedDay, int savedClockTicks) const;
 	void mainLoop();
 
 	const HaroldGameDescription *_gameDescription;
@@ -255,6 +264,8 @@ private:
 	Common::String _saveSlotEmptyConfirmTextFormatSjis;
 	Common::String _noSaveDataMessageSjis;
 	Common::String _returnToTitleConfirmTextSjis;
+	TextTranslationData _textTranslation;
+	bool _selectedTextLanguagePackageAvailable = false;
 	Graphics::FontSJIS *_sjisFont = nullptr;
 	const Graphics::Font *_captionTextFont = nullptr;
 	const Graphics::Font *_gameOverTextFont = nullptr;
@@ -265,6 +276,10 @@ private:
 	Video::AVIDecoder *_mapMoveVideo = nullptr;
 	Video::AVIDecoder *_activeMovieVideo = nullptr;
 	Graphics::Surface *_titleBitmap = nullptr;
+	CinemaViewer *_cinemaViewer = nullptr;
+	CinemaViewer *_cinemaMenu = nullptr;
+	bool _engineDataAvailable = false;
+	bool _cinemaAvailable = false;
 	Graphics::Surface *_uiBitmap = nullptr;
 	Common::String _uiBitmapName;
 	Graphics::Surface *_chipBitmap = nullptr;
@@ -272,6 +287,8 @@ private:
 	Common::Rect _sceneChoiceBackingRect;
 	Graphics::Surface *_computerBitmap = nullptr;
 	Graphics::Surface *_computerDetailBacking = nullptr;
+	struct PreparedComputerCard;
+	PreparedComputerCard *_preparedComputerCard = nullptr;
 	Audio::SoundHandle _uiSoundHandle;
 	uint32 _gameState[0x100] = {};
 	uint32 _scriptValueStack[0x100] = {};
@@ -308,6 +325,8 @@ private:
 	Common::Point _mousePosition;
 	bool _activeMovieDispatchOnFinish = false;
 	bool _activeMovieOnBlankScreen = false;
+	bool _activeMovieCursorHidden = false;
+	bool _activeMovieCursorWasVisible = false;
 	bool _activeMoviePaused = false;
 	bool _sceneChoiceActive = false;
 	bool _mapControlsActive = false;

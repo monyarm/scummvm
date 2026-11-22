@@ -33,6 +33,7 @@
 
 #include "engines/nancy/ui/viewport.h"
 #include "engines/nancy/ui/ndui/button.h"
+#include "engines/nancy/ui/ndui/manager.h"
 
 #ifdef ENABLE_NANCY_V4
 #include "engines/nancy/script/records.h"
@@ -227,6 +228,10 @@ void SceneStream::beginScene() {
 	}
 
 	debugC(0, kDebugScene, "Stream %s: loading scene %s, frame %u", _name.c_str(), _sceneName.c_str(), _nextFrameID);
+
+	if (NancySceneState.getNDUI()) {
+		NancySceneState.getNDUI()->requestAutosave();
+	}
 }
 
 void SceneStream::loadBackground(const Common::Path &videoFile) {
@@ -235,6 +240,8 @@ void SceneStream::loadBackground(const Common::Path &videoFile) {
 	_background->setZOrder(_background->getZOrder() + _zOffset);
 #ifdef ENABLE_NANCY_V4
 	if (_scriptScene) {
+		_background->setLayer(Script::RecordGraphic::getScriptLayer(_scriptScene->getZOffset()));
+		_background->setExactZ(Script::RecordGraphic::getBackgroundExactZ());
 		_background->setZOrder(Script::RecordGraphic::getBackgroundZOrder(_scriptScene->getZOffset()));
 	}
 #endif
@@ -505,7 +512,15 @@ void SceneStreamManager::begin(const Common::String &name, const Common::String 
 		return;
 	}
 
-	int32 zOffset = flags.zOffset + (_running ? _running->getZOffset() : 0);
+	// Nancy19 to Nancy20 put a stream that doesn't take the input with the main
+	// stream, whichever stream began it
+	const GameType gameType = g_nancy->getGameType();
+	const bool isWithMainStream = gameType >= kGameTypeNancy19 && gameType < kGameTypeNancyDossier2 && !flags.capturesInput;
+	int32 zOffset = flags.zOffset;
+	if (_running && !isWithMainStream) {
+		zOffset += _running->getZOffset();
+	}
+
 	SceneStream *stream = new SceneStream(name, flags, zOffset);
 	stream->changeScene(sceneName, frameID);
 
@@ -528,6 +543,7 @@ void SceneStreamManager::begin(const Common::String &name, const Common::String 
 	SceneStream::Child child;
 	child.name = name;
 	child.lifetime = flags.lifetime;
+	child.restartsParent = flags.restartsParent;
 	if (_running) {
 		_running->_children.push_back(child);
 	} else {
@@ -570,6 +586,47 @@ void SceneStreamManager::endChildren(const Common::Array<SceneStream::Child> &ch
 		if (child.lifetime != StreamFlags::kIndependent) {
 			end(child.name);
 		}
+	}
+}
+
+bool SceneStreamManager::hasSceneChange() const {
+	for (const SceneStream *stream : _streams) {
+		if (stream && !stream->isEnded() && stream->hasNextScene()) {
+			return true;
+		}
+	}
+
+	return false;
+}
+
+bool SceneStreamManager::removeChild(Common::Array<SceneStream::Child> &children, const Common::String &name, bool &restartsParent) {
+	for (uint i = 0; i < children.size(); ++i) {
+		if (children[i].name.equalsIgnoreCase(name)) {
+			restartsParent = children[i].restartsParent;
+			children.remove_at(i);
+			return true;
+		}
+	}
+
+	return false;
+}
+
+void SceneStreamManager::restartParentOf(const Common::String &name) {
+	bool restartsParent = false;
+	Common::String parentName;
+	if (removeChild(_mainStreamChildren, name, restartsParent)) {
+		parentName = getMainStreamName();
+	} else {
+		for (SceneStream *stream : _streams) {
+			if (stream && !stream->isEnded() && removeChild(stream->_children, name, restartsParent)) {
+				parentName = stream->getName();
+				break;
+			}
+		}
+	}
+
+	if (restartsParent && !parentName.empty()) {
+		changeScene(parentName, getSceneName(parentName), (uint16)MAX(getSceneFrame(parentName), 0));
 	}
 }
 
@@ -707,6 +764,7 @@ void SceneStreamManager::process() {
 
 	for (uint i = 0; i < _streams.size(); ) {
 		if (_streams[i] && _streams[i]->isEnded()) {
+			restartParentOf(_streams[i]->getName());
 			_streams[i]->endScene();
 			returnViewedItem(_streams[i]->getName());
 			delete _streams[i];
@@ -725,19 +783,22 @@ void SceneStreamManager::process() {
 
 // Returns whether a stream kept the input to itself
 bool SceneStreamManager::handleInput(NancyInput &input, bool beforeMainStream) {
-	const Common::Array<SceneStream *> streams = _streams;
+	// The frontmost stream gets the input first, so one that takes it keeps it
+	// from the ones behind: the map of Lights, Camera, Curses from the journal
+	// that opens it. Streams at the same z go in the order they began.
+	Common::Array<SceneStream *> streams;
 	bool isBeforeMainStream = true;
 
-	for (SceneStream *stream : streams) {
+	for (SceneStream *stream : _streams) {
 		if (!stream) {
 			isBeforeMainStream = false;
 			continue;
 		}
 
-		// From Nancy21 on, a stream drawn in front of the main one gets the
-		// mouse before it too, like the phone
+		// From Resorting to Danger on, a stream drawn in front of the main one
+		// gets the mouse before it too, like the phone
 		bool isInFront = isBeforeMainStream;
-		if (g_nancy->getGameType() >= kGameTypeNancy21 && stream->getZOffset() > 0) {
+		if (g_nancy->getGameType() >= kGameTypeNancyDossier2 && stream->getZOffset() > 0) {
 			isInFront = true;
 		}
 
@@ -745,6 +806,15 @@ bool SceneStreamManager::handleInput(NancyInput &input, bool beforeMainStream) {
 			continue;
 		}
 
+		uint i = 0;
+		while (i < streams.size() && streams[i]->getZOffset() >= stream->getZOffset()) {
+			++i;
+		}
+
+		streams.insert_at(i, stream);
+	}
+
+	for (SceneStream *stream : streams) {
 		_running = stream;
 		stream->handleInput(input);
 		_running = nullptr;
@@ -765,6 +835,9 @@ void SceneStreamManager::clear() {
 	_streams.clear();
 	_mainStreamChildren.clear();
 	_environment.clear();
+#ifdef ENABLE_NANCY_V5
+	_isViewportLocked = false;
+#endif
 
 	if (g_nancy->getGameType() >= kGameTypeNancy17) {
 		// The main stream

@@ -32,12 +32,14 @@ namespace Hollywood {
 // text-derived mouth shapes (0..5), with a closed-eye set at 6..11.
 class RunawayLipSync {
 public:
-	void start(const Common::U32String &text, uint32 now, uint32 duration, Common::RandomSource &random);
+	// Pass the voice sample ID for retail recordings; zero keeps demo text-derived animation.
+	void start(const Common::U32String &text, uint32 now, uint32 duration, Common::RandomSource &random, uint16 sample = 0);
 	void stop() { _frames.clear(); }
 	byte frame(uint32 now) const;
 	uint frameDuration() const { return _frameDuration; }
 
 private:
+	bool loadRecording(uint16 sample);
 	Common::Array<byte> _frames;
 	uint32 _started = 0, _duration = 0, _frameDuration = 80;
 };
@@ -53,6 +55,19 @@ private:
 	uint32 _turnTick = 0, _blinkTick = 0;
 	byte _step = 6, _target = 6, _frame = 0;
 	bool _blink = false, _active = false;
+};
+
+class RunawayCarlaAnimation {
+public:
+	void update(uint32 now, bool talking, Common::RandomSource &random);
+	uint frame(byte mouth = 0) const;
+	bool holdsGlass() const { return _state == kDrinking && _step >= 15 && _step < 44; }
+
+private:
+	enum State { kBreathing, kWaiting, kDrinking, kTurning, kTalking, kReturning };
+	State _state = kBreathing;
+	uint32 _tick = 0;
+	uint _step = 0, _wait = 0;
 };
 
 } // End of namespace Hollywood

@@ -44,6 +44,7 @@ namespace NDUI {
 static const int kInvButtonFirstID = 10;
 
 Panel::Panel(Manager *manager, uint16 z, byte kind) : RenderObject(z), _manager(manager), _kind(kind) {
+	_layer = kUILayer;
 	setNativeResolution(true);
 }
 
@@ -252,7 +253,12 @@ void Panel::addItemButton(const INVD::Item &item) {
 	_kind = kObjectInvPanel;
 	_newItem = &item;
 
-	if (!createObject(item.name, "InvButton")) {
+	// The original's Inventory.<name> makes the name upper case, and the scripts
+	// get it that way: Lights, Camera, Curses compares it with string.upper()
+	Common::String name = item.name;
+	name.toUppercase();
+
+	if (!createObject(name, "InvButton")) {
 		warning("Couldn't create the UI button of item %s", item.name.c_str());
 	}
 
@@ -519,6 +525,19 @@ bool Panel::takeAction(const Action &action) {
 	case kActionCycleFocus:
 		cycleFocus();
 		break;
+	case kActionSetLocation: {
+		// The panel goes to the top left corner of the rect; its handlers get
+		// the rect too, even when the panel was there already
+		const Common::Rect location = decodeRect(action.value);
+		if (!_isPlaced) {
+			_background->_bounds.moveTo(location.left, location.top);
+		} else if (location.left != _screenPosition.left || location.top != _screenPosition.top) {
+			moveTo(Common::Point(location.left, location.top));
+		}
+
+		fireEvent(kEventSetLocation, action.value);
+		return true;
+	}
 	default:
 		return false;
 	}
@@ -527,7 +546,7 @@ bool Panel::takeAction(const Action &action) {
 	return true;
 }
 
-// The newest item goes first
+// The newest item goes first, unless the game puts new items last
 void Panel::showItem(int16 itemID, bool show) {
 	for (uint i = 0; i < _arrangeOrder.size(); ++i) {
 		Control *control = _arrangeOrder[i];
@@ -536,8 +555,13 @@ void Panel::showItem(int16 itemID, bool show) {
 		}
 
 		if (show) {
+			const ScriptBootData *boot = (const ScriptBootData *)g_nancy->getEngineData("ScriptBootData");
 			_arrangeOrder.remove_at(i);
-			_arrangeOrder.insert_at(0, control);
+			if (boot && !boot->isInventoryAddedToFront) {
+				_arrangeOrder.push_back(control);
+			} else {
+				_arrangeOrder.insert_at(0, control);
+			}
 		}
 
 		control->setVisible(show);
@@ -632,11 +656,11 @@ void Panel::hide() {
 	fireEvent(kEventHide);
 }
 
-void Panel::fireEvent(int32 eventType) {
-	_background->fireEvents(eventType, false, 0, getName());
+void Panel::fireEvent(int32 eventType, double value) {
+	_background->fireEvents(eventType, false, value, getName());
 
 	for (Control *control : _controls) {
-		control->fireEvents(eventType, false, 0, control->getName());
+		control->fireEvents(eventType, false, value, control->getName());
 	}
 }
 
@@ -921,7 +945,7 @@ bool Panel::handleInput(NancyInput &input, bool canHover, bool &isOverControl) {
 
 	// The wheel scrolls a scroll panel by one step
 	if (notches && !_scrollBarName.empty()) {
-		_manager->takeAction(kActionSetValue, _scrollBarName, (double)(notches * _scrollStep));
+		_manager->takeAction(kActionScrollBy, _scrollBarName, (double)(notches * _scrollStep));
 	}
 
 	return true;

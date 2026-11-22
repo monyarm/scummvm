@@ -193,9 +193,27 @@ public:
 	MessagingNameMap _messagingNames;
 
 	// Nancy21: what the scripts keep apart from the saved games, packed the way
-	// Save:Data packs it. The original writes it to a file of its own; here it
-	// lasts for as long as the game runs.
+	// Save:Data packs it. Resorting to Danger keeps its profiles there, in a
+	// file of its own.
 	Common::HashMap<Common::String, Common::Array<byte> > _scriptAttic;
+	bool _isScriptAtticLoaded = false;
+
+	// Lights, Camera, Curses: the profile being played, which is a saved game
+	// named after the player. What follows outlasts the game a new profile, or
+	// loading another one, takes down.
+	struct ProfileState {
+		Common::String current;		// the saved game of the profile; empty for none
+		Common::String newProfile;	// saved once the new game for it has started
+		bool isNewProfileGame = false;
+		// The profile popup comes back up once the next scene runs, with a value
+		// of 0 when the arcade mode got loaded
+		bool hasPendingPopup = false;
+		bool isPopupForArcade = false;
+		// The saved values every profile shares, packed as Save:Data packs them
+		Common::HashMap<Common::String, Common::Array<byte>, Common::IgnoreCase_Hash, Common::IgnoreCase_EqualTo> sharedValues;
+	};
+
+	ProfileState _profile;
 
 protected:
 	Common::Error run() override;

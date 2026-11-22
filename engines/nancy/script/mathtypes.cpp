@@ -58,7 +58,34 @@ ScriptMatrix::ScriptMatrix() {
 	}
 }
 
+// Nancy32 combines and undoes SRTs part by part
+static bool combinesAsSRTs(const ScriptMatrix &a, const ScriptMatrix &b) {
+	return a.isSRT && b.isSRT && g_nancy->getGameType() >= kGameTypeNancy32;
+}
+
+ScriptMatrix ScriptMatrix::makeSRT(double scaleX, double scaleY, double rotation, double x, double y) {
+	ScriptMatrix matrix;
+	matrix.scaleX = scaleX;
+	matrix.scaleY = scaleY;
+	matrix.rotation = rotation;
+
+	const double cosine = cos(rotation);
+	const double sine = sin(rotation);
+	matrix.m[0][0] = scaleX * cosine;
+	matrix.m[0][1] = scaleY * sine;
+	matrix.m[1][0] = -scaleX * sine;
+	matrix.m[1][1] = scaleY * cosine;
+	matrix.m[3][0] = x;
+	matrix.m[3][1] = y;
+	return matrix;
+}
+
 bool ScriptMatrix::operator==(const ScriptMatrix &other) const {
+	if (combinesAsSRTs(*this, other)) {
+		return scaleX == other.scaleX && scaleY == other.scaleY && rotation == other.rotation &&
+			m[3][0] == other.m[3][0] && m[3][1] == other.m[3][1];
+	}
+
 	for (int row = 0; row < 4; ++row) {
 		for (int column = 0; column < 4; ++column) {
 			if (m[row][column] != other.m[row][column]) {
@@ -71,7 +98,15 @@ bool ScriptMatrix::operator==(const ScriptMatrix &other) const {
 }
 
 ScriptMatrix ScriptMatrix::operator*(const ScriptMatrix &other) const {
+	if (combinesAsSRTs(*this, other)) {
+		double x = m[3][0];
+		double y = m[3][1];
+		other.transformPoint(x, y);
+		return makeSRT(scaleX * other.scaleX, scaleY * other.scaleY, rotation + other.rotation, x, y);
+	}
+
 	ScriptMatrix result;
+	result.isSRT = false;
 
 	for (int row = 0; row < 4; ++row) {
 		for (int column = 0; column < 4; ++column) {
@@ -131,16 +166,80 @@ ScriptRect transformRect(const ScriptRect &rect, const ScriptMatrix &matrix) {
 
 // Vector
 
+// Up to Nancy25 a vector is a table of its components, so type() calls it a
+// table and [1] to [4] read it. Nancy26 made it an object of its own.
+static bool areVectorsTables() {
+	return g_nancy->getGameType() < kGameTypeNancy26;
+}
+
 void pushVector(lua_State *L, const ScriptVector &vector) {
-	pushValue(L, kVectorType, vector);
+	if (!areVectorsTables()) {
+		pushValue(L, kVectorType, vector);
+		return;
+	}
+
+	lua_createtable(L, vector.size, 0);
+	for (int i = 0; i < vector.size; ++i) {
+		lua_pushnumber(L, vector.v[i]);
+		lua_rawseti(L, -2, i + 1);
+	}
+
+	luaL_getmetatable(L, kVectorType);
+	lua_setmetatable(L, -2);
 }
 
-ScriptVector *testVector(lua_State *L, int index) {
-	return (ScriptVector *)testUserData(L, index, kVectorType);
+static bool isVectorTable(lua_State *L, int index) {
+	if (!lua_istable(L, index) || !lua_getmetatable(L, index)) {
+		return false;
+	}
+
+	luaL_getmetatable(L, kVectorType);
+	const bool isVector = lua_rawequal(L, -1, -2);
+	lua_pop(L, 2);
+	return isVector;
 }
 
-static ScriptVector &checkVector(lua_State *L, int index) {
-	return *(ScriptVector *)checkUserData(L, index, kVectorType);
+bool testVector(lua_State *L, int index, ScriptVector &vector) {
+	if (!areVectorsTables()) {
+		const ScriptVector *data = (const ScriptVector *)testUserData(L, index, kVectorType);
+		if (data) {
+			vector = *data;
+		}
+
+		return data != nullptr;
+	}
+
+	index = absoluteIndex(L, index);
+	if (!isVectorTable(L, index)) {
+		return false;
+	}
+
+	vector = ScriptVector();
+	vector.size = 0;
+	for (int i = 0; i < 4; ++i) {
+		lua_rawgeti(L, index, i + 1);
+		const bool isNumber = lua_isnumber(L, -1);
+		if (isNumber) {
+			vector.v[i] = lua_tonumber(L, -1);
+			vector.size = i + 1;
+		}
+
+		lua_pop(L, 1);
+		if (!isNumber) {
+			break;
+		}
+	}
+
+	return true;
+}
+
+static ScriptVector checkVector(lua_State *L, int index) {
+	ScriptVector vector;
+	if (!testVector(L, index, vector)) {
+		luaL_typerror(L, index, kVectorType);
+	}
+
+	return vector;
 }
 
 // Vector:New(x, y[, z[, w]]), or Vector:New(vector or place) in Nancy20
@@ -149,9 +248,9 @@ static int vectorNew(lua_State *L) {
 	vector.size = lua_gettop(L) - 1;
 	if (vector.size == 1) {
 		// A copy of a vector, or a place made into a 2D vector
-		const ScriptVector *other = testVector(L, 2);
-		if (other) {
-			pushVector(L, *other);
+		ScriptVector other;
+		if (testVector(L, 2, other)) {
+			pushVector(L, other);
 			return 1;
 		}
 
@@ -214,7 +313,7 @@ static double getVectorLength(const ScriptVector &vector) {
 }
 
 static int vectorIndex(lua_State *L) {
-	const ScriptVector &vector = checkVector(L, 1);
+	const ScriptVector vector = checkVector(L, 1);
 
 	if (lua_type(L, 2) == LUA_TSTRING) {
 		const char *key = lua_tostring(L, 2);
@@ -244,14 +343,21 @@ static int vectorIndex(lua_State *L) {
 }
 
 static int vectorNewIndex(lua_State *L) {
-	ScriptVector &vector = checkVector(L, 1);
+	const ScriptVector vector = checkVector(L, 1);
 
 	const int component = getVectorComponent(L, 2);
 	if (component < 0 || component >= vector.size) {
 		return luaL_error(L, "Vector does not have field requested");
 	}
 
-	vector.v[component] = luaL_checknumber(L, 3);
+	const double value = luaL_checknumber(L, 3);
+	if (areVectorsTables()) {
+		lua_pushnumber(L, value);
+		lua_rawseti(L, 1, component + 1);
+	} else {
+		((ScriptVector *)testUserData(L, 1, kVectorType))->v[component] = value;
+	}
+
 	return 0;
 }
 
@@ -268,8 +374,8 @@ static double getComponent(const ScriptVector &vector, int index) {
 }
 
 static int vectorAdd(lua_State *L) {
-	const ScriptVector &left = checkVector(L, 1);
-	const ScriptVector &right = checkVector(L, 2);
+	const ScriptVector left = checkVector(L, 1);
+	const ScriptVector right = checkVector(L, 2);
 	checkSameSize(L, left, right);
 
 	ScriptVector result;
@@ -283,8 +389,8 @@ static int vectorAdd(lua_State *L) {
 }
 
 static int vectorSubtract(lua_State *L) {
-	const ScriptVector &left = checkVector(L, 1);
-	const ScriptVector &right = checkVector(L, 2);
+	const ScriptVector left = checkVector(L, 1);
+	const ScriptVector right = checkVector(L, 2);
 	checkSameSize(L, left, right);
 
 	ScriptVector result;
@@ -299,19 +405,20 @@ static int vectorSubtract(lua_State *L) {
 
 // A vector times a number, either way around, or two vectors part by part
 static int vectorMultiply(lua_State *L) {
-	const ScriptVector *left = testVector(L, 1);
-	const ScriptVector *right = testVector(L, 2);
+	ScriptVector left, right;
+	const bool isLeftVector = testVector(L, 1, left);
+	const bool isRightVector = testVector(L, 2, right);
 
 	ScriptVector result;
-	if (left && right) {
-		checkSameSize(L, *left, *right);
-		result.size = MAX(left->size, right->size);
+	if (isLeftVector && isRightVector) {
+		checkSameSize(L, left, right);
+		result.size = MAX(left.size, right.size);
 		for (int i = 0; i < result.size; ++i) {
-			result.v[i] = getComponent(*left, i) * getComponent(*right, i);
+			result.v[i] = getComponent(left, i) * getComponent(right, i);
 		}
 	} else {
-		result = left ? *left : checkVector(L, 2);
-		const double factor = luaL_checknumber(L, left ? 2 : 1);
+		result = isLeftVector ? left : checkVector(L, 2);
+		const double factor = luaL_checknumber(L, isLeftVector ? 2 : 1);
 		for (int i = 0; i < result.size; ++i) {
 			result.v[i] *= factor;
 		}
@@ -322,19 +429,18 @@ static int vectorMultiply(lua_State *L) {
 }
 
 static int vectorDivide(lua_State *L) {
-	if (!testVector(L, 1)) {
+	ScriptVector result;
+	if (!testVector(L, 1, result)) {
 		return luaL_error(L, "Cannot divide a scalar by a vector");
 	}
 
-	ScriptVector result = checkVector(L, 1);
-	const ScriptVector *right = testVector(L, 2);
-
-	if (right) {
-		checkSameSize(L, result, *right);
+	ScriptVector right;
+	if (testVector(L, 2, right)) {
+		checkSameSize(L, result, right);
 		const ScriptVector left = result;
-		result.size = MAX(left.size, right->size);
+		result.size = MAX(left.size, right.size);
 		for (int i = 0; i < result.size; ++i) {
-			result.v[i] = getComponent(left, i) / getComponent(*right, i);
+			result.v[i] = getComponent(left, i) / getComponent(right, i);
 		}
 	} else {
 		const double divisor = luaL_checknumber(L, 2);
@@ -358,8 +464,8 @@ static int vectorNegate(lua_State *L) {
 }
 
 static int vectorDot(lua_State *L) {
-	const ScriptVector &a = checkVector(L, 1);
-	const ScriptVector &b = checkVector(L, 2);
+	const ScriptVector a = checkVector(L, 1);
+	const ScriptVector b = checkVector(L, 2);
 	checkSameSize(L, a, b);
 
 	double sum = 0.0;
@@ -372,8 +478,8 @@ static int vectorDot(lua_State *L) {
 }
 
 static int vectorCross(lua_State *L) {
-	const ScriptVector &a = checkVector(L, 1);
-	const ScriptVector &b = checkVector(L, 2);
+	const ScriptVector a = checkVector(L, 1);
+	const ScriptVector b = checkVector(L, 2);
 	if (a.size != 3 || b.size != 3) {
 		return luaL_error(L, "Both vectors must be 3D");
 	}
@@ -402,7 +508,7 @@ static int vectorNormalize(lua_State *L) {
 // vector:Lerp(other, amount)
 static int vectorLerp(lua_State *L) {
 	ScriptVector result = checkVector(L, 1);
-	const ScriptVector &other = checkVector(L, 2);
+	const ScriptVector other = checkVector(L, 2);
 	const double amount = luaL_checknumber(L, 3);
 	checkSameSize(L, result, other);
 
@@ -419,7 +525,7 @@ static int vectorLerp(lua_State *L) {
 // vector:Reflect(normal), the vector bounced off a surface facing that way
 static int vectorReflect(lua_State *L) {
 	ScriptVector result = checkVector(L, 1);
-	const ScriptVector &normal = checkVector(L, 2);
+	const ScriptVector normal = checkVector(L, 2);
 	checkSameSize(L, result, normal);
 
 	double dot = 0.0;
@@ -491,7 +597,7 @@ static int vectorTransformNormal(lua_State *L) {
 // vector:Transform(kind, matrix). Nancy22 moves any vector by its x, y and z,
 // with no z for a 2D one, and gives a 3D vector back.
 static int vectorTransform(lua_State *L) {
-	const ScriptVector &vector = checkVector(L, 1);
+	const ScriptVector vector = checkVector(L, 1);
 
 	// Nancy26 leaves out what kind of transform it is
 	if (testMatrix(L, 2)) {
@@ -563,9 +669,23 @@ ScriptMatrix &checkMatrix(lua_State *L, int index) {
 	return *(ScriptMatrix *)checkUserData(L, index, kMatrixType);
 }
 
-// Matrix:New(sixteen numbers, row by row)
+// Matrix:New(sixteen numbers, row by row). Nancy32: Matrix:New(scaleX, scaleY,
+// rotation, x, y), an SRT, or Matrix:New(matrix), a copy.
 static int matrixNew(lua_State *L) {
+	const int numArgs = lua_gettop(L) - 1;
+	if (numArgs == 5) {
+		pushMatrix(L, ScriptMatrix::makeSRT(luaL_checknumber(L, 2), luaL_checknumber(L, 3),
+			luaL_checknumber(L, 4), luaL_checknumber(L, 5), luaL_checknumber(L, 6)));
+		return 1;
+	}
+
+	if (numArgs == 1) {
+		pushMatrix(L, checkMatrix(L, 2));
+		return 1;
+	}
+
 	ScriptMatrix matrix;
+	matrix.isSRT = false;
 	for (int i = 0; i < 16; ++i) {
 		matrix.m[i / 4][i % 4] = luaL_checknumber(L, i + 2);
 	}
@@ -574,13 +694,18 @@ static int matrixNew(lua_State *L) {
 	return 1;
 }
 
-// Matrix:Translate(x, y, z)
+// Matrix:Translate(x, y, z). Nancy32 has no z.
 static int matrixTranslate(lua_State *L) {
-	ScriptMatrix matrix;
-	matrix.m[3][0] = luaL_checknumber(L, 2);
-	matrix.m[3][1] = luaL_checknumber(L, 3);
-	matrix.m[3][2] = luaL_checknumber(L, 4);
+	ScriptMatrix matrix = ScriptMatrix::makeSRT(1.0, 1.0, 0.0, luaL_checknumber(L, 2), luaL_checknumber(L, 3));
+	matrix.m[3][2] = luaL_optnumber(L, 4, 0.0);
+	matrix.isSRT = matrix.m[3][2] == 0.0;
 	pushMatrix(L, matrix);
+	return 1;
+}
+
+// Matrix:Rotate(angle), Nancy32: a turn by the angle in radians
+static int matrixRotate(lua_State *L) {
+	pushMatrix(L, ScriptMatrix::makeSRT(1.0, 1.0, luaL_checknumber(L, 2), 0.0, 0.0));
 	return 1;
 }
 
@@ -595,6 +720,7 @@ static int matrixPerspective(lua_State *L) {
 	const double yScale = 1.0 / tan(fovy / 2.0);
 
 	ScriptMatrix matrix;
+	matrix.isSRT = false;
 	matrix.m[0][0] = yScale / aspectRatio;
 	matrix.m[1][1] = yScale;
 	matrix.m[2][2] = zFar / (zFar - zNear);
@@ -605,12 +731,11 @@ static int matrixPerspective(lua_State *L) {
 	return 1;
 }
 
-// Matrix:Scale(x, y, z)
+// Matrix:Scale(x, y, z). Nancy32 has no z.
 static int matrixScale(lua_State *L) {
-	ScriptMatrix matrix;
-	matrix.m[0][0] = luaL_checknumber(L, 2);
-	matrix.m[1][1] = luaL_checknumber(L, 3);
-	matrix.m[2][2] = luaL_checknumber(L, 4);
+	ScriptMatrix matrix = ScriptMatrix::makeSRT(luaL_checknumber(L, 2), luaL_checknumber(L, 3), 0.0, 0.0, 0.0);
+	matrix.m[2][2] = luaL_optnumber(L, 4, 1.0);
+	matrix.isSRT = matrix.m[2][2] == 1.0;
 	pushMatrix(L, matrix);
 	return 1;
 }
@@ -639,6 +764,7 @@ static int matrixRotateAngle(lua_State *L) {
 	}
 
 	ScriptMatrix matrix;
+	matrix.isSRT = false;
 	matrix.m[first][first] = cosine;
 	matrix.m[first][second] = sine;
 	matrix.m[second][first] = -sine;
@@ -652,6 +778,7 @@ static int matrixRotateAngle(lua_State *L) {
 // turn, which goes in the same direction as RotateAngle
 static ScriptMatrix makeRotation(const double v[3], double outer, double diagonal, double turn) {
 	ScriptMatrix matrix;
+	matrix.isSRT = false;
 	for (int row = 0; row < 3; ++row) {
 		for (int column = 0; column < 3; ++column) {
 			matrix.m[row][column] = outer * v[row] * v[column];
@@ -671,17 +798,17 @@ static ScriptMatrix makeRotation(const double v[3], double outer, double diagona
 
 // Matrix:RotateAxis(axis, angle), a turn by the angle in radians around a 3D vector
 static int matrixRotateAxis(lua_State *L) {
-	const ScriptVector *axis = testVector(L, 2);
-	if (!axis || axis->size != 3) {
+	ScriptVector axis;
+	if (!testVector(L, 2, axis) || axis.size != 3) {
 		return luaL_argerror(L, 2, "Axis must be a 3D vector");
 	}
 
 	const double angle = luaL_checknumber(L, 3);
 
-	const double length = getVectorLength(*axis);
+	const double length = getVectorLength(axis);
 	double n[3];
 	for (int i = 0; i < 3; ++i) {
-		n[i] = length != 0.0 ? axis->v[i] / length : axis->v[i];
+		n[i] = length != 0.0 ? axis.v[i] / length : axis.v[i];
 	}
 
 	pushMatrix(L, makeRotation(n, 1.0 - cos(angle), cos(angle), sin(angle)));
@@ -729,7 +856,7 @@ static int matrixNewIndex(lua_State *L) {
 		return luaL_error(L, "Matrix does not have field %d", row + 1);
 	}
 
-	const ScriptVector &vector = checkVector(L, 3);
+	const ScriptVector vector = checkVector(L, 3);
 	if (vector.size != 4) {
 		return luaL_error(L, "Matrix rows are 4D not %dD", vector.size);
 	}
@@ -738,6 +865,7 @@ static int matrixNewIndex(lua_State *L) {
 		matrix.m[row][i] = vector.v[i];
 	}
 
+	matrix.isSRT = false;
 	return 0;
 }
 
@@ -755,6 +883,7 @@ static int matrixTranspose(lua_State *L) {
 	const ScriptMatrix &matrix = checkMatrix(L, 1);
 
 	ScriptMatrix result;
+	result.isSRT = false;
 	for (int row = 0; row < 4; ++row) {
 		for (int column = 0; column < 4; ++column) {
 			result.m[row][column] = matrix.m[column][row];
@@ -766,8 +895,20 @@ static int matrixTranspose(lua_State *L) {
 }
 
 ScriptMatrix ScriptMatrix::inverse() const {
+	// Nancy32 undoes the scale and the rotation, and then the translation with them
+	if (combinesAsSRTs(*this, *this)) {
+		ScriptMatrix result = makeSRT(1.0 / scaleX, 1.0 / scaleY, -rotation, 0.0, 0.0);
+		double x = m[3][0];
+		double y = m[3][1];
+		result.transformPoint(x, y);
+		result.m[3][0] = -x;
+		result.m[3][1] = -y;
+		return result;
+	}
+
 	ScriptMatrix work = *this;
 	ScriptMatrix result;
+	result.isSRT = false;
 
 	for (int column = 0; column < 4; ++column) {
 		// The row with the largest value in this column goes on the diagonal
@@ -828,9 +969,9 @@ static ScriptVector readTransformInput(lua_State *L, int index) {
 		return ScriptVector(luaL_checknumber(L, index), luaL_checknumber(L, index + 1), 0.0);
 	}
 
-	const ScriptVector *vector = testVector(L, index);
-	if (vector) {
-		return getFlatVector(*vector);
+	ScriptVector vector;
+	if (testVector(L, index, vector)) {
+		return getFlatVector(vector);
 	}
 
 	double x, y;
@@ -879,6 +1020,7 @@ static const luaL_Reg kMatrixHelperFunctions[] = {
 	{ "Translate", matrixTranslate },
 	{ "Scaling", matrixScale },
 	{ "Scale", matrixScale },
+	{ "Rotate", matrixRotate },
 	{ "Perspective", matrixPerspective },
 	{ "RotationAngle", matrixRotateAngle },
 	{ "RotateAngle", matrixRotateAngle },
@@ -965,8 +1107,9 @@ static const luaL_Reg kQuaternionHelperFunctions[] = {
 // Path:New{ { x, y, time }, ... } takes them in the order of their times.
 // From Nancy24 on, a path holds waypoints instead: named numbers at a time,
 // which Nancy25 moves the car on its map with.
-// TODO: The curves through the places that path:GetPosition(time, false) gives,
-// and RemovePoint, GetGuides and SetGuides, which no script uses
+// Resorting to Danger moves things along curves through the places: each
+// stretch between two places is bent by two guides, which get worked out again
+// whenever a place is added or taken out, and which the scripts can move.
 static const char *const kPathType = "ND.Path";
 static const char *const kPathHelperType = "ND.PathHelper";
 
@@ -981,7 +1124,16 @@ struct PathPoint {
 	}
 };
 
-typedef Common::Array<PathPoint> PathPoints;
+// The two guides of the stretch from a place to the next one
+struct PathGuides {
+	ScriptVector first;
+	ScriptVector second;
+};
+
+struct PathPoints : public Common::Array<PathPoint> {
+	Common::Array<PathGuides> guides;
+	bool areGuidesOutdated = true;
+};
 
 // A path object holds the places, which go away with it
 static PathPoints *&getPathPoints(lua_State *L, int index) {
@@ -1065,6 +1217,19 @@ static int pathAddPoint(lua_State *L) {
 	}
 
 	points.insert_at(index, point);
+	points.areGuidesOutdated = true;
+	return 0;
+}
+
+// path:RemovePoint(index), Resorting to Danger: takes out a place, counted from 1
+static int pathRemovePoint(lua_State *L) {
+	PathPoints &points = checkPath(L, 1);
+	const lua_Integer index = luaL_checkinteger(L, 2) - 1;
+	if (index >= 0 && index < (lua_Integer)points.size()) {
+		points.remove_at((uint)index);
+		points.areGuidesOutdated = true;
+	}
+
 	return 0;
 }
 
@@ -1163,13 +1328,117 @@ static int pathGetInterpolants(lua_State *L) {
 	return 1;
 }
 
+// A point between two others, the part of the way along it that is given
+static ScriptVector lerpPathPosition(const ScriptVector &from, const ScriptVector &to, double progress) {
+	progress = CLIP(progress, 0.0, 1.0);
+
+	ScriptVector result;
+	result.size = 2;
+	result.v[0] = from.v[0] + (to.v[0] - from.v[0]) * progress;
+	result.v[1] = from.v[1] + (to.v[1] - from.v[1]) * progress;
+	return result;
+}
+
+static ScriptVector getPathPointPosition(const PathPoint &point) {
+	ScriptVector position;
+	position.size = 2;
+	position.v[0] = point.get("x");
+	position.v[1] = point.get("y");
+	return position;
+}
+
+// The guides of each stretch come from the places around it, as if the path
+// went on from its last place to its second. Paths of fewer than three places
+// keep the guides they had.
+static void updatePathGuides(PathPoints &points) {
+	if (!points.areGuidesOutdated) {
+		return;
+	}
+
+	points.areGuidesOutdated = false;
+	if (points.size() < 3) {
+		return;
+	}
+
+	const uint32 numSegments = points.size() - 1;
+	points.guides.resize(numSegments);
+	for (uint32 from = 0; from < numSegments; ++from) {
+		const ScriptVector start = getPathPointPosition(points[from]);
+		const ScriptVector previous = getPathPointPosition(points[(from + numSegments - 1) % numSegments]);
+		const ScriptVector next = getPathPointPosition(points[(from + 1) % numSegments]);
+		const ScriptVector afterNext = getPathPointPosition(points[(from + 2) % numSegments]);
+
+		PathGuides &guides = points.guides[from];
+		guides.first.size = guides.second.size = 2;
+		for (uint i = 0; i < 2; ++i) {
+			guides.first.v[i] = start.v[i] + (next.v[i] - previous.v[i]) / 2.0;
+			guides.second.v[i] = next.v[i] - (afterNext.v[i] - start.v[i]) / 2.0;
+		}
+	}
+}
+
+// A curve from a place to the next one, bent by the guides in between
+static ScriptVector getPathCurvePosition(PathPoints &points, uint32 from, double progress) {
+	updatePathGuides(points);
+
+	const ScriptVector start = getPathPointPosition(points[from]);
+	const ScriptVector end = getPathPointPosition(points[from + 1]);
+	const PathGuides &guides = points.guides[from];
+
+	const ScriptVector a = lerpPathPosition(start, guides.first, progress);
+	const ScriptVector b = lerpPathPosition(guides.first, guides.second, progress);
+	const ScriptVector c = lerpPathPosition(guides.second, end, progress);
+	return lerpPathPosition(lerpPathPosition(a, b, progress), lerpPathPosition(b, c, progress), progress);
+}
+
+// path:GetGuides(index), Resorting to Danger: the two guides of a stretch,
+// counted from 1
+static int pathGetGuides(lua_State *L) {
+	PathPoints &points = checkPath(L, 1);
+	updatePathGuides(points);
+
+	const lua_Integer index = luaL_checkinteger(L, 2) - 1;
+	if (index < 0 || index >= (lua_Integer)points.guides.size()) {
+		return luaL_error(L, "Invalid index passed to Path:GetGuides()");
+	}
+
+	pushVector(L, points.guides[(uint)index].first);
+	pushVector(L, points.guides[(uint)index].second);
+	return 2;
+}
+
+// path:SetGuides(index, first, second), Resorting to Danger: moves the guides
+// of a stretch; a guide that is nil stays where it is
+static int pathSetGuides(lua_State *L) {
+	PathPoints &points = checkPath(L, 1);
+	updatePathGuides(points);
+
+	const lua_Integer index = luaL_checkinteger(L, 2) - 1;
+	if (index < 0 || index >= (lua_Integer)points.guides.size()) {
+		return luaL_error(L, "Invalid index passed to Path:SetGuides()");
+	}
+
+	PathGuides &guides = points.guides[(uint)index];
+	if (!lua_isnoneornil(L, 3)) {
+		guides.first = checkVector(L, 3);
+	}
+
+	if (!lua_isnoneornil(L, 4)) {
+		guides.second = checkVector(L, 4);
+	}
+
+	return 0;
+}
+
 // path:GetPosition(time[, straight[, loops]]): where the path is at a time, in a
-// straight line between the places around it. A path that loops starts over
-// after its last place; one that doesn't stays at its ends.
+// straight line between the places around it, or along a curve through them
+// when it isn't straight and has three places or more. A path that loops starts
+// over after its last place; one that doesn't stays at its ends.
 static int pathGetPosition(lua_State *L) {
-	const PathPoints &points = checkPath(L, 1);
+	PathPoints &points = checkPath(L, 1);
 	const uint32 numPoints = points.size();
 	double time = luaL_checknumber(L, 2);
+	const bool isStraight = !lua_isboolean(L, 3) || lua_toboolean(L, 3);
 	const bool loops = lua_isboolean(L, 4) && lua_toboolean(L, 4);
 
 	if (numPoints == 0) {
@@ -1206,6 +1475,11 @@ static int pathGetPosition(lua_State *L) {
 	const double span = to.time - from.time;
 	const double progress = span != 0.0 ? (time - from.time) / span : 0.0;
 
+	if (!isStraight && numPoints >= 3) {
+		pushVector(L, getPathCurvePosition(points, next - 1, progress));
+		return 1;
+	}
+
 	position.v[0] = from.get("x") + (to.get("x") - from.get("x")) * progress;
 	position.v[1] = from.get("y") + (to.get("y") - from.get("y")) * progress;
 	pushVector(L, position);
@@ -1217,6 +1491,9 @@ static const luaL_Reg kPathFunctions[] = {
 	{ "__gc", pathCollect },
 	{ "GetPosition", pathGetPosition },
 	{ "AddPoint", pathAddPoint },
+	{ "RemovePoint", pathRemovePoint },
+	{ "GetGuides", pathGetGuides },
+	{ "SetGuides", pathSetGuides },
 	{ "AddWaypoint", pathAddWaypoint },
 	{ "GetInterpolants", pathGetInterpolants },
 	{ nullptr, nullptr }
@@ -1228,8 +1505,14 @@ static const luaL_Reg kPathHelperFunctions[] = {
 	{ nullptr, nullptr }
 };
 
+// A number rounded half away from zero, as Nancy32 rounds the corners of a rect
+static double roundAwayFromZero(double value) {
+	return value < 0.0 ? ceil(value - 0.5) : floor(value + 0.5);
+}
+
 // rect:Transform(matrix). Nancy22 moves all four corners, and gives the
-// smallest and the largest of them as two vectors.
+// smallest and the largest of them as two vectors. Nancy32 rounds them, and
+// gives them as two points.
 static int rectTransform(lua_State *L) {
 	const ScriptRect &rect = checkRect(L, 1);
 	const ScriptMatrix &matrix = checkMatrix(L, 2);
@@ -1237,6 +1520,28 @@ static int rectTransform(lua_State *L) {
 	if (g_nancy->getGameType() < kGameTypeNancy22) {
 		pushRect(L, transformRect(rect, matrix));
 		return 1;
+	}
+
+	if (g_nancy->getGameType() >= kGameTypeNancy32) {
+		const double corners[4][2] = {
+			{ (double)rect.left, (double)rect.top }, { (double)rect.right, (double)rect.top },
+			{ (double)rect.left, (double)rect.bottom }, { (double)rect.right, (double)rect.bottom }
+		};
+
+		double minimum[2] = { 1e300, 1e300 };
+		double maximum[2] = { -1e300, -1e300 };
+		for (const double *corner : corners) {
+			double point[2] = { corner[0], corner[1] };
+			matrix.transformPoint(point[0], point[1]);
+			for (int i = 0; i < 2; ++i) {
+				minimum[i] = MIN(minimum[i], point[i]);
+				maximum[i] = MAX(maximum[i], point[i]);
+			}
+		}
+
+		pushPointCoordinates(L, roundAwayFromZero(minimum[0]), roundAwayFromZero(minimum[1]));
+		pushPointCoordinates(L, roundAwayFromZero(maximum[0]), roundAwayFromZero(maximum[1]));
+		return 2;
 	}
 
 	const double corners[4][2] = {
@@ -1265,6 +1570,30 @@ static int rectTransform(lua_State *L) {
 	return 2;
 }
 
+// point:TransformCoord(matrix) and point:TransformNormal(matrix), Nancy32: the
+// point moved by the matrix, without the offset for TransformNormal
+static int pointTransformCoord(lua_State *L) {
+	double x, y;
+	if (!readPointCoordinates(L, 1, x, y)) {
+		return luaL_typerror(L, 1, "ND.Point");
+	}
+
+	checkMatrix(L, 2).transformPoint(x, y);
+	pushPointCoordinates(L, x, y);
+	return 1;
+}
+
+static int pointTransformNormal(lua_State *L) {
+	double x, y;
+	if (!readPointCoordinates(L, 1, x, y)) {
+		return luaL_typerror(L, 1, "ND.Point");
+	}
+
+	const ScriptMatrix &matrix = checkMatrix(L, 2);
+	pushPointCoordinates(L, x * matrix.m[0][0] + y * matrix.m[1][0], x * matrix.m[0][1] + y * matrix.m[1][1]);
+	return 1;
+}
+
 void registerMathTypes(lua_State *L) {
 	registerType(L, kVectorType, kVectorFunctions);
 	registerGlobal(L, "Vector", kVectorHelperType, kVectorHelperFunctions);
@@ -1278,10 +1607,17 @@ void registerMathTypes(lua_State *L) {
 	registerType(L, kPathType, kPathFunctions);
 	registerGlobal(L, "Path", kPathHelperType, kPathHelperFunctions);
 
-	// Rectangles can be moved by a matrix as well
+	// Rectangles and points can be moved by a matrix as well
 	luaL_getmetatable(L, "ND.Rect");
 	lua_pushcfunction(L, rectTransform);
 	lua_setfield(L, -2, "Transform");
+	lua_pop(L, 1);
+
+	luaL_getmetatable(L, "ND.Point");
+	lua_pushcfunction(L, pointTransformCoord);
+	lua_setfield(L, -2, "TransformCoord");
+	lua_pushcfunction(L, pointTransformNormal);
+	lua_setfield(L, -2, "TransformNormal");
 	lua_pop(L, 1);
 }
 

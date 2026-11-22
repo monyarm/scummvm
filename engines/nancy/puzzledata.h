@@ -666,6 +666,7 @@ struct StreamData : public PuzzleData {
 	struct Child {
 		Common::String name;
 		byte lifetime = 0;
+		bool restartsParent = false;	// Resorting to Danger: the parent starts its scene over when the child ends
 	};
 
 	struct Stream {
@@ -751,6 +752,15 @@ struct BrainData : public PuzzleData {
 	virtual void synchronize(Common::Serializer &ser);
 
 	Common::HashMap<Common::String, bool, Common::IgnoreCase_Hash, Common::IgnoreCase_EqualTo> results;
+};
+
+// Nancy29: the inventory item the player wears on the face, like Nancy's
+// glasses. Empty when there is none.
+struct EquippedItemData : public PuzzleData {
+	static constexpr uint32 getTag() { return MKTAG('E', 'Q', 'I', 'P'); }
+	virtual void synchronize(Common::Serializer &ser);
+
+	Common::String faceItem;
 };
 
 // Nancy21. The pictures the camera of the cell phone took, as PNG files, which

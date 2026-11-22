@@ -26,6 +26,8 @@
 #include "common/ptr.h"
 #include "common/rect.h"
 
+#include "audio/mixer.h"
+
 #include "engines/nancy/commontypes.h"
 #include "engines/nancy/movieplayer.h"
 #include "engines/nancy/renderobject.h"
@@ -71,11 +73,14 @@ public:
 
 	// Scripts order what they draw with numbers of their own. The scene also
 	// tells which stream it is in, which can zoom into what it draws.
-	void setScriptZ(double z, const SceneContext &context);
+	// Before Nancy26, records of the same z draw in the order they were made
+	void setScriptZ(double z, const SceneContext &context, uint32 recordOrder = 0);
 
 	// The z order of a script z in a stream that is the given steps in front
 	static uint16 getScriptZOrder(double z, int32 zOffset);
 	static uint16 getBackgroundZOrder(int32 zOffset);
+	static int32 getScriptLayer(int32 zOffset);
+	static double getBackgroundExactZ();
 
 	// The highest z order of what the records draw
 	static const int kMaxScriptZOrder = 59000;
@@ -88,7 +93,18 @@ protected:
 	// Nancy26 has the viewport at the top left of the screen, and lets records
 	// draw on all of it, the UI along the bottom included
 	bool isViewportRelative() const override;
+	bool isMovedByViewportScroll() const override { return false; }
 };
+
+// Shows a part of an image where the record's transform places it. The part
+// is redrawn when the transform rotates or scales it, or when it is tinted.
+void placePicture(RecordGraphic &graphic, Graphics::ManagedSurface &image, const Common::Rect &source, const ScriptRect &dest, const ScriptMatrix &transform, uint32 modColor);
+
+// Gets an image from the resource manager's cache, and keeps a reference to it
+// in cached while the record uses it. Images from picture trees that aren't
+// cached are loaded directly.
+// outDest gets the rect a Nancy30 image is shown at by default, or an empty one
+bool loadCachedImage(const Common::String &name, const Common::String &treeName, Common::SharedPtr<Graphics::ManagedSurface> &cached, Graphics::ManagedSurface &image, Common::Rect *outDest = nullptr);
 
 // The first record of every scene, which names the area the scene belongs to
 // and its background. A background with more than one frame is a node the
@@ -121,6 +137,7 @@ protected:
 	void runOnce() override;
 	void run(double sceneTime, double elapsedTime) override;
 	bool hasTransform() const override { return true; }
+	void onTransformChanged() override;
 	bool getField(const Common::String &key) override;
 	bool setField(const Common::String &key) override;
 
@@ -280,6 +297,19 @@ public:
 	// transform and modColor.
 	void drawCopy(int tableIndex);
 
+	// Nancy30: ar:DefaultRects() shows the whole picture where the image says
+	// it goes (or at the top left), as when neither the source nor onScreen
+	// was given
+	void setDefaultRects();
+
+#ifdef ENABLE_NANCY_V5
+	// Nancy31: ar:Copy() keeps showing the picture as it is now, even after the
+	// overlay changes or hides, until ar:DeleteCopy(index) takes it away
+	int addCopy();
+	void deleteCopy(int index);
+	void pushCopies();
+#endif
+
 protected:
 	void readTable(int tableIndex) override;
 	void onZChanged() override;
@@ -295,12 +325,32 @@ private:
 	void applyRects();
 	bool setPicture(const Common::String &imageName);
 
+#ifdef ENABLE_NANCY_V5
+	struct Copy {
+		ScriptRect source;
+		ScriptRect dest;
+		uint32 modColor = 0xFFFFFFFF;
+		double alpha = 1.0;
+		ScriptMatrix transform;
+		bool isUsed = true;
+	};
+
+	void applyCopies();
+
+	Common::Array<Copy> _copies;
+	Common::Array<uint> _freeCopies;	// the slots of deleted copies, reused last one first
+	RecordGraphic _copyGraphic;			// all the copies, drawn into one surface
+	bool _hasCopyGraphic = false;
+	bool _areCopiesStale = false;
+#endif
+
 	Common::SharedPtr<Graphics::ManagedSurface> _cachedImage;	// kept while the record uses it
 	Graphics::ManagedSurface _image;	// the cached picture, or a saved one
 	Common::String _imageName;
 	Common::String _treeName;
 	ScriptRect _source;
 	ScriptRect _dest;
+	ScriptRect _defaultDest;	// Nancy30: the rect stored in the image; empty if it has none
 	bool _hasDestTable = false;					// Nancy24: onScreen is a table of rects
 	Common::Array<ScriptRect> _tableDests;		// what it had when last drawn
 	uint32 _modColor = 0xFFFFFFFF;	// what the colors of the picture get multiplied with
@@ -312,6 +362,41 @@ private:
 	RecordGraphic _attachment;
 	bool _hasAttachment = false;
 	bool _isAttachmentDrawn = false;
+};
+
+// Lights, Camera, Curses: a light the player shines around with the mouse, or
+// that its transform puts somewhere. The original draws its picture into the
+// stencil buffer only, and the masked records drawn after it leave out where
+// the picture isn't transparent, which shows what is behind them.
+class FlashlightRecord : public Record {
+public:
+	FlashlightRecord(SceneContext &context) : Record(context, "ND.FlashlightAR") {}
+
+	RecordType getType() const override { return kRecordFlashlight; }
+
+	void updateGraphics() override;
+	void registerGraphics() override;
+
+protected:
+	void readTable(int tableIndex) override;
+	void onZChanged() override;
+	void onMouseMove(const Common::Point32 &point, bool inViewport) override;
+	bool hasTransform() const override { return true; }
+	void onTransformChanged() override { _isPlacementStale = true; }
+	bool getField(const Common::String &key) override;
+	bool setField(const Common::String &key) override;
+
+private:
+	void applyRects();
+
+	Common::SharedPtr<Graphics::ManagedSurface> _cachedImage;	// kept while the record uses it
+	Graphics::ManagedSurface _image;
+	ScriptRect _source;
+	ScriptRect _dest;
+	bool _isOn = true;
+	bool _followsMouse = true;	// centered on the mouse, without the transform
+	bool _isPlacementStale = false;
+	RecordGraphic _graphic;
 };
 
 // Shows the parts of an image one after the other
@@ -381,11 +466,18 @@ public:
 	// The channel the sound of the record plays on, while it does
 	bool getPlayingChannel(uint16 &channel) const;
 
+	// Nancy29: plays one of the sounds once, without a channel, so that it can
+	// overlap other sounds. The group of the record selects its volume setting.
+	// Nancy30 calls OnInstanceDone when one of them has ended.
+	void playInstance();
+
 protected:
 	void readTable(int tableIndex) override;
 	void runOnce() override;
 	void run(double sceneTime, double elapsedTime) override;
+	void onFrame() override;
 	bool prepareReset() override;
+	void onStreamPaused(bool isPaused) override;
 	bool getField(const Common::String &key) override;
 	bool setField(const Common::String &key) override;
 
@@ -400,11 +492,26 @@ private:
 #endif
 	const char *getChannelType() const;
 
+	// The volume setting that the group or the channelType selects. Returns
+	// false when the sound uses the setting of its channel.
+	bool getGroupType(Audio::Mixer::SoundType &type) const;
+
+	// Nancy29: picks the volume and the pitch of the next play, each one changed
+	// at random by up to its variance
+	void pickVariation();
+
 	Common::Array<Common::String> _names;
 	uint16 _channel;	// FX1 unless the table says otherwise
 	Common::String _channelType;	// empty for the one of the channel
+	Common::String _group;			// Nancy29: "Voice", "Music" or "Effects"
 	double _volume = 1.0;
+	double _volumeVariance = 0.0;	// Nancy29
+	double _pitch = 1.0;			// Nancy29: 2 plays twice as fast
+	double _pitchVariance = 0.0;
+	double _playVolume = 1.0;
+	double _playPitch = 1.0;
 	bool _isLooping = false;
+	Common::Array<Audio::SoundHandle> _instances;	// the ones playInstance() started
 	bool _usesCaption = true;
 
 	SoundDescription _sound;
@@ -489,6 +596,7 @@ protected:
 	void onZChanged() override;
 	bool prepareReset() override;
 	bool isPaused() const override { return _isPaused; }
+	void onStreamPaused(bool isPaused) override;
 	bool hasTransform() const override { return true; }
 	void onTransformChanged() override { applyPosition(); }
 	bool getField(const Common::String &key) override;
@@ -524,6 +632,7 @@ private:
 	bool _isPaused = false;
 	bool _isVisible = true;
 	bool _hasJustStarted = false;
+	double _singleFrameTime = 0.0;	// in seconds, how long a movie of one frame has shown it
 	double _endTime = 0.0;
 };
 

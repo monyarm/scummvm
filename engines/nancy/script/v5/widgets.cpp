@@ -19,6 +19,7 @@
  *
  */
 
+#include "common/algorithm.h"
 #include "common/events.h"
 #include "common/system.h"
 
@@ -133,9 +134,55 @@ void HotspotRecord::readTable(int tableIndex) {
 		_source = checkRect(L, -1);
 		lua_pop(L, 1);
 	}
+
+	if (pushField(L, tableIndex, "tileSize")) {
+		readPointCoordinates(L, -1, _tileSize[0], _tileSize[1]);
+		lua_pop(L, 1);
+	}
+
+	readField(L, tableIndex, "allowSlide", _allowsSlide);
+	readField(L, tableIndex, "slideDistance", _slideDistance);
+}
+
+void HotspotRecord::onMouseMoved(const Common::Point32 &mouse) {
+	if (_allowsSlide && isDown() && !_hasSlid) {
+		const double dx = (double)mouse.x - _pressPoint.x;
+		const double dy = (double)mouse.y - _pressPoint.y;
+		_hasSlid = sqrt(dx * dx + dy * dy) >= _slideDistance;
+	}
+
+	updateCursorTile(&mouse);
+}
+
+// The tile is where the mouse is in the rect of the hotspot, before the
+// hotspot was moved, divided by the tile size. Without a mouse, there is none.
+void HotspotRecord::updateCursorTile(const Common::Point32 *mouse) {
+	bool hasTile = false;
+	Common::Point32 tile;
+	if (mouse && _tileSize[0] > 0.0 && _tileSize[1] > 0.0 && (_isMouseOver || isDown())) {
+		double x = mouse->x;
+		double y = mouse->y;
+		getTransform().inverse().transformPoint(x, y);
+
+		hasTile = true;
+		tile.x = (int32)floor((x - _onScreen.left) / _tileSize[0]) + 1;
+		tile.y = (int32)floor((y - _onScreen.top) / _tileSize[1]) + 1;
+	}
+
+	if (hasTile == _hasCursorTile && (!hasTile || tile == _cursorTile)) {
+		return;
+	}
+
+	_hasCursorTile = hasTile;
+	_cursorTile = tile;
+	callFunction("OnTileChanged");
 }
 
 bool HotspotRecord::hitTest(const Common::Point32 &point) const {
+	if (_hasSlid && isDown()) {
+		return false;
+	}
+
 	double x = point.x;
 	double y = point.y;
 	getTransform().inverse().transformPoint(x, y);
@@ -210,6 +257,8 @@ bool HotspotRecord::pressRegion(int button) {
 	}
 
 	_pressedButton = button;
+	_pressPoint = getScriptMousePoint();
+	_hasSlid = false;
 	callFunction(button == 0 ? "OnLeftDown" : "OnRightDown");
 	if (_widget) {
 		_widget->onHotspotDown(button);
@@ -228,6 +277,7 @@ void HotspotRecord::releaseRegion(int button) {
 	_pressedButton = -1;
 
 	if (!_isMouseOver) {
+		updateCursorTile(nullptr);
 		callFunction("OnLoseMouseFocus");
 		if (_widget) {
 			_widget->onHotspotUp(button, false);
@@ -250,6 +300,112 @@ void HotspotRecord::fire() {
 	}
 
 	finish();
+}
+
+void HotspotRecord::addKey(Common::KeyCode key) {
+	if (Common::find(_keys.begin(), _keys.end(), key) == _keys.end()) {
+		_keys.push_back(key);
+	}
+}
+
+void HotspotRecord::removeKey(Common::KeyCode key) {
+	Common::Array<Common::KeyCode>::iterator found = Common::find(_keys.begin(), _keys.end(), key);
+	if (found == _keys.end()) {
+		return;
+	}
+
+	_keys.erase(found);
+	if (_keys.empty()) {
+		loseKeyFocus();
+	}
+}
+
+// Any key that makes it this far gives the hotspot the key focus. It doesn't
+// take the key, so the records behind it get it as well.
+bool HotspotRecord::handleKey(Common::KeyCode key, uint16 ascii) {
+	if (!_keys.empty()) {
+		_hasKeyFocus = true;
+	}
+
+	return false;
+}
+
+void HotspotRecord::loseKeyFocus() {
+	_hasKeyFocus = false;
+	if (_isKeyDown) {
+		_isKeyDown = false;
+		callFunction("OnLoseKeyFocus");
+	}
+}
+
+// Every frame, a hotspot with the key focus looks at whether one of its keys
+// is held down, and gets pressed or released when that changes
+void HotspotRecord::onFrame() {
+	if (_keys.empty() || !_hasKeyFocus) {
+		return;
+	}
+
+	if (!isNodeEnabled() || (_pressedButton >= 0 && !_isKeyDown)) {
+		loseKeyFocus();
+		return;
+	}
+
+	bool isHeld = false;
+	for (Common::KeyCode key : _keys) {
+		if (isScriptKeyHeld(key)) {
+			isHeld = true;
+			break;
+		}
+	}
+
+	if (isHeld == _isKeyDown) {
+		return;
+	}
+
+	_isKeyDown = isHeld;
+	if (isHeld) {
+		callFunction("OnKeyDown");
+		if (_widget) {
+			_widget->onHotspotDown(kKeyButton);
+		}
+	} else {
+		callFunction("OnKeyUp");
+		if (_widget) {
+			_widget->onHotspotUp(kKeyButton, true);
+		} else {
+			fire();
+		}
+	}
+}
+
+// hotspot:AddKey(key) and hotspot:RemoveKey(key), Nancy32. A string of one
+// letter or digit stands for its key.
+static Common::KeyCode checkHotspotKey(lua_State *L, int index) {
+	if (lua_type(L, index) == LUA_TSTRING) {
+		const char *name = lua_tostring(L, index);
+		return name[0] != 0 && name[1] == 0 ? (Common::KeyCode)tolower(name[0]) : Common::KEYCODE_INVALID;
+	}
+
+	return checkKey(L, index);
+}
+
+static HotspotRecord *checkHotspot(lua_State *L) {
+	HotspotRecord *record = dynamic_cast<HotspotRecord *>(checkRecord(L, 1));
+	if (!record) {
+		luaL_typerror(L, 1, "ND.Hotspot");
+	}
+
+	return record;
+}
+
+static int hotspotAddKey(lua_State *L) {
+	checkHotspot(L)->addKey(checkHotspotKey(L, 2));
+	return 0;
+}
+
+static int hotspotRemoveKey(lua_State *L) {
+	checkHotspot(L)->removeKey(checkHotspotKey(L, 2));
+	return 0;
 }
 
 bool HotspotRecord::getRegionCursor(uint &cursorType, bool &isHot) const {
@@ -315,6 +471,22 @@ bool HotspotRecord::getField(const Common::String &key) {
 		lua_pushstring(L, _tooltip.c_str());
 	} else if (key == "tooltipManager") {
 		lua_pushstring(L, _tooltipManager.c_str());
+	} else if (key == "tileSize") {
+		pushPoint(L, Common::Point32((int32)_tileSize[0], (int32)_tileSize[1]));
+	} else if (key == "cursorTile") {
+		if (_hasCursorTile) {
+			pushPoint(L, _cursorTile);
+		} else {
+			lua_pushnil(L);
+		}
+	} else if (key == "allowSlide") {
+		lua_pushboolean(L, _allowsSlide);
+	} else if (key == "slideDistance") {
+		lua_pushnumber(L, _slideDistance);
+	} else if (key == "AddKey") {
+		lua_pushcfunction(L, hotspotAddKey);
+	} else if (key == "RemoveKey") {
+		lua_pushcfunction(L, hotspotRemoveKey);
 	} else {
 		return false;
 	}
@@ -366,6 +538,17 @@ bool HotspotRecord::setField(const Common::String &key) {
 		if (_isMouseOver) {
 			sendTooltip(true);
 		}
+	} else if (key == "tileSize") {
+		readPointCoordinates(L, 3, _tileSize[0], _tileSize[1]);
+		updateCursorTile(&getScriptMousePoint());
+	} else if (key == "cursorTile") {
+		luaL_error(L, "Cannot set 'cursorTile' field of a hotspot");
+	} else if (key == "allowSlide") {
+		_allowsSlide = lua_toboolean(L, 3) != 0;
+	} else if (key == "slideDistance") {
+		_slideDistance = luaL_checknumber(L, 3);
+	} else if (key == "AddKey" || key == "RemoveKey") {
+		luaL_error(L, "Cannot set '%s' field of a hotspot", key.c_str());
 	} else {
 		return false;
 	}
@@ -559,9 +742,16 @@ void WidgetRecord::onHotspotOver(bool isOver) {
 	updateState();
 }
 
+// A plain button also takes presses of the right button, when its hotspot
+// watches that button
 void WidgetRecord::onHotspotDown(int button) {
-	if (button != 0) {
+	if (button != 0 && _type != kRecordButton) {
 		return;
+	}
+
+	// A key leaves it at the last mouse button
+	if (button != HotspotRecord::kKeyButton) {
+		_isLeftDown = button == 0;
 	}
 
 	switch (_type) {
@@ -580,7 +770,7 @@ void WidgetRecord::onHotspotDown(int button) {
 }
 
 void WidgetRecord::onHotspotUp(int button, bool isOver) {
-	if (button != 0) {
+	if (button != 0 && _type != kRecordButton) {
 		return;
 	}
 
@@ -646,6 +836,9 @@ bool WidgetRecord::getField(const Common::String &key) {
 	} else if (key == "groupName") {
 		lua_pushstring(L, _groupName.c_str());
 		return true;
+	} else if (key == "isLeft" && _type == kRecordButton) {
+		lua_pushboolean(L, _isLeftDown);
+		return true;
 	} else {
 		return ClipTransformerRecord::getField(key);
 	}
@@ -668,8 +861,14 @@ bool WidgetRecord::setField(const Common::String &key) {
 	} else if (key == "disabledColor") {
 		_disabledColor = checkColor(L, 3);
 		_wasEnabled = !isNodeEnabled();
+	} else if (key == "isLeft" && _type == kRecordButton) {
+		luaL_error(L, "Cannot set field 'isLeft' of a button AR");
 	} else if (key == "isSelected") {
 		setSelected(lua_toboolean(L, 3) != 0, false);
+	} else if (key == "groupName" && _type == kRecordRadioButton) {
+		// Nancy31: a selected radio button gets deselected when it changes groups
+		setSelected(false, true);
+		_groupName = luaL_checkstring(L, 3);
 	} else {
 		return ClipTransformerRecord::setField(key);
 	}
@@ -706,6 +905,11 @@ void SliderRecord::readTable(int tableIndex) {
 		lua_pop(L, 1);
 	}
 
+	if (pushField(L, tableIndex, "knobStep")) {
+		readPoint(L, -1, _knobStep);
+		lua_pop(L, 1);
+	}
+
 	if (pushField(L, tableIndex, "knobPos")) {
 		readPoint(L, -1, _knobPos);
 		lua_pop(L, 1);
@@ -738,9 +942,19 @@ Common::Point32 SliderRecord::getKnobMax() const {
 	return Common::Point32(MAX<int>(0, _knobArea.width() - knobSize.x), MAX<int>(0, _knobArea.height() - knobSize.y));
 }
 
+// The nearest multiple of the step, halves rounded up
+static int32 snapToStep(int32 value, int32 step) {
+	if (step <= 0) {
+		return value;
+	}
+
+	return (int32)floor((double)value / step + 0.5) * step;
+}
+
 void SliderRecord::setKnobPos(const Common::Point32 &pos, bool callsScripts) {
 	const Common::Point32 knobMax = getKnobMax();
-	const Common::Point32 newPos(CLIP<int>(pos.x, 0, knobMax.x), CLIP<int>(pos.y, 0, knobMax.y));
+	const Common::Point32 newPos(snapToStep(CLIP<int>(pos.x, 0, knobMax.x), _knobStep.x),
+		snapToStep(CLIP<int>(pos.y, 0, knobMax.y), _knobStep.y));
 
 	const bool hasMoved = newPos.x != _knobPos.x || newPos.y != _knobPos.y;
 	_knobPos = newPos;
@@ -844,6 +1058,8 @@ bool SliderRecord::getField(const Common::String &key) {
 		pushPoint(L, _knobPos);
 	} else if (key == "knobMax") {
 		pushPoint(L, getKnobMax());
+	} else if (key == "knobStep") {
+		pushPoint(L, _knobStep);
 	} else if (key == "percent") {
 		const Common::Point32 knobMax = getKnobMax();
 		pushVector(L, ScriptVector(knobMax.x > 0 ? (double)_knobPos.x / knobMax.x : 0.0,
@@ -869,6 +1085,8 @@ bool SliderRecord::setField(const Common::String &key) {
 	} else if (key == "knobArea") {
 		_knobArea = checkRect(L, 3);
 		setKnobPos(_knobPos, false);
+	} else if (key == "knobStep") {
+		luaL_error(L, "Cannot set field 'knobStep' of a slider AR");
 	} else {
 		return WidgetRecord::setField(key);
 	}

@@ -39,7 +39,15 @@ void Viewport::init() {
 	auto *viewportData = GetEngineData(VIEW);
 	assert(viewportData);
 
-	moveTo(viewportData->screenPosition);
+	// The Dossier games keep a bar of the UI at the bottom of the viewport, which
+	// the backgrounds leave out: they are drawn as they are, not stretched over it
+	Common::Rect position = viewportData->screenPosition;
+	const ScriptBootData *boot = (const ScriptBootData *)g_nancy->getEngineData("ScriptBootData");
+	if (boot && boot->viewportUIHeight > 0) {
+		position.bottom -= boot->viewportUIHeight;
+	}
+
+	moveTo(position);
 
 	setEdgesSize(	bootSummary->verticalEdgesSize,
 					bootSummary->verticalEdgesSize,
@@ -233,6 +241,7 @@ void Viewport::loadVideo(const Common::Path &filename, uint frameNr, uint vertic
 	_panningType = panningType;
 
 	setFrame(frameNr);
+	_horizontalScroll = 0;
 	setVerticalScroll(verticalScroll);
 
 	if (!palette.empty()) {
@@ -302,7 +311,7 @@ void Viewport::setVerticalScroll(uint scroll) {
 	// keeps one of the size of the earlier games, toast_BG, for the scenes
 	// that only play movies.
 	Common::Rect sourceBounds = _screenPosition;
-	sourceBounds.moveTo(0, scroll);
+	sourceBounds.moveTo(_horizontalScroll, scroll);
 	sourceBounds.clip(Common::Rect(_fullFrame.w, _fullFrame.h));
 	assert(!sourceBounds.isEmpty() && sourceBounds.top == (int)scroll);
 
@@ -322,6 +331,11 @@ void Viewport::setVerticalScroll(uint scroll) {
 	} else {
 		disableEdges(kUp | kDown);
 	}
+}
+
+void Viewport::setHorizontalScroll(uint scroll) {
+	_horizontalScroll = MIN<uint>(scroll, _fullFrame.w > 0 ? _fullFrame.w - 1 : 0);
+	setVerticalScroll(getCurVerticalScroll());
 }
 
 void Viewport::scrollUp(uint delta) {
@@ -346,7 +360,11 @@ uint16 Viewport::getMaxScroll() const {
 Common::Rect Viewport::convertViewportToScreen(const Common::Rect &viewportRect) const {
 	Common::Rect ret = viewportRect;
 	ret.translate(_screenPosition.left, _screenPosition.top - getCurVerticalScroll());
-	ret.clip(_screenPosition);
+
+	// What goes in the viewport can be drawn over the bar of the UI the
+	// background leaves out
+	const VIEW *viewportData = GetEngineData(VIEW);
+	ret.clip(viewportData ? viewportData->screenPosition : _screenPosition);
 	return ret;
 }
 

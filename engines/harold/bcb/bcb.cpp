@@ -21,6 +21,7 @@
 
 #include "harold/bcb/bcb.h"
 #include "common/config-manager.h"
+#include "common/engine_data.h"
 #include "common/system.h"
 #include "common/textconsole.h"
 #include "engines/util.h"
@@ -31,6 +32,7 @@
 #include "graphics/sjis.h"
 #include "graphics/surface.h"
 #include "harold/bcb/debugger.h"
+#include "harold/bcb/cinema.h"
 #include "harold/bcb/script.h"
 #include "harold/bcb/static_data.h"
 #include "video/avi_decoder.h"
@@ -81,10 +83,14 @@ void BCBEngine::loadFonts() {
 }
 
 BCBEngine::BCBEngine(OSystem *syst, const HaroldGameDescription *desc)
-	: Engine(syst), _gameDescription(desc) {
+	: Engine(syst),
+	  _gameDescription(desc) {
 }
 
 BCBEngine::~BCBEngine() {
+	delete _cinemaMenu;
+	if (_engineDataAvailable)
+		SearchMan.remove("data");
 	delete _screen;
 	if (_uiBitmap) {
 		_uiBitmap->free();
@@ -98,7 +104,7 @@ BCBEngine::~BCBEngine() {
 		_computerBitmap->free();
 		delete _computerBitmap;
 	}
-	delete _activeMovieVideo;
+	stopActiveMovie();
 	delete _mapMoveVideo;
 	delete _sceneIdleVideo;
 	delete _gameOverVideo;
@@ -125,6 +131,17 @@ Common::Error BCBEngine::run() {
 
 	if (!initializeSearchPaths())
 		return Common::kPathDoesNotExist;
+
+	Common::U32String engineDataError;
+	_engineDataAvailable = Common::load_engine_data("harold.dat", "bcb", 1, 0, engineDataError, true);
+	if (!_engineDataAvailable)
+		warning("BCB: Engine data unavailable: %s", engineDataError.encode().c_str());
+
+	const Common::String languageCode = ConfMan.get("bcb_text_language");
+	_selectedTextLanguagePackageAvailable = !languageCode.empty() &&
+		loadTranslationPackage(Common::FSNode(ConfMan.getPath("path")), languageCode, _textTranslation);
+	if (!languageCode.empty() && !_selectedTextLanguagePackageAvailable)
+		warning("BCB: Translation package '%s' is unavailable; using original text", languageCode.c_str());
 
 	initGraphics(640, 480, &screenFormat);
 	_screen = new Graphics::Screen(640, 480, g_system->getScreenFormat());

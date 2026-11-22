@@ -24,6 +24,7 @@
 
 #include "common/random.h"
 #include "hollywood/runaway/audio.h"
+#include "hollywood/runaway/detection.h"
 #include "hollywood/runaway/font.h"
 #include "hollywood/runaway/graphics.h"
 #include "hollywood/runaway/inventory.h"
@@ -33,7 +34,7 @@ namespace Hollywood {
 class RunawayUI {
 public:
 	struct Command {
-		enum Type { kNone, kRoom, kExamineItem, kCombine, kSkipSpeech, kOpenMenu };
+		enum Type { kNone, kRoom, kExamineItem, kCombine, kSkipSpeech, kOpenMenu, kChooseDialogue };
 		Type type = kNone;
 		RunawayVerb verb = kVerbWalk;
 		Common::Point mouse;
@@ -42,9 +43,12 @@ public:
 	RunawayUI(Audio::Mixer *mixer, RunawayInventory &inventory, const RunawayStrings &strings) :
 		_audio(mixer), _inventory(inventory), _strings(strings), _random("runaway-ui") {}
 	~RunawayUI();
-	bool load();
+	bool load(RunawayGameType game, byte chapter);
+	bool loadChapter(byte chapter);
 	void update(uint32 now, Common::Point mouse, byte roomHotspot, bool blocked, bool speaking,
-		bool inventoryPresentation = false, byte speechFrame = 0);
+		bool inventoryPresentation = false, byte speechFrame = 0, bool roomHasVerbs = true,
+		byte actionCursor = 0, bool preferLook = false);
+	void setDialogueChoices(const Common::Array<Common::U32String> &choices);
 	Command click(bool right);
 	void toggleInventory();
 	bool cancel();
@@ -55,6 +59,7 @@ public:
 	void captureState(RunawaySaveState &state) const;
 	void restoreState(const RunawaySaveState &state, uint32 now);
 	void setPointerSound(bool enabled) { _pointerSound = enabled; }
+	void drawSubtitle(Graphics::ManagedSurface &screen, const Common::U32String &text) const;
 	void draw(Graphics::ManagedSurface &screen, const Common::U32String &roomCaption,
 		const Common::U32String &committedCaption, const Common::U32String &subtitle, bool showSubtitles);
 
@@ -65,7 +70,7 @@ private:
 	bool overOptions() const;
 	bool inViewport() const;
 	void setInventoryOpen(bool open);
-	void setVerb(RunawayVerb verb);
+	void setVerb(RunawayVerb verb, byte actionCursor = 0);
 	void updateCursor();
 	Common::U32String inventoryCaption() const;
 	void drawInventory(Graphics::ManagedSurface &screen);
@@ -73,16 +78,22 @@ private:
 	RunawayAudio _audio;
 	RunawayInventory &_inventory;
 	const RunawayStrings &_strings;
+	bool _museum = false;
 	Common::RandomSource _random;
 	RunawayFont _font;
 	Graphics::ManagedSurface _cursors, _demoLogo, _cursor, _inventoryButton, _returnButton, _optionsButton;
 	Graphics::ManagedSurface _inventoryBackground, _inventoryTexture, _icons;
 	RunawayAnimation _portrait, _idlePortrait;
 	Common::Point _mouse;
-	RunawayVerb _verb = kVerbWalk, _previousVerb = kVerbWalk;
+	Common::Array<Common::Array<Common::U32String> > _choices;
+	Common::Array<Common::Rect> _choiceRects;
+	RunawayVerb _verb = kVerbWalk;
+	byte _cursorType = 0, _previousCursor = 0, _actionCursor = 0;
+	bool _preferLook = false;
 	byte _hovered = 0, _buttonFrame = 0, _optionsFrame = 0, _pickupItem = 0;
 	bool _inventoryOpen = false, _enteredInventory = false, _returnAfterPickup = false;
 	bool _inventoryPresentation = false;
+	bool _roomHasVerbs = true;
 	bool _pointerSound = true;
 	bool _pickupSoundPlayed = false;
 	bool _blocked = false, _speaking = false, _cursorPushed = false;
