@@ -45,7 +45,7 @@ const ScoobyGameDescription gameDescriptions[] = {
 			           "object.ini", "42db419bd6be75a49552d9e9bdeed880", 25196),
 			Common::EN_ANY,
 			Common::kPlatformWindows,
-			ADGF_UNSTABLE,
+			ADGF_TESTING,
 			GUIO1(GUIO_NOMIDI)
 		},
 		kGen1
