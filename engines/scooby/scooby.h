@@ -100,6 +100,7 @@ private:
 	void checkBelowBalcony(); // below_balcony_check.cpp
 	void checkWizards();     // wizards_check.cpp
 	void checkPrincess();    // princess_check.cpp
+	void checkWizardsBedroom(); // wizards_bedroom_check.cpp
 	void checkIdles();       // idle_check.cpp
 	int _checkSprite = -1;   // a sprite a check waits on
 	bool _checking = false;
