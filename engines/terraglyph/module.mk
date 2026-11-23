@@ -1,0 +1,103 @@
+MODULE := engines/terraglyph
+
+MODULE_OBJS = \
+	accusation_rooms.o \
+	alley_rooms.o \
+	arena_check.o \
+	arena_rooms.o \
+	armory_check.o \
+	armory_rooms.o \
+	art_archive.o \
+	below_balcony_check.o \
+	below_balcony_rooms.o \
+	boot_hill_rooms.o \
+	brad_check.o \
+	brad_rooms.o \
+	cel.o \
+	chase_check.o \
+	chase_rooms.o \
+	corral_rooms.o \
+	character.o \
+	clues.o \
+	dining_check.o \
+	dining_rooms.o \
+	doors_check.o \
+	doors_rooms.o \
+	ewan_check.o \
+	ewan_rooms.o \
+	drawbridge_check.o \
+	drawbridge_rooms.o \
+	gallery_check.o \
+	gallery_rooms.o \
+	garden_check.o \
+	garden_rooms.o \
+	ghost_spot_check.o \
+	ghost_spot_room.o \
+	gummy_rooms.o \
+	hotel_rooms.o \
+	idle_check.o \
+	inventory.o \
+	jail_rooms.o \
+	kitchen_check.o \
+	kitchen_rooms.o \
+	kst_check.o \
+	kst_rooms.o \
+	maze_check.o \
+	maze_interior_check.o \
+	maze_interior_rooms.o \
+	maze_rooms.o \
+	maria_check.o \
+	maria_rooms.o \
+	menu_rooms.o \
+	office_rooms.o \
+	passage_check.o \
+	passage_rooms.o \
+	options_rooms.o \
+	post_rooms.o \
+	pienoon_rooms.o \
+	princess_check.o \
+	princess_rooms.o \
+	profile.o \
+	room_class.o \
+	room.o \
+	room_script.o \
+	room_setup.o \
+	saloon_rooms.o \
+	terraglyph.o \
+	sheriff_rooms.o \
+	souvenir_check.o \
+	souvenir_rooms.o \
+	sound.o \
+	signin_room.o \
+	sound_archive.o \
+	strongbox_rooms.o \
+	stage_rooms.o \
+	throne_check.o \
+	throne_rooms.o \
+	station_rooms.o \
+	storage_check.o \
+	storage_rooms.o \
+	store_rooms.o \
+	story_check.o \
+	story_rooms.o \
+	toolbar_rooms.o \
+	tunnel_rooms.o \
+	vault_rooms.o \
+	wizards_bedroom_check.o \
+	wizards_bedroom_rooms.o \
+	wizards_check.o \
+	wizards_rooms.o \
+	console.o \
+	metaengine.o \
+	movie.o
+
+# This module can be built as a plugin
+ifeq ($(ENABLE_TERRAGLYPH), DYNAMIC_PLUGIN)
+PLUGIN := 1
+endif
+
+# Include common rules
+include $(srcdir)/rules.mk
+
+# Detection objects
+DETECT_OBJS += $(MODULE)/detection.o
