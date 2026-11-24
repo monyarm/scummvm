@@ -21,57 +21,11 @@
 
 #include "common/debug.h"
 
-#include "terraglyph/rooms/showdown/alley.h"
-#include "terraglyph/rooms/phantomknight/arena.h"
-#include "terraglyph/rooms/phantomknight/below_balcony.h"
-#include "terraglyph/rooms/phantomknight/armory.h"
-#include "terraglyph/rooms/phantomknight/brad.h"
 #include "terraglyph/detection.h"
-#include "terraglyph/rooms/phantomknight/passage.h"
-#include "terraglyph/rooms/phantomknight/dining.h"
-#include "terraglyph/rooms/phantomknight/doors.h"
-#include "terraglyph/rooms/phantomknight/drawbridge.h"
-#include "terraglyph/rooms/phantomknight/ewan.h"
-#include "terraglyph/rooms/phantomknight/gallery.h"
-#include "terraglyph/rooms/phantomknight/kst.h"
-#include "terraglyph/rooms/phantomknight/maze.h"
-#include "terraglyph/rooms/phantomknight/maze_interior.h"
-#include "terraglyph/rooms/phantomknight/garden.h"
-#include "terraglyph/rooms/common/ghost_spot.h"
-#include "terraglyph/rooms/showdown/gummy.h"
-#include "terraglyph/rooms/showdown/hotel.h"
-#include "terraglyph/rooms/showdown/jail.h"
-#include "terraglyph/rooms/phantomknight/kitchen.h"
-#include "terraglyph/rooms/phantomknight/maria.h"
-#include "terraglyph/rooms/showdown/office.h"
-#include "terraglyph/rooms/showdown/post.h"
-#include "terraglyph/rooms/showdown/saloon.h"
-#include "terraglyph/rooms/showdown/sheriff.h"
-#include "terraglyph/rooms/showdown/stage.h"
-#include "terraglyph/rooms/showdown/station.h"
-#include "terraglyph/rooms/phantomknight/storage.h"
-#include "terraglyph/rooms/showdown/store.h"
-#include "terraglyph/rooms/showdown/strongbox.h"
-#include "terraglyph/rooms/common/menu.h"
-#include "terraglyph/rooms/common/options.h"
-#include "terraglyph/rooms/common/accusation.h"
-#include "terraglyph/rooms/showdown/boot_hill.h"
-#include "terraglyph/rooms/showdown/chase.h"
-#include "terraglyph/rooms/showdown/corral.h"
-#include "terraglyph/rooms/showdown/pienoon.h"
 #include "terraglyph/graphics/room.h"
 #include "terraglyph/rooms/room_class.h"
 #include "terraglyph/terraglyph.h"
-#include "terraglyph/rooms/common/signin.h"
-#include "terraglyph/rooms/phantomknight/souvenir.h"
 #include "terraglyph/audio/sound.h"
-#include "terraglyph/rooms/showdown/story.h"
-#include "terraglyph/rooms/phantomknight/throne.h"
-#include "terraglyph/rooms/showdown/tunnel.h"
-#include "terraglyph/rooms/phantomknight/princess.h"
-#include "terraglyph/rooms/showdown/vault.h"
-#include "terraglyph/rooms/phantomknight/wizards_bedroom.h"
-#include "terraglyph/rooms/phantomknight/wizards.h"
 
 namespace Terraglyph {
 
@@ -168,123 +122,6 @@ RoomClass::~RoomClass() {
 	RoomScript *script = _engine.getScript();
 	if (script && script->getHooks() == this)
 		script->setHooks(nullptr);
-}
-
-static RoomClass *buildRoomClass(TerraglyphEngine &engine, const Common::String &room) {
-	// The factory's classes for the menus, in both Gen 1 titles.
-	if (room == "ROOM_Title_Screen")
-		return new TitleRoom(engine);
-	if (room == "ROOM_Main_Menu")
-		return new MainMenuRoom(engine);
-	if (room == "ROOM_Difficulty")
-		return new DifficultyRoom(engine);
-	if (room == "ROOM_Quit")
-		return new QuitRoom(engine);
-	if (room == "ROOM_Sign_In")
-		return new SignInRoom(engine);
-	if (room == "ROOM_Options")
-		return new OptionsRoom(engine);
-	if (room == "ROOM_Credits")
-		return new CreditsRoom(engine);
-	if (room == "ROOM_Suspect_Chooser")
-		return new SuspectChooserRoom(engine);
-	if (room == "ROOM_Big_Head")
-		return new BigHeadRoom(engine);
-	if (room == "ROOM_Ghost_Spot")
-		return new GhostSpotRoom(engine);
-	// Phantom's drawbridge and town (drawbridge_rooms.cpp).
-	if (RoomClass *drawbridge = createDrawbridgeRoom(engine, room))
-		return drawbridge;
-	if (RoomClass *souvenir = createSouvenirRoom(engine, room))
-		return souvenir;
-	if (RoomClass *garden = createGardenRoom(engine, room))
-		return garden;
-	if (RoomClass *doors = createDoorsRoom(engine, room))
-		return doors;
-	if (RoomClass *throne = createThroneRoom(engine, room))
-		return throne;
-	if (RoomClass *dining = createDiningRoom(engine, room))
-		return dining;
-	if (RoomClass *maria = createMariaRoom(engine, room))
-		return maria;
-	if (RoomClass *kitchen = createKitchenRoom(engine, room))
-		return kitchen;
-	if (RoomClass *ewan = createEwanRoom(engine, room))
-		return ewan;
-	if (RoomClass *storage = createStorageRoom(engine, room))
-		return storage;
-	if (RoomClass *armory = createArmoryRoom(engine, room))
-		return armory;
-	if (RoomClass *arena = createArenaRoom(engine, room))
-		return arena;
-	if (RoomClass *brad = createBradRoom(engine, room))
-		return brad;
-	if (RoomClass *passage = createPassageRoom(engine, room))
-		return passage;
-	if (RoomClass *gallery = createGalleryRoom(engine, room))
-		return gallery;
-	if (RoomClass *kst = createKstRoom(engine, room))
-		return kst;
-	if (RoomClass *maze = createMazeRoom(engine, room))
-		return maze;
-	if (RoomClass *mazeInterior = createMazeInteriorRoom(engine, room))
-		return mazeInterior;
-	if (RoomClass *belowBalcony = createBelowBalconyRoom(engine, room))
-		return belowBalcony;
-	if (RoomClass *wizards = createWizardsRoom(engine, room))
-		return wizards;
-	if (RoomClass *princess = createPrincessRoom(engine, room))
-		return princess;
-	if (RoomClass *wizardsBedroom = createWizardsBedroomRoom(engine, room))
-		return wizardsBedroom;
-	// Showdown's chase (chase_rooms.cpp).
-	if (RoomClass *chase = createChaseRoom(engine, room))
-		return chase;
-	if (RoomClass *vault = createVaultRoom(engine, room))
-		return vault;
-	if (RoomClass *hill = createBootHillRoom(engine, room))
-		return hill;
-	if (RoomClass *tunnel = createTunnelRoom(engine, room))
-		return tunnel;
-	if (RoomClass *hotel = createHotelRoom(engine, room))
-		return hotel;
-	if (RoomClass *alley = createAlleyRoom(engine, room))
-		return alley;
-	if (RoomClass *pie = createPieNoonRoom(engine, room))
-		return pie;
-	if (RoomClass *corral = createCorralRoom(engine, room))
-		return corral;
-	if (RoomClass *box = createStrongBoxRoom(engine, room))
-		return box;
-	if (RoomClass *sheriff = createSheriffRoom(engine, room))
-		return sheriff;
-	if (RoomClass *saloon = createSaloonRoom(engine, room))
-		return saloon;
-	if (RoomClass *gummy = createGummyRoom(engine, room))
-		return gummy;
-	if (RoomClass *station = createStationRoom(engine, room))
-		return station;
-	if (RoomClass *post = createPostRoom(engine, room))
-		return post;
-	if (RoomClass *office = createOfficeRoom(engine, room))
-		return office;
-	if (RoomClass *jail = createJailRoom(engine, room))
-		return jail;
-	if (RoomClass *store = createStoreRoom(engine, room))
-		return store;
-	if (RoomClass *stage = createStageRoom(engine, room))
-		return stage;
-	// The story rooms (story_rooms.cpp); every other room gets the base
-	// class for now.
-	return createStoryRoom(engine, room);
-}
-
-RoomClass *createRoomClass(TerraglyphEngine &engine, const Common::String &room) {
-	// The game resets each room it builds (vtable +0x08).
-	RoomClass *c = buildRoomClass(engine, room);
-	if (c)
-		c->reset();
-	return c;
 }
 
 } // End of namespace Terraglyph

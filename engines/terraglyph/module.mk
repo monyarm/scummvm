@@ -61,7 +61,12 @@ MODULE_OBJS = \
 	rooms/room_class.o \
 	graphics/room.o \
 	rooms/room_script.o \
+	rooms/common/factory/phantomknight.o \
+	rooms/common/factory/room_factory.o \
+	rooms/common/factory/showdown.o \
+	rooms/common/setup/phantomknight.o \
 	rooms/common/setup/room_setup.o \
+	rooms/common/setup/showdown.o \
 	rooms/showdown/saloon.o \
 	terraglyph.o \
 	rooms/showdown/sheriff.o \
