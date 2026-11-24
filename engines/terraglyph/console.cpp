@@ -20,10 +20,10 @@
  */
 
 #include "terraglyph/console.h"
-#include "terraglyph/art_archive.h"
-#include "terraglyph/inventory.h"
+#include "terraglyph/formats/art_archive.h"
+#include "terraglyph/graphics/inventory.h"
 #include "terraglyph/terraglyph.h"
-#include "terraglyph/sound.h"
+#include "terraglyph/audio/sound.h"
 
 namespace Terraglyph {
 

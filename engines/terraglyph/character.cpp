@@ -24,9 +24,9 @@
 
 #include "terraglyph/character.h"
 #include "terraglyph/detection.h"
-#include "terraglyph/room.h"
-#include "terraglyph/room_script.h"
-#include "terraglyph/sound.h"
+#include "terraglyph/graphics/room.h"
+#include "terraglyph/rooms/room_script.h"
+#include "terraglyph/audio/sound.h"
 
 namespace Terraglyph {
 

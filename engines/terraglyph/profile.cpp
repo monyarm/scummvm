@@ -34,15 +34,15 @@
 #include "common/textconsole.h"
 #include "engines/metaengine.h"
 
-#include "terraglyph/art_archive.h"
+#include "terraglyph/formats/art_archive.h"
 #include "terraglyph/detection.h"
-#include "terraglyph/inventory.h"
-#include "terraglyph/room.h"
-#include "terraglyph/room_class.h"
-#include "terraglyph/room_script.h"
+#include "terraglyph/graphics/inventory.h"
+#include "terraglyph/graphics/room.h"
+#include "terraglyph/rooms/room_class.h"
+#include "terraglyph/rooms/room_script.h"
 #include "terraglyph/terraglyph.h"
-#include "terraglyph/signin_room.h"
-#include "terraglyph/sound.h"
+#include "terraglyph/rooms/common/signin.h"
+#include "terraglyph/audio/sound.h"
 
 namespace Terraglyph {
 
