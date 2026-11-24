@@ -1488,6 +1488,17 @@ TeenAgent
    * - Vladimir Menshakov
      -
 
+Scooby
+^^^^^^
+
+.. list-table::
+   :widths: 35 65
+
+   * - BarefootBetters
+     -
+   * - Simeon Armenchev
+     -
+
 Tetraedge
 ^^^^^^^^^
 
