@@ -19,10 +19,10 @@
  *
  */
 
-#ifndef TERRAGLYPH_SOUVENIR_ROOMS_H
-#define TERRAGLYPH_SOUVENIR_ROOMS_H
+#ifndef TERRAGLYPH_SOUVENIR_H
+#define TERRAGLYPH_SOUVENIR_H
 
-#include "terraglyph/rooms/room_class.h"
+#include "terraglyph/rooms/class.h"
 
 namespace Terraglyph {
 
@@ -71,4 +71,4 @@ RoomClass *createSouvenirRoom(TerraglyphEngine &engine, const Common::String &ro
 
 } // End of namespace Terraglyph
 
-#endif // TERRAGLYPH_SOUVENIR_ROOMS_H
+#endif // TERRAGLYPH_SOUVENIR_H

@@ -19,10 +19,10 @@
  *
  */
 
-#ifndef TERRAGLYPH_SIGNIN_ROOM_H
-#define TERRAGLYPH_SIGNIN_ROOM_H
+#ifndef TERRAGLYPH_SIGNIN_H
+#define TERRAGLYPH_SIGNIN_H
 
-#include "terraglyph/rooms/room_class.h"
+#include "terraglyph/rooms/class.h"
 
 namespace Terraglyph {
 
@@ -135,4 +135,4 @@ private:
 
 } // End of namespace Terraglyph
 
-#endif // TERRAGLYPH_SIGNIN_ROOM_H
+#endif // TERRAGLYPH_SIGNIN_H

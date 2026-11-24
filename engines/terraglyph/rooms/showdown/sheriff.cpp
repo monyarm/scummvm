@@ -24,7 +24,7 @@
 #include "terraglyph/detection.h"
 #include "terraglyph/graphics/inventory.h"
 #include "terraglyph/graphics/room.h"
-#include "terraglyph/rooms/room_script.h"
+#include "terraglyph/rooms/script.h"
 #include "terraglyph/terraglyph.h"
 #include "terraglyph/rooms/showdown/sheriff.h"
 #include "terraglyph/audio/sound.h"

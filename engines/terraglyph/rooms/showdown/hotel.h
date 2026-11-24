@@ -19,11 +19,11 @@
  *
  */
 
-#ifndef TERRAGLYPH_HOTEL_ROOMS_H
-#define TERRAGLYPH_HOTEL_ROOMS_H
+#ifndef TERRAGLYPH_HOTEL_H
+#define TERRAGLYPH_HOTEL_H
 
-#include "terraglyph/rooms/room_class.h"
-#include "terraglyph/rooms/room_script.h"
+#include "terraglyph/rooms/class.h"
+#include "terraglyph/rooms/script.h"
 
 namespace Terraglyph {
 
@@ -109,4 +109,4 @@ RoomClass *createHotelRoom(TerraglyphEngine &engine, const Common::String &room)
 
 } // End of namespace Terraglyph
 
-#endif // TERRAGLYPH_HOTEL_ROOMS_H
+#endif // TERRAGLYPH_HOTEL_H

@@ -19,12 +19,12 @@
  *
  */
 
-#ifndef TERRAGLYPH_CHASE_ROOMS_H
-#define TERRAGLYPH_CHASE_ROOMS_H
+#ifndef TERRAGLYPH_CHASE_H
+#define TERRAGLYPH_CHASE_H
 
 #include "common/rect.h"
 
-#include "terraglyph/rooms/room_class.h"
+#include "terraglyph/rooms/class.h"
 
 namespace Terraglyph {
 
@@ -198,4 +198,4 @@ RoomClass *createChaseRoom(TerraglyphEngine &engine, const Common::String &room)
 
 } // End of namespace Terraglyph
 
-#endif // TERRAGLYPH_CHASE_ROOMS_H
+#endif // TERRAGLYPH_CHASE_H

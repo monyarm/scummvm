@@ -58,14 +58,14 @@ MODULE_OBJS = \
 	rooms/phantomknight/princess_check.o \
 	rooms/phantomknight/princess.o \
 	profile.o \
-	rooms/room_class.o \
+	rooms/class.o \
 	graphics/room.o \
-	rooms/room_script.o \
+	rooms/script.o \
 	rooms/common/factory/phantomknight.o \
-	rooms/common/factory/room_factory.o \
+	rooms/common/factory/factory.o \
 	rooms/common/factory/showdown.o \
 	rooms/common/setup/phantomknight.o \
-	rooms/common/setup/room_setup.o \
+	rooms/common/setup/setup.o \
 	rooms/common/setup/showdown.o \
 	rooms/showdown/saloon.o \
 	terraglyph.o \

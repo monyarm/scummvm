@@ -19,10 +19,10 @@
  *
  */
 
-#ifndef TERRAGLYPH_KITCHEN_ROOMS_H
-#define TERRAGLYPH_KITCHEN_ROOMS_H
+#ifndef TERRAGLYPH_KITCHEN_H
+#define TERRAGLYPH_KITCHEN_H
 
-#include "terraglyph/rooms/room_class.h"
+#include "terraglyph/rooms/class.h"
 
 namespace Terraglyph {
 
@@ -77,4 +77,4 @@ RoomClass *createKitchenRoom(TerraglyphEngine &engine, const Common::String &roo
 
 } // End of namespace Terraglyph
 
-#endif // TERRAGLYPH_KITCHEN_ROOMS_H
+#endif // TERRAGLYPH_KITCHEN_H

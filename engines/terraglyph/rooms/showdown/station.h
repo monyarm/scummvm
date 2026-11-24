@@ -19,11 +19,11 @@
  *
  */
 
-#ifndef TERRAGLYPH_STATION_ROOMS_H
-#define TERRAGLYPH_STATION_ROOMS_H
+#ifndef TERRAGLYPH_STATION_H
+#define TERRAGLYPH_STATION_H
 
-#include "terraglyph/rooms/room_class.h"
-#include "terraglyph/rooms/room_script.h"
+#include "terraglyph/rooms/class.h"
+#include "terraglyph/rooms/script.h"
 
 namespace Terraglyph {
 
@@ -73,4 +73,4 @@ RoomClass *createStationRoom(TerraglyphEngine &engine, const Common::String &roo
 
 } // End of namespace Terraglyph
 
-#endif // TERRAGLYPH_STATION_ROOMS_H
+#endif // TERRAGLYPH_STATION_H

@@ -19,10 +19,10 @@
  *
  */
 
-#ifndef TERRAGLYPH_THRONE_ROOMS_H
-#define TERRAGLYPH_THRONE_ROOMS_H
+#ifndef TERRAGLYPH_THRONE_H
+#define TERRAGLYPH_THRONE_H
 
-#include "terraglyph/rooms/room_class.h"
+#include "terraglyph/rooms/class.h"
 
 namespace Terraglyph {
 
@@ -70,4 +70,4 @@ RoomClass *createThroneRoom(TerraglyphEngine &engine, const Common::String &room
 
 } // End of namespace Terraglyph
 
-#endif // TERRAGLYPH_THRONE_ROOMS_H
+#endif // TERRAGLYPH_THRONE_H

@@ -22,7 +22,7 @@
 #ifndef TERRAGLYPH_ROOMS_SHOWDOWN_SETUP_H
 #define TERRAGLYPH_ROOMS_SHOWDOWN_SETUP_H
 
-#include "terraglyph/rooms/common/setup/room_setup.h"
+#include "terraglyph/rooms/common/setup/setup.h"
 
 namespace Terraglyph {
 

@@ -19,11 +19,11 @@
  *
  */
 
-#ifndef TERRAGLYPH_GUMMY_ROOMS_H
-#define TERRAGLYPH_GUMMY_ROOMS_H
+#ifndef TERRAGLYPH_GUMMY_H
+#define TERRAGLYPH_GUMMY_H
 
-#include "terraglyph/rooms/room_class.h"
-#include "terraglyph/rooms/room_script.h"
+#include "terraglyph/rooms/class.h"
+#include "terraglyph/rooms/script.h"
 
 namespace Terraglyph {
 
@@ -104,4 +104,4 @@ RoomClass *createGummyRoom(TerraglyphEngine &engine, const Common::String &room)
 
 } // End of namespace Terraglyph
 
-#endif // TERRAGLYPH_GUMMY_ROOMS_H
+#endif // TERRAGLYPH_GUMMY_H

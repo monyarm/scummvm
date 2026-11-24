@@ -19,11 +19,11 @@
  *
  */
 
-#ifndef TERRAGLYPH_EWAN_ROOMS_H
-#define TERRAGLYPH_EWAN_ROOMS_H
+#ifndef TERRAGLYPH_EWAN_H
+#define TERRAGLYPH_EWAN_H
 
-#include "terraglyph/rooms/room_class.h"
-#include "terraglyph/rooms/room_script.h"
+#include "terraglyph/rooms/class.h"
+#include "terraglyph/rooms/script.h"
 
 namespace Terraglyph {
 
@@ -111,4 +111,4 @@ RoomClass *createEwanRoom(TerraglyphEngine &engine, const Common::String &room);
 
 } // End of namespace Terraglyph
 
-#endif // TERRAGLYPH_EWAN_ROOMS_H
+#endif // TERRAGLYPH_EWAN_H

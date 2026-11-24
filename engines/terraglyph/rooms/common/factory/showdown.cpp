@@ -19,7 +19,7 @@
  *
  */
 
-#include "terraglyph/rooms/common/factory/room_factory.h"
+#include "terraglyph/rooms/common/factory/factory.h"
 
 #include "terraglyph/rooms/showdown/alley.h"
 #include "terraglyph/rooms/showdown/boot_hill.h"

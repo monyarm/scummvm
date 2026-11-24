@@ -19,10 +19,10 @@
  *
  */
 
-#ifndef TERRAGLYPH_ACCUSATION_ROOMS_H
-#define TERRAGLYPH_ACCUSATION_ROOMS_H
+#ifndef TERRAGLYPH_ACCUSATION_H
+#define TERRAGLYPH_ACCUSATION_H
 
-#include "terraglyph/rooms/room_class.h"
+#include "terraglyph/rooms/class.h"
 
 namespace Terraglyph {
 
@@ -146,4 +146,4 @@ private:
 
 } // End of namespace Terraglyph
 
-#endif // TERRAGLYPH_ACCUSATION_ROOMS_H
+#endif // TERRAGLYPH_ACCUSATION_H

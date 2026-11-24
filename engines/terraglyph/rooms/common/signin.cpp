@@ -28,7 +28,7 @@
 
 #include "terraglyph/detection.h"
 #include "terraglyph/graphics/room.h"
-#include "terraglyph/rooms/room_script.h"
+#include "terraglyph/rooms/script.h"
 #include "terraglyph/terraglyph.h"
 #include "terraglyph/rooms/common/signin.h"
 #include "terraglyph/audio/sound.h"

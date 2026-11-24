@@ -19,14 +19,14 @@
  *
  */
 
-#include "terraglyph/rooms/common/factory/room_factory.h"
+#include "terraglyph/rooms/common/factory/factory.h"
 
 #include "terraglyph/rooms/common/accusation.h"
 #include "terraglyph/rooms/common/ghost_spot.h"
 #include "terraglyph/rooms/common/menu.h"
 #include "terraglyph/rooms/common/options.h"
 #include "terraglyph/rooms/common/signin.h"
-#include "terraglyph/rooms/room_class.h"
+#include "terraglyph/rooms/class.h"
 #include "terraglyph/rooms/showdown/story.h"
 
 namespace Terraglyph {

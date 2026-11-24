@@ -19,10 +19,10 @@
  *
  */
 
-#ifndef TERRAGLYPH_PRINCESS_ROOMS_H
-#define TERRAGLYPH_PRINCESS_ROOMS_H
+#ifndef TERRAGLYPH_PRINCESS_H
+#define TERRAGLYPH_PRINCESS_H
 
-#include "terraglyph/rooms/room_class.h"
+#include "terraglyph/rooms/class.h"
 
 namespace Terraglyph {
 
@@ -87,4 +87,4 @@ RoomClass *createPrincessRoom(TerraglyphEngine &engine, const Common::String &ro
 
 } // End of namespace Terraglyph
 
-#endif // TERRAGLYPH_PRINCESS_ROOMS_H
+#endif // TERRAGLYPH_PRINCESS_H

@@ -19,11 +19,11 @@
  *
  */
 
-#ifndef TERRAGLYPH_STRONGBOX_ROOMS_H
-#define TERRAGLYPH_STRONGBOX_ROOMS_H
+#ifndef TERRAGLYPH_STRONGBOX_H
+#define TERRAGLYPH_STRONGBOX_H
 
-#include "terraglyph/rooms/room_class.h"
-#include "terraglyph/rooms/room_script.h"
+#include "terraglyph/rooms/class.h"
+#include "terraglyph/rooms/script.h"
 
 namespace Terraglyph {
 
@@ -70,4 +70,4 @@ RoomClass *createStrongBoxRoom(TerraglyphEngine &engine, const Common::String &r
 
 } // End of namespace Terraglyph
 
-#endif // TERRAGLYPH_STRONGBOX_ROOMS_H
+#endif // TERRAGLYPH_STRONGBOX_H

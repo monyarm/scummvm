@@ -19,11 +19,11 @@
  *
  */
 
-#ifndef TERRAGLYPH_STAGE_ROOMS_H
-#define TERRAGLYPH_STAGE_ROOMS_H
+#ifndef TERRAGLYPH_STAGE_H
+#define TERRAGLYPH_STAGE_H
 
-#include "terraglyph/rooms/room_class.h"
-#include "terraglyph/rooms/room_script.h"
+#include "terraglyph/rooms/class.h"
+#include "terraglyph/rooms/script.h"
 
 namespace Terraglyph {
 
@@ -108,4 +108,4 @@ RoomClass *createStageRoom(TerraglyphEngine &engine, const Common::String &room)
 
 } // End of namespace Terraglyph
 
-#endif // TERRAGLYPH_STAGE_ROOMS_H
+#endif // TERRAGLYPH_STAGE_H

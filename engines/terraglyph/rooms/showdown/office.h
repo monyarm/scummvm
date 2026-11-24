@@ -19,11 +19,11 @@
  *
  */
 
-#ifndef TERRAGLYPH_OFFICE_ROOMS_H
-#define TERRAGLYPH_OFFICE_ROOMS_H
+#ifndef TERRAGLYPH_OFFICE_H
+#define TERRAGLYPH_OFFICE_H
 
-#include "terraglyph/rooms/room_class.h"
-#include "terraglyph/rooms/room_script.h"
+#include "terraglyph/rooms/class.h"
+#include "terraglyph/rooms/script.h"
 
 namespace Terraglyph {
 
@@ -75,4 +75,4 @@ RoomClass *createOfficeRoom(TerraglyphEngine &engine, const Common::String &room
 
 } // End of namespace Terraglyph
 
-#endif // TERRAGLYPH_OFFICE_ROOMS_H
+#endif // TERRAGLYPH_OFFICE_H

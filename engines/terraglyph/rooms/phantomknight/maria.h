@@ -19,12 +19,12 @@
  *
  */
 
-#ifndef TERRAGLYPH_MARIA_ROOMS_H
-#define TERRAGLYPH_MARIA_ROOMS_H
+#ifndef TERRAGLYPH_MARIA_H
+#define TERRAGLYPH_MARIA_H
 
 #include "common/array.h"
 
-#include "terraglyph/rooms/room_class.h"
+#include "terraglyph/rooms/class.h"
 
 namespace Terraglyph {
 
@@ -117,4 +117,4 @@ RoomClass *createMariaRoom(TerraglyphEngine &engine, const Common::String &room)
 
 } // End of namespace Terraglyph
 
-#endif // TERRAGLYPH_MARIA_ROOMS_H
+#endif // TERRAGLYPH_MARIA_H

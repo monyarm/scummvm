@@ -27,9 +27,9 @@
 #include "terraglyph/rooms/common/ghost_spot.h"
 #include "terraglyph/graphics/inventory.h"
 #include "terraglyph/graphics/room.h"
-#include "terraglyph/rooms/room_class.h"
-#include "terraglyph/rooms/room_script.h"
-#include "terraglyph/rooms/common/setup/room_setup.h"
+#include "terraglyph/rooms/class.h"
+#include "terraglyph/rooms/script.h"
+#include "terraglyph/rooms/common/setup/setup.h"
 #include "terraglyph/terraglyph.h"
 #include "terraglyph/audio/sound.h"
 

@@ -19,10 +19,10 @@
  *
  */
 
-#ifndef TERRAGLYPH_WIZARDS_ROOMS_H
-#define TERRAGLYPH_WIZARDS_ROOMS_H
+#ifndef TERRAGLYPH_WIZARDS_H
+#define TERRAGLYPH_WIZARDS_H
 
-#include "terraglyph/rooms/room_class.h"
+#include "terraglyph/rooms/class.h"
 
 namespace Terraglyph {
 
@@ -134,4 +134,4 @@ RoomClass *createWizardsRoom(TerraglyphEngine &engine, const Common::String &roo
 
 } // End of namespace Terraglyph
 
-#endif // TERRAGLYPH_WIZARDS_ROOMS_H
+#endif // TERRAGLYPH_WIZARDS_H

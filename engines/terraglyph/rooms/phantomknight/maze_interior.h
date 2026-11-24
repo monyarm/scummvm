@@ -19,13 +19,13 @@
  *
  */
 
-#ifndef TERRAGLYPH_MAZE_INTERIOR_ROOMS_H
-#define TERRAGLYPH_MAZE_INTERIOR_ROOMS_H
+#ifndef TERRAGLYPH_MAZE_INTERIOR_H
+#define TERRAGLYPH_MAZE_INTERIOR_H
 
 #include "common/str.h"
 
 #include "terraglyph/graphics/room.h"
-#include "terraglyph/rooms/room_class.h"
+#include "terraglyph/rooms/class.h"
 
 namespace Terraglyph {
 
@@ -162,4 +162,4 @@ RoomClass *createMazeInteriorRoom(TerraglyphEngine &engine, const Common::String
 
 } // End of namespace Terraglyph
 
-#endif // TERRAGLYPH_MAZE_INTERIOR_ROOMS_H
+#endif // TERRAGLYPH_MAZE_INTERIOR_H

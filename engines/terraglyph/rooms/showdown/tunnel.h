@@ -19,10 +19,10 @@
  *
  */
 
-#ifndef TERRAGLYPH_TUNNEL_ROOMS_H
-#define TERRAGLYPH_TUNNEL_ROOMS_H
+#ifndef TERRAGLYPH_TUNNEL_H
+#define TERRAGLYPH_TUNNEL_H
 
-#include "terraglyph/rooms/room_class.h"
+#include "terraglyph/rooms/class.h"
 
 namespace Terraglyph {
 
@@ -84,4 +84,4 @@ RoomClass *createTunnelRoom(TerraglyphEngine &engine, const Common::String &room
 
 } // End of namespace Terraglyph
 
-#endif // TERRAGLYPH_TUNNEL_ROOMS_H
+#endif // TERRAGLYPH_TUNNEL_H

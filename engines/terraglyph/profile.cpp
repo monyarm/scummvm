@@ -38,8 +38,8 @@
 #include "terraglyph/detection.h"
 #include "terraglyph/graphics/inventory.h"
 #include "terraglyph/graphics/room.h"
-#include "terraglyph/rooms/room_class.h"
-#include "terraglyph/rooms/room_script.h"
+#include "terraglyph/rooms/class.h"
+#include "terraglyph/rooms/script.h"
 #include "terraglyph/terraglyph.h"
 #include "terraglyph/rooms/common/signin.h"
 #include "terraglyph/audio/sound.h"
@@ -74,7 +74,7 @@ void TerraglyphEngine::buildProfile(Common::INIFile &profile) {
 	profile.setKey("Difficulty", "Game", Common::String::format("%d", _difficulty));
 	for (int id = 0; id < kMovieIds; id++)
 		profile.setKey(Common::String::format("MovieHistory%d", id), "Game", _seenMovies.contains(id) ? "Yes" : "No");
-	// Each room's section (room_setup.cpp).
+	// Each room's section (setup.cpp).
 	saveRoomKeys(profile);
 	for (Common::HashMap<Common::String, bool, Common::IgnoreCase_Hash, Common::IgnoreCase_EqualTo>::const_iterator it = _takenExits.begin();
 	     it != _takenExits.end(); ++it)
@@ -105,7 +105,7 @@ bool TerraglyphEngine::applyProfile(const Common::INIFile &profile) {
 		if (profile.getKey(Common::String::format("MovieHistory%d", id), "Game", v) && v == "Yes")
 			_seenMovies[id] = true;
 	}
-	// Each room's keys (room_setup.cpp).
+	// Each room's keys (setup.cpp).
 	loadRoomKeys(profile);
 	_takenExits.clear();
 	_script->resetClickableStates();

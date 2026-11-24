@@ -19,11 +19,11 @@
  *
  */
 
-#ifndef TERRAGLYPH_JAIL_ROOMS_H
-#define TERRAGLYPH_JAIL_ROOMS_H
+#ifndef TERRAGLYPH_JAIL_H
+#define TERRAGLYPH_JAIL_H
 
-#include "terraglyph/rooms/room_class.h"
-#include "terraglyph/rooms/room_script.h"
+#include "terraglyph/rooms/class.h"
+#include "terraglyph/rooms/script.h"
 
 namespace Terraglyph {
 
@@ -88,4 +88,4 @@ RoomClass *createJailRoom(TerraglyphEngine &engine, const Common::String &room);
 
 } // End of namespace Terraglyph
 
-#endif // TERRAGLYPH_JAIL_ROOMS_H
+#endif // TERRAGLYPH_JAIL_H

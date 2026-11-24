@@ -29,7 +29,7 @@
 #include "terraglyph/detection.h"
 #include "terraglyph/graphics/inventory.h"
 #include "terraglyph/graphics/room.h"
-#include "terraglyph/rooms/room_class.h"
+#include "terraglyph/rooms/class.h"
 #include "terraglyph/terraglyph.h"
 #include "terraglyph/audio/sound.h"
 #include "terraglyph/rooms/phantomknight/wizards.h"

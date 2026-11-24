@@ -26,7 +26,7 @@
 #include "terraglyph/rooms/showdown/hotel.h"
 #include "terraglyph/graphics/inventory.h"
 #include "terraglyph/graphics/room.h"
-#include "terraglyph/rooms/common/setup/room_setup.h"
+#include "terraglyph/rooms/common/setup/setup.h"
 #include "terraglyph/terraglyph.h"
 #include "terraglyph/audio/sound.h"
 

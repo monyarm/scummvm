@@ -31,7 +31,7 @@
 #include "terraglyph/detection.h"
 #include "terraglyph/rooms/common/options.h"
 #include "terraglyph/graphics/room.h"
-#include "terraglyph/rooms/room_script.h"
+#include "terraglyph/rooms/script.h"
 #include "terraglyph/terraglyph.h"
 #include "terraglyph/audio/sound.h"
 
@@ -284,7 +284,7 @@ void CreditsRoom::enter(const Common::String &from) {
 	}
 	// The roll: input held, the cursor hidden, the toolbar hidden (by the
 	// table), TLC first. The first scene is the room's opening, which the
-	// base room plays 100 ticks in (room_setup.cpp).
+	// base room plays 100 ticks in (setup.cpp).
 	_rolling = true;
 	_logo = _text = -1;
 	_stage = 0;

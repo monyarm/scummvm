@@ -19,10 +19,10 @@
  *
  */
 
-#ifndef TERRAGLYPH_GARDEN_ROOMS_H
-#define TERRAGLYPH_GARDEN_ROOMS_H
+#ifndef TERRAGLYPH_GARDEN_H
+#define TERRAGLYPH_GARDEN_H
 
-#include "terraglyph/rooms/room_class.h"
+#include "terraglyph/rooms/class.h"
 
 namespace Terraglyph {
 
@@ -111,4 +111,4 @@ RoomClass *createGardenRoom(TerraglyphEngine &engine, const Common::String &room
 
 } // End of namespace Terraglyph
 
-#endif // TERRAGLYPH_GARDEN_ROOMS_H
+#endif // TERRAGLYPH_GARDEN_H

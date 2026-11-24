@@ -19,11 +19,11 @@
  *
  */
 
-#ifndef TERRAGLYPH_POST_ROOMS_H
-#define TERRAGLYPH_POST_ROOMS_H
+#ifndef TERRAGLYPH_POST_H
+#define TERRAGLYPH_POST_H
 
-#include "terraglyph/rooms/room_class.h"
-#include "terraglyph/rooms/room_script.h"
+#include "terraglyph/rooms/class.h"
+#include "terraglyph/rooms/script.h"
 
 namespace Terraglyph {
 
@@ -81,4 +81,4 @@ RoomClass *createPostRoom(TerraglyphEngine &engine, const Common::String &room);
 
 } // End of namespace Terraglyph
 
-#endif // TERRAGLYPH_POST_ROOMS_H
+#endif // TERRAGLYPH_POST_H

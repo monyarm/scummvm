@@ -19,10 +19,10 @@
  *
  */
 
-#ifndef TERRAGLYPH_STORAGE_ROOMS_H
-#define TERRAGLYPH_STORAGE_ROOMS_H
+#ifndef TERRAGLYPH_STORAGE_H
+#define TERRAGLYPH_STORAGE_H
 
-#include "terraglyph/rooms/room_class.h"
+#include "terraglyph/rooms/class.h"
 
 namespace Terraglyph {
 
@@ -76,4 +76,4 @@ RoomClass *createStorageRoom(TerraglyphEngine &engine, const Common::String &roo
 
 } // End of namespace Terraglyph
 
-#endif // TERRAGLYPH_STORAGE_ROOMS_H
+#endif // TERRAGLYPH_STORAGE_H

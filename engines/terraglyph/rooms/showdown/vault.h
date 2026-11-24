@@ -19,10 +19,10 @@
  *
  */
 
-#ifndef TERRAGLYPH_VAULT_ROOMS_H
-#define TERRAGLYPH_VAULT_ROOMS_H
+#ifndef TERRAGLYPH_VAULT_H
+#define TERRAGLYPH_VAULT_H
 
-#include "terraglyph/rooms/room_class.h"
+#include "terraglyph/rooms/class.h"
 
 namespace Terraglyph {
 
@@ -184,4 +184,4 @@ RoomClass *createVaultRoom(TerraglyphEngine &engine, const Common::String &room)
 
 } // End of namespace Terraglyph
 
-#endif // TERRAGLYPH_VAULT_ROOMS_H
+#endif // TERRAGLYPH_VAULT_H

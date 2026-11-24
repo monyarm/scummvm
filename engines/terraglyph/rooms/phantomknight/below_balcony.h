@@ -19,11 +19,11 @@
  *
  */
 
-#ifndef TERRAGLYPH_BELOW_BALCONY_ROOMS_H
-#define TERRAGLYPH_BELOW_BALCONY_ROOMS_H
+#ifndef TERRAGLYPH_BELOW_BALCONY_H
+#define TERRAGLYPH_BELOW_BALCONY_H
 
 #include "terraglyph/rooms/phantomknight/doors.h" // JesterControl
-#include "terraglyph/rooms/room_class.h"
+#include "terraglyph/rooms/class.h"
 
 namespace Terraglyph {
 
@@ -125,4 +125,4 @@ RoomClass *createBelowBalconyRoom(TerraglyphEngine &engine, const Common::String
 
 } // End of namespace Terraglyph
 
-#endif // TERRAGLYPH_BELOW_BALCONY_ROOMS_H
+#endif // TERRAGLYPH_BELOW_BALCONY_H

@@ -19,10 +19,10 @@
  *
  */
 
-#ifndef TERRAGLYPH_GHOST_SPOT_ROOM_H
-#define TERRAGLYPH_GHOST_SPOT_ROOM_H
+#ifndef TERRAGLYPH_GHOST_SPOT_H
+#define TERRAGLYPH_GHOST_SPOT_H
 
-#include "terraglyph/rooms/room_class.h"
+#include "terraglyph/rooms/class.h"
 
 namespace Terraglyph {
 
@@ -68,4 +68,4 @@ private:
 
 } // End of namespace Terraglyph
 
-#endif // TERRAGLYPH_GHOST_SPOT_ROOM_H
+#endif // TERRAGLYPH_GHOST_SPOT_H

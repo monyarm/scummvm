@@ -19,11 +19,11 @@
  *
  */
 
-#ifndef TERRAGLYPH_GALLERY_ROOMS_H
-#define TERRAGLYPH_GALLERY_ROOMS_H
+#ifndef TERRAGLYPH_GALLERY_H
+#define TERRAGLYPH_GALLERY_H
 
 #include "terraglyph/rooms/phantomknight/doors.h" // JesterControl
-#include "terraglyph/rooms/room_class.h"
+#include "terraglyph/rooms/class.h"
 
 namespace Terraglyph {
 
@@ -91,4 +91,4 @@ RoomClass *createGalleryRoom(TerraglyphEngine &engine, const Common::String &roo
 
 } // End of namespace Terraglyph
 
-#endif // TERRAGLYPH_GALLERY_ROOMS_H
+#endif // TERRAGLYPH_GALLERY_H

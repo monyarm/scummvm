@@ -19,7 +19,7 @@
  *
  */
 
-#include "terraglyph/rooms/common/factory/room_factory.h"
+#include "terraglyph/rooms/common/factory/factory.h"
 
 #include "terraglyph/rooms/phantomknight/arena.h"
 #include "terraglyph/rooms/phantomknight/armory.h"

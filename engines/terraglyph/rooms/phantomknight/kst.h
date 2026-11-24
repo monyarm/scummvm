@@ -19,14 +19,14 @@
  *
  */
 
-#ifndef TERRAGLYPH_KST_ROOMS_H
-#define TERRAGLYPH_KST_ROOMS_H
+#ifndef TERRAGLYPH_KST_H
+#define TERRAGLYPH_KST_H
 
 #include "common/array.h"
 
 #include "terraglyph/graphics/room.h"
-#include "terraglyph/rooms/room_class.h"
-#include "terraglyph/rooms/room_script.h"
+#include "terraglyph/rooms/class.h"
+#include "terraglyph/rooms/script.h"
 
 namespace Terraglyph {
 
@@ -141,4 +141,4 @@ RoomClass *createKstRoom(TerraglyphEngine &engine, const Common::String &room);
 
 } // End of namespace Terraglyph
 
-#endif // TERRAGLYPH_KST_ROOMS_H
+#endif // TERRAGLYPH_KST_H

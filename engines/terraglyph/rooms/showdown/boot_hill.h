@@ -19,10 +19,10 @@
  *
  */
 
-#ifndef TERRAGLYPH_BOOT_HILL_ROOMS_H
-#define TERRAGLYPH_BOOT_HILL_ROOMS_H
+#ifndef TERRAGLYPH_BOOT_HILL_H
+#define TERRAGLYPH_BOOT_HILL_H
 
-#include "terraglyph/rooms/room_class.h"
+#include "terraglyph/rooms/class.h"
 
 namespace Terraglyph {
 
@@ -68,4 +68,4 @@ RoomClass *createBootHillRoom(TerraglyphEngine &engine, const Common::String &ro
 
 } // End of namespace Terraglyph
 
-#endif // TERRAGLYPH_BOOT_HILL_ROOMS_H
+#endif // TERRAGLYPH_BOOT_HILL_H

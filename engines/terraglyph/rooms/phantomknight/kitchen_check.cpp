@@ -28,8 +28,8 @@
 #include "terraglyph/graphics/inventory.h"
 #include "terraglyph/rooms/phantomknight/kitchen.h"
 #include "terraglyph/graphics/room.h"
-#include "terraglyph/rooms/room_class.h"
-#include "terraglyph/rooms/room_script.h"
+#include "terraglyph/rooms/class.h"
+#include "terraglyph/rooms/script.h"
 #include "terraglyph/terraglyph.h"
 #include "terraglyph/audio/sound.h"
 

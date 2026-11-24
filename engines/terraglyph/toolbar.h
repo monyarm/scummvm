@@ -19,8 +19,8 @@
  *
  */
 
-#ifndef TERRAGLYPH_TOOLBAR_ROOMS_H
-#define TERRAGLYPH_TOOLBAR_ROOMS_H
+#ifndef TERRAGLYPH_TOOLBAR_H
+#define TERRAGLYPH_TOOLBAR_H
 
 #include "common/str.h"
 
@@ -35,4 +35,4 @@ bool isToolbarHidden(const Common::String &room);
 
 } // End of namespace Terraglyph
 
-#endif // TERRAGLYPH_TOOLBAR_ROOMS_H
+#endif // TERRAGLYPH_TOOLBAR_H

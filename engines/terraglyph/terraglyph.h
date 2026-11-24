@@ -68,7 +68,7 @@ private:
 	void checkOptionsCredits();
 	void checkAccusation();
 	void checkMusicFade();
-	// Each room's profile section (room_setup.cpp).
+	// Each room's profile section (setup.cpp).
 	void saveRoomKeys(Common::INIFile &profile);
 	void loadRoomKeys(const Common::INIFile &profile);
 	void checkRoomSetup();   // story_check.cpp
@@ -121,7 +121,7 @@ private:
 	void updateHover(int x, int y);
 	bool handleMouse(bool click, const Common::Point &p);
 
-	// Room classes (room_class.h), built once per room name and kept, as the
+	// Room classes (class.h), built once per room name and kept, as the
 	// original's factory builds them when the game starts.
 	Common::HashMap<Common::String, RoomClass *> _roomClasses;
 	RoomClass *_roomClass = nullptr;
@@ -216,7 +216,7 @@ public:
 	Common::String getFirstGameRoom() const;
 	/** The class of @p room, built on first use, or nullptr for the base class. */
 	RoomClass *getRoomClass(const Common::String &room);
-	/** The game's music (room_setup.h). */
+	/** The game's music (setup.h). */
 	Music *getMusic() const { return _music; }
 	/** Whether @p name is one of ClueOwners0-4 (game +0xD8, 0x40A870). */
 	bool isClueOwner(const Common::String &name) const;
